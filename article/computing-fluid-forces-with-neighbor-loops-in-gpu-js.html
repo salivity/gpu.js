@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Computing Fluid Forces with Neighbor Loops in GPU.js - gpu.js</title>
+    <meta name="description" content="Calculating viscosity and surface tension forces in particle-based fluid simulations using neighbor loops in gpu.js is entirely possible. In Smoothed Particle Hydrodynamics (SPH), both forces depend on the relative positions and velocities of surrounding">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/computing-fluid-forces-with-neighbor-loops-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Computing Fluid Forces with Neighbor Loops in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/computing-fluid-forces-with-neighbor-loops-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Calculating viscosity and surface tension forces in particle-based fluid simulations using neighbor loops in gpu.js is entirely possible. In Smoothed Particle Hydrodynamics (SPH), both forces depend on the relative positions and velocities of surrounding" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="computing-fluid-forces-with-neighbor-loops-in-gpujs">Computing
+Fluid Forces with Neighbor Loops in GPU.js</h1>
+<p>Calculating viscosity and surface tension forces in particle-based
+fluid simulations using neighbor loops in gpu.js is entirely possible.
+In Smoothed Particle Hydrodynamics (SPH), both forces depend on the
+relative positions and velocities of surrounding particles within a
+defined smoothing radius. While gpu.js translates JavaScript functions
+into WebGL shaders, achieving these calculations requires a gather-based
+architecture that navigates WebGL loop constraints, texture-based memory
+layouts, and spatial partitioning strategies.</p>
+<h3 id="the-physics-of-viscosity-and-surface-tension">The Physics of
+Viscosity and Surface Tension</h3>
+<p>Particle-based fluid dynamics simulate fluids as discrete
+interpolation points. Interaction forces are computed based on
+neighboring particles within a support radius <span
+class="math inline">\(h\)</span>:</p>
+<ol type="1">
+<li><strong>Viscosity Force:</strong> Viscosity acts as a diffusion of
+momentum that resists relative motion between adjacent fluid layers. It
+is calculated by taking the Laplacian of the velocity field. In an SPH
+framework, this is typically approximated by summing the velocity
+differences between a target particle <span
+class="math inline">\(i\)</span> and its neighbor <span
+class="math inline">\(j\)</span>, scaled by fluid mass, density, and the
+second derivative of a smoothing kernel (such as the SPH viscosity
+kernel).</li>
+<li><strong>Surface Tension:</strong> Surface tension minimizes the
+surface area of the fluid. It is commonly implemented using the Color
+Field method, where each particle has a color value of 1. The gradient
+of this field yields the surface normal vector, and the Laplacian of the
+field yields the surface curvature. Particles at the free surface
+experience an inward-pointing restorative force proportional to this
+curvature.</li>
+</ol>
+<h3 id="implementing-neighbor-loops-in-gpujs">Implementing Neighbor
+Loops in gpu.js</h3>
+<p>Because gpu.js runs on top of WebGL compute abstractions, memory
+writing is restricted: a kernel cannot write to arbitrary memory
+locations ("scatter"). Instead, it must use a "gather" approach, where
+each thread computes the forces acting on a single particle by querying
+its neighbors.</p>
+<h4 id="1-the-all-pairs-approach-on2">1. The All-Pairs Approach (<span
+class="math inline">\(O(N^2)\)</span>)</h4>
+<p>For small simulations (typically under 2,000 to 4,000 particles), an
+exhaustive loop is the most straightforward solution. The kernel
+iterates through all particles in the system:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateForces <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> densities<span class="op">,</span> numParticles<span class="op">,</span> h<span class="op">,</span> viscosityCoeff) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> forceX <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> forceY <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> px <span class="op">=</span> positions[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> py <span class="op">=</span> positions[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vx <span class="op">=</span> velocities[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vy <span class="op">=</span> velocities[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> <span class="dv">2048</span><span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (j <span class="op">&lt;</span> numParticles <span class="op">&amp;&amp;</span> i <span class="op">!==</span> j) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dx <span class="op">=</span> px <span class="op">-</span> positions[j][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dy <span class="op">=</span> py <span class="op">-</span> positions[j][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dist <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy)<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (dist <span class="op">&lt;</span> h <span class="op">&amp;&amp;</span> dist <span class="op">&gt;</span> <span class="fl">0.0001</span>) {</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Viscosity computation using a standard SPH Laplacian kernel</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> q <span class="op">=</span> dist <span class="op">/</span> h<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> kernelLaplacian <span class="op">=</span> (<span class="dv">45</span> <span class="op">/</span> (<span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(h<span class="op">,</span> <span class="dv">6</span>))) <span class="op">*</span> (h <span class="op">-</span> dist)<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> viscFactor <span class="op">=</span> viscosityCoeff <span class="op">*</span> (<span class="dv">1</span> <span class="op">/</span> densities[j]) <span class="op">*</span> kernelLaplacian<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>                forceX <span class="op">+=</span> (velocities[j][<span class="dv">0</span>] <span class="op">-</span> vx) <span class="op">*</span> viscFactor<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>                forceY <span class="op">+=</span> (velocities[j][<span class="dv">1</span>] <span class="op">-</span> vy) <span class="op">*</span> viscFactor<span class="op">;</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [forceX<span class="op">,</span> forceY]<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([numParticles])<span class="op">;</span></span></code></pre></div>
+<h4 id="2-spatial-grid-partitioning-on">2. Spatial Grid Partitioning
+(<span class="math inline">\(O(N)\)</span>)</h4>
+<p>For larger simulations, exhaustive loops become a performance
+bottleneck. To optimize, particles must be sorted into uniform spatial
+grid cells:</p>
+<ul>
+<li>The simulation space is divided into a grid where each cell has a
+side length equal to the smoothing radius <span
+class="math inline">\(h\)</span>.</li>
+<li>Particles are mapped to cell coordinates <span
+class="math inline">\((cx, cy) = (\lfloor x/h \rfloor, \lfloor y/h
+\rfloor)\)</span>.</li>
+<li>Instead of iterating through all particles, the gpu.js kernel
+iterates through the 9 neighboring cells (or 27 in 3D).</li>
+<li>Because gpu.js lacks dynamic arrays, neighbor grids must be stored
+in static-width textures (e.g., fixed maximum particles per cell) or
+managed through a sorted index lookup buffer generated via GPU radix
+sort.</li>
+</ul>
+<h3 id="constraints-and-technical-challenges-in-gpujs">Constraints and
+Technical Challenges in gpu.js</h3>
+<p>When implementing fluid neighbor loops in gpu.js, several
+platform-specific constraints must be managed:</p>
+<ul>
+<li><strong>Static Loop Bounds:</strong> WebGL shaders often require
+loop bounds to be constant integers at compile time to allow unrolling.
+Variable-length loops can cause compilation failures or extreme driver
+overhead. When writing loops in gpu.js, define the loop limit using a
+fixed constant that matches the maximum supported particle capacity,
+then use an internal <code>if</code> check against the dynamic particle
+count.</li>
+<li><strong>Multi-Pass Dependencies for Surface Tension:</strong>
+Surface tension cannot be solved accurately in a single neighbor loop.
+Calculating the normal requires a first neighbor pass (gradient of the
+color field). Calculating curvature requires a second neighbor pass
+(divergence of the normals). In gpu.js, this necessitates splitting the
+physics update into chained kernels where the output texture of the
+normal calculation is fed as an input texture into the surface tension
+force kernel.</li>
+<li><strong>Floating-Point Precision:</strong> SPH calculations are
+sensitive to precision limits. Force equations often divide by small
+distances or densities. In gpu.js, ensure float textures are enabled and
+add a small epsilon value (<span class="math inline">\(\epsilon \approx
+10^{-5}\)</span>) to distance denominators to prevent <code>NaN</code>
+artifacts from propagating across frames.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

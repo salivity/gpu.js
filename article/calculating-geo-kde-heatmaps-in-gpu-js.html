@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculating Geo KDE Heatmaps in GPU.js - gpu.js</title>
+    <meta name="description" content="Kernel Density Estimation (KDE) heatmaps for geographic data can be efficiently calculated using gpu.js. Because KDE requires calculating the spatial influence of thousands or millions of data points across every pixel in an output grid, it is an embarra">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/calculating-geo-kde-heatmaps-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Calculating Geo KDE Heatmaps in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/calculating-geo-kde-heatmaps-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Kernel Density Estimation (KDE) heatmaps for geographic data can be efficiently calculated using gpu.js. Because KDE requires calculating the spatial influence of thousands or millions of data points across every pixel in an output grid, it is an embarra" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="calculating-geo-kde-heatmaps-in-gpujs">Calculating Geo KDE
+Heatmaps in GPU.js</h1>
+<p>Kernel Density Estimation (KDE) heatmaps for geographic data can be
+efficiently calculated using gpu.js. Because KDE requires calculating
+the spatial influence of thousands or millions of data points across
+every pixel in an output grid, it is an embarrassingly parallel
+operation that is ideally suited for graphics processing units. By
+compiling JavaScript functions into WebGL shaders, gpu.js offloads these
+heavy distance calculations from the CPU to the GPU, enabling real-time
+rendering of geographic heatmaps in the browser.</p>
+<h3 id="the-computational-challenge-of-geo-kde">The Computational
+Challenge of Geo KDE</h3>
+<p>Standard KDE computes a smooth continuous surface over discrete point
+data. For a geographic grid of dimensions <span class="math inline">\(W
+\times H\)</span> and an input dataset of <span
+class="math inline">\(N\)</span> coordinate pairs, a naive density
+calculation requires <span class="math inline">\(W \times H \times
+N\)</span> operations. On a CPU, executing this loop in pure JavaScript
+for a 1080p canvas and tens of thousands of points causes significant
+frame drops or freezes the UI thread.</p>
+<p>Gpu.js solves this bottleneck by executing the calculation across
+thousands of GPU cores simultaneously, where each core computes the
+accumulated density value for a single grid cell or pixel.</p>
+<h3 id="projecting-geographic-coordinates">Projecting Geographic
+Coordinates</h3>
+<p>Before running calculations in gpu.js, geographic coordinates
+(latitude and longitude) must be converted into a planar coordinate
+system. GPUs perform best with standard Euclidean distance formulas,
+which are inaccurate if applied directly to raw degrees of latitude and
+longitude.</p>
+<p>Commonly, coordinates are projected into Web Mercator (EPSG:3857) or
+mapped directly to canvas pixel space:</p>
+<ol type="1">
+<li>Transform the input latitude and longitude points into 2D <span
+class="math inline">\((x, y)\)</span> coordinates corresponding to your
+target bounding box.</li>
+<li>Normalize these coordinates to match the resolution of your gpu.js
+render canvas.</li>
+<li>Pass the coordinate array and corresponding weight values to the
+gpu.js kernel.</li>
+</ol>
+<h3 id="implementing-kde-in-a-gpujs-kernel">Implementing KDE in a gpu.js
+Kernel</h3>
+<p>In gpu.js, you define a custom kernel that outputs either a 2D array
+of raw density values or an RGBA canvas directly. The kernel executes
+per pixel:</p>
+<ol type="1">
+<li><strong>Pixel Coordinates:</strong> Retrieve the current pixel
+location using <code>this.thread.x</code> and
+<code>this.thread.y</code>.</li>
+<li><strong>Distance Calculation:</strong> Iterate through the array of
+geographic points. Calculate the Euclidean distance between the current
+pixel and each point.</li>
+<li><strong>Kernel Function:</strong> Apply a weighting function—such as
+a Gaussian, Quartic, or Epanechnikov kernel—to determine the point's
+contribution based on a defined search radius (bandwidth). Points
+outside the bandwidth radius are discarded to save cycles.</li>
+<li><strong>Accumulation:</strong> Sum the contributions of all valid
+points into a final density value for that pixel.</li>
+</ol>
+<h3 id="color-mapping-and-rendering">Color Mapping and Rendering</h3>
+<p>Once density values are calculated, they must be converted into a
+visible heatmap. This can be handled in two ways:</p>
+<ul>
+<li><strong>Two-Pass Approach:</strong> The first kernel computes a
+floating-point matrix representing raw density. A second kernel
+normalizes these values against the maximum density and maps them to an
+RGBA color ramp (e.g., cool blue to hot red).</li>
+<li><strong>Direct Render:</strong> A single kernel calculates the
+density, immediately evaluates the color ramp using mathematical
+interpolation within the shader, and outputs directly to an HTML5
+canvas.</li>
+</ul>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li><strong>Array Limits:</strong> Passing massive point arrays as
+kernel arguments can hit WebGL uniform limits. To handle large
+geographic datasets (hundreds of thousands of points), encode point
+coordinates into a data texture before passing them to the kernel.</li>
+<li><strong>Bandwidth Optimization:</strong> A smaller bandwidth allows
+the shader to skip points beyond the cutoff radius early, though the
+loop itself still checks each point unless a spatial partitioning index
+(like a grid index) is passed alongside the points.</li>
+<li><strong>Precision:</strong> Standard WebGL contexts in browsers
+often use 16-bit or 32-bit floats. For very high zoom levels, ensure
+that local relative coordinates are used rather than global coordinates
+to prevent floating-point jitter.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

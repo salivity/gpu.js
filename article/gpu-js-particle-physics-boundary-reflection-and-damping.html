@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Particle Physics: Boundary Reflection and Damping - gpu.js</title>
+    <meta name="description" content="This article examines how gpu.js executes boundary reflection and damping in GPU-accelerated particle physics simulations. It breaks down how the library translates JavaScript logic into WebGL shaders, computes parallel boundary collisions across thousan">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-particle-physics-boundary-reflection-and-damping">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Particle Physics: Boundary Reflection and Damping - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-particle-physics-boundary-reflection-and-damping" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how gpu.js executes boundary reflection and damping in GPU-accelerated particle physics simulations. It breaks down how the library translates JavaScript logic into WebGL shaders, computes parallel boundary collisions across thousan" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-particle-physics-boundary-reflection-and-damping">GPU.js
+Particle Physics: Boundary Reflection and Damping</h1>
+<p>This article examines how gpu.js executes boundary reflection and
+damping in GPU-accelerated particle physics simulations. It breaks down
+how the library translates JavaScript logic into WebGL shaders, computes
+parallel boundary collisions across thousands of particles, applies
+coefficients of restitution to simulate energy loss, and handles
+velocity clamping to maintain physical stability.</p>
+<h2 id="the-gpujs-execution-model-for-particle-systems">The gpu.js
+Execution Model for Particle Systems</h2>
+<p>gpu.js compiles standard JavaScript functions into WebGL compute
+shaders (or GLSL fragment shaders), allowing thousands of particle
+trajectories to be integrated concurrently. In a typical particle
+system, particle data such as positions and velocities are stored in
+flat typed arrays or data textures.</p>
+<p>Each invocation of a GPU kernel maps directly to an individual
+particle through <code>this.thread.x</code>. Because GPUs rely on
+data-parallel architectures, collision resolution and energy loss are
+computed independently per particle per simulation step, avoiding the
+overhead of CPU iterations.</p>
+<h2 id="boundary-detection-and-reflection-logic">Boundary Detection and
+Reflection Logic</h2>
+<p>Boundary reflection requires identifying when a particle's projected
+position exceeds the defined containment volume and inverting its
+velocity along the collision normal. Because gpu.js maps JavaScript
+directly into GLSL, conditional statements (<code>if/else</code>) are
+used to check boundaries on each coordinate axis.</p>
+<p>When a particle collides with a boundary:</p>
+<ol type="1">
+<li><strong>Detection:</strong> The kernel checks if the projected
+position (<span class="math inline">\(x + v_x \cdot \Delta t\)</span>)
+violates the boundary limits (<span class="math inline">\([x_{\min},
+x_{\max}]\)</span>).</li>
+<li><strong>Normal Inversion:</strong> The velocity component
+perpendicular to the boundary is multiplied by <span
+class="math inline">\(-1\)</span>.</li>
+<li><strong>Positional Correction (Clamping):</strong> The position is
+clamped directly to the boundary or mirrored across the boundary plane
+to prevent particles from penetrating the walls or getting trapped.</li>
+</ol>
+<p>In GLSL-compiled code, this manifests as straightforward axis-aligned
+boundary checks:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateParticles <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> bounds<span class="op">,</span> dt<span class="op">,</span> restitution) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> px <span class="op">=</span> positions[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> py <span class="op">=</span> positions[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> vx <span class="op">=</span> velocities[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> vy <span class="op">=</span> velocities[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute prospective positions</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nextX <span class="op">=</span> px <span class="op">+</span> vx <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nextY <span class="op">=</span> py <span class="op">+</span> vy <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Horizontal boundary reflection</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (nextX <span class="op">&lt;</span> bounds[<span class="dv">0</span>]) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        nextX <span class="op">=</span> bounds[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        vx <span class="op">=</span> <span class="op">-</span>vx <span class="op">*</span> restitution<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> <span class="cf">if</span> (nextX <span class="op">&gt;</span> bounds[<span class="dv">1</span>]) {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        nextX <span class="op">=</span> bounds[<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        vx <span class="op">=</span> <span class="op">-</span>vx <span class="op">*</span> restitution<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Vertical boundary reflection</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (nextY <span class="op">&lt;</span> bounds[<span class="dv">2</span>]) {</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>        nextY <span class="op">=</span> bounds[<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>        vy <span class="op">=</span> <span class="op">-</span>vy <span class="op">*</span> restitution<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> <span class="cf">if</span> (nextY <span class="op">&gt;</span> bounds[<span class="dv">3</span>]) {</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>        nextY <span class="op">=</span> bounds[<span class="dv">3</span>]<span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>        vy <span class="op">=</span> <span class="op">-</span>vy <span class="op">*</span> restitution<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [nextX<span class="op">,</span> nextY<span class="op">,</span> vx<span class="op">,</span> vy]<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([particleCount])<span class="op">;</span></span></code></pre></div>
+<h2 id="damping-and-energy-dissipation">Damping and Energy
+Dissipation</h2>
+<p>Damping in particle systems falls into two distinct categories:
+<strong>collision damping</strong> (restitution) and <strong>ambient
+damping</strong> (drag or friction).</p>
+<h3 id="collision-restitution">Collision Restitution</h3>
+<p>When a particle strikes a wall, kinetic energy is absorbed. In
+gpu.js, this is simulated using a coefficient of restitution (<span
+class="math inline">\(e \in [0, 1]\)</span>). During boundary inversion,
+the inverted velocity component is scaled by <span
+class="math inline">\(e\)</span>:</p>
+<p><span class="math display">\[v_{\text{reflected}} = -v \cdot
+e\]</span></p>
+<p>A value of <span class="math inline">\(1.0\)</span> represents a
+fully elastic collision with no energy loss, while values approaching
+<span class="math inline">\(0.0\)</span> simulate inelastic collisions
+where particles rapidly lose momentum on contact.</p>
+<h3 id="ambient-drag">Ambient Drag</h3>
+<p>To model resistance through a medium such as air or fluid, ambient
+damping is applied continuously on every frame, independent of
+collisions. The kernel scales all velocity components by a decay
+factor:</p>
+<p><span class="math display">\[v_{t+1} = v_t \cdot (1 - \gamma \cdot
+\Delta t)\]</span></p>
+<p>Where <span class="math inline">\(\gamma\)</span> is the drag
+coefficient. Because gpu.js executes this scaling in parallel, fluid
+resistance introduces zero computational bottleneck compared to
+CPU-based simulations.</p>
+<h2 id="managing-state-via-texture-ping-ponging">Managing State via
+Texture Ping-Ponging</h2>
+<p>GPUs are inherently stateless between render passes. To persist
+positions, velocities, and damping effects across frames, gpu.js employs
+texture ping-ponging:</p>
+<ol type="1">
+<li>Kernel A reads current positions and velocities from Texture 0.</li>
+<li>Kernel A calculates boundary reflections, applies restitution, and
+writes the updated states to Texture 1.</li>
+<li>On the subsequent frame, Texture 1 is passed as the input, and
+Texture 0 becomes the write target.</li>
+</ol>
+<p>Setting <code>pipeline: true</code> within gpu.js ensures these
+intermediate textures remain on the GPU memory bus, eliminating
+expensive readbacks to the CPU during continuous collision loops.</p>
+<h2 id="technical-considerations">Technical Considerations</h2>
+<ul>
+<li><strong>Branch Divergence:</strong> Branching (<code>if/else</code>)
+inside GPU shaders can cause slight thread serialization if nearby
+threads take different paths. In large particle systems, however, the
+parallelism gains of the GPU still drastically outperform
+single-threaded CPU processing.</li>
+<li><strong>Tunneling:</strong> High-velocity particles can pass
+completely through thin boundaries in a single time-step (<span
+class="math inline">\(\Delta t\)</span>). To counter tunneling in
+gpu.js, developers must either clamp positions strictly to the boundary
+edge, decrease the simulation time step, or implement continuous
+ray-casting techniques within the kernel.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

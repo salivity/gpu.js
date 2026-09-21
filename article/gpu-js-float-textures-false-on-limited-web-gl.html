@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js floatTextures False on Limited WebGL - gpu.js</title>
+    <meta name="description" content="Setting floatTextures to false in gpu.js forces the library to encode floating-point numbers into standard 8-bit integer textures instead of relying on native 32-bit floating-point textures. On platforms with limited WebGL extensions, this setting acts a">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-float-textures-false-on-limited-web-gl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js floatTextures False on Limited WebGL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-float-textures-false-on-limited-web-gl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Setting floatTextures to false in gpu.js forces the library to encode floating-point numbers into standard 8-bit integer textures instead of relying on native 32-bit floating-point textures. On platforms with limited WebGL extensions, this setting acts a" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-floattextures-false-on-limited-webgl">gpu.js floatTextures
+False on Limited WebGL</h1>
+<p>Setting <code>floatTextures</code> to <code>false</code> in gpu.js
+forces the library to encode floating-point numbers into standard 8-bit
+integer textures instead of relying on native 32-bit floating-point
+textures. On platforms with limited WebGL extensions, this setting acts
+as a crucial fallback mechanism that prevents hardware incompatibility
+errors and crashes, ensuring broad cross-device compatibility at the
+cost of additional mathematical encoding overhead and potential
+precision limitations.</p>
+<h3 id="overcoming-missing-webgl-extensions">Overcoming Missing WebGL
+Extensions</h3>
+<p>By default, gpu.js utilizes native floating-point textures to handle
+decimal data within WebGL kernels. This capability requires specific
+WebGL extensions, most notably <code>OES_texture_float</code> in WebGL
+1.0 or <code>EXT_color_buffer_float</code> in WebGL 2.0. On constrained
+platforms—such as older mobile devices, budget smartphones, or specific
+embedded browsers—these extensions are often missing or disabled by
+vendor implementations.</p>
+<p>When these extensions are absent and <code>floatTextures</code>
+remains enabled, the WebGL context fails to allocate suitable render
+buffers or texture targets, resulting in runtime initialization errors.
+Disabling <code>floatTextures</code> bypasses the requirement for these
+extensions entirely, allowing gpu.js to run on nearly any hardware
+supporting basic WebGL.</p>
+<h3 id="8-bit-rgba-texture-packing">8-Bit RGBA Texture Packing</h3>
+<p>When <code>floatTextures: false</code> is configured, gpu.js adapts
+by using standard 8-bit unsigned normalized integer textures
+(<code>RGBA</code>). Because a standard 8-bit channel can only store
+whole numbers between 0 and 255 (normalized to 0.0–1.0), 32-bit
+floating-point values cannot be saved directly into a single
+channel.</p>
+<p>To resolve this, gpu.js automatically inserts packing and unpacking
+logic into the compiled GLSL shaders:</p>
+<ul>
+<li><strong>Output Packing:</strong> Floating-point outputs generated by
+the kernel are deconstructed into four distinct 8-bit components via
+bit-shifting and mathematical division, then written into the Red,
+Green, Blue, and Alpha channels of a single pixel.</li>
+<li><strong>Input Unpacking:</strong> When these textures are passed to
+downstream kernels or read back into JavaScript, the shader or read-back
+function recombines the four 8-bit channels into the original
+floating-point number.</li>
+</ul>
+<h3 id="performance-and-precision-implications">Performance and
+Precision Implications</h3>
+<p>While setting <code>floatTextures</code> to <code>false</code>
+maximizes hardware reach, it introduces specific technical
+trade-offs:</p>
+<ul>
+<li><strong>Computational Overhead:</strong> Encoding and decoding
+floats on the GPU requires extra arithmetic operations inside the
+fragment shader. This reduces overall execution speed compared to native
+hardware float operations.</li>
+<li><strong>Bandwidth and Memory:</strong> Passing multi-channel packed
+data can consume additional texture lookups when managing
+multi-dimensional arrays or matrix operations that otherwise would have
+occupied a single channel.</li>
+<li><strong>Precision Artifacts:</strong> While standard IEEE 754 float
+packing generally preserves 32-bit precision, mathematical operations on
+platforms with low native shader precision (<code>mediump</code> or
+<code>lowp</code>) can occasionally introduce minor rounding errors
+during the packing and unpacking stages.</li>
+</ul>
+<h3 id="practical-use-cases">Practical Use Cases</h3>
+<p>Setting <code>floatTextures: false</code> is recommended when
+developing web applications for mass-market mobile browsers, legacy
+hardware, or environments where graceful degradation is preferred over
+raw computational throughput. For applications where maximum performance
+is critical and target hardware is modern and predictable, keeping
+native float textures enabled remains the optimal configuration.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

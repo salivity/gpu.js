@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Minimum GPU.js Latency for Real-Time Audio DSP - gpu.js</title>
+    <meta name="description" content="Utilizing gpu.js for real-time live audio Digital Signal Processing (DSP) allows developers to run massive parallel operations within the browser, but it is heavily bottlenecked by WebGL architecture. In practical real-time implementations, the minimum a">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/minimum-gpu-js-latency-for-real-time-audio-dsp">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Minimum GPU.js Latency for Real-Time Audio DSP - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/minimum-gpu-js-latency-for-real-time-audio-dsp" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Utilizing gpu.js for real-time live audio Digital Signal Processing (DSP) allows developers to run massive parallel operations within the browser, but it is heavily bottlenecked by WebGL architecture. In practical real-time implementations, the minimum a" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="minimum-gpujs-latency-for-real-time-audio-dsp">Minimum GPU.js
+Latency for Real-Time Audio DSP</h1>
+<p>Utilizing gpu.js for real-time live audio Digital Signal Processing
+(DSP) allows developers to run massive parallel operations within the
+browser, but it is heavily bottlenecked by WebGL architecture. In
+practical real-time implementations, the minimum achievable round-trip
+processing latency when using gpu.js sits between <strong>20 and 50
+milliseconds</strong>, with an absolute theoretical lower bound around
+<strong>15 milliseconds</strong> on high-end hardware. Because standard
+live audio performance generally demands sub-10-millisecond latency to
+avoid perceptible delay, understanding the technical bottlenecks of
+gpu.js is critical before choosing it for audio tasks.</p>
+<h3 id="the-real-time-audio-latency-budget">The Real-Time Audio Latency
+Budget</h3>
+<p>Standard web audio operates on an execution quantum of 128 frames. At
+sample rates of 44.1 kHz or 48 kHz, this window corresponds to
+approximately 2.67 to 2.9 milliseconds per block. Professional real-time
+audio systems aim for total round-trip latencies under 10 milliseconds.
+Within the browser, achieving this requires the dedicated, high-priority
+thread of the AudioWorklet API.</p>
+<h3 id="why-gpujs-introduces-latency">Why gpu.js Introduces Latency</h3>
+<p>gpu.js compiles JavaScript functions into WebGL shader code,
+dispatching calculations onto the GPU. While throughput for parallel
+mathematical tasks is exceptionally high, the round-trip execution
+introduces three major sources of latency:</p>
+<ol type="1">
+<li><strong>Synchronous Readback Stalls
+(<code>gl.readPixels</code>):</strong> WebGL relies on asynchronous
+pipelines. To return computed audio samples back to JavaScript, gpu.js
+must read data back from the GPU via <code>readPixels</code> or pixel
+buffer objects. This operation halts the CPU pipeline until the GPU
+completes all pending draw calls and transfers memory, introducing
+stalls that often exceed 5 to 15 milliseconds alone.</li>
+<li><strong>Context and Thread Boundaries:</strong> Web Audio’s
+<code>AudioWorkletProcessor</code> does not natively support WebGL
+contexts. Audio data must be transmitted from the AudioWorklet to either
+the main UI thread or an offscreen web worker via
+<code>postMessage</code>, processed with gpu.js, and messaged back. This
+inter-thread serialization and event-loop dispatch reliably adds another
+5 to 10 milliseconds of jitter and latency.</li>
+<li><strong>Small-Batch Inefficiency:</strong> GPUs excel at millions of
+simultaneous floating-point calculations, not the 128 to 256 sequential
+samples typical of real-time audio. Sending tiny sample arrays incurs
+disproportionate GPU dispatch overhead.</li>
+</ol>
+<h3 id="mitigating-latency-with-buffer-trade-offs">Mitigating Latency
+with Buffer Trade-Offs</h3>
+<p>To prevent audio dropouts (crackling) caused by GPU pipeline stalls,
+developers must increase buffer sizes. Operating with buffers of 1024 or
+2048 samples gives the GPU enough work to justify the transfer cost and
+smooths out frame-rate variations. However, a 1024-sample buffer at 48
+kHz intrinsically creates 21.3 milliseconds of algorithmic latency
+before any data transfer or computation even begins. Combined with IPC
+messaging and WebGL readback overhead, total system latency routinely
+measures between 30 and 60 milliseconds.</p>
+<h3 id="conclusion">Conclusion</h3>
+<p>If your application strictly requires live monitoring, microphone
+pitch correction, or instrument input where latency must remain
+imperceptible (&lt; 10 ms), gpu.js is unsuitable due to WebGL
+data-transfer bottlenecks. However, for massive parallel operations—such
+as complex multi-band spectral analysis, high-order Ambisonics, or
+real-time visualization where an audio-to-visual latency of 20 to 50
+milliseconds is acceptable—gpu.js provides sufficient performance when
+configured with buffer sizes of at least 512 to 1024 samples.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

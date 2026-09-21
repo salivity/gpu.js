@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Pitch Detection Using gpu.js Autocorrelation - gpu.js</title>
+    <meta name="description" content="This article demonstrates how to leverage WebGL-accelerated parallel computing in JavaScript using gpu.js to perform real-time autocorrelation for pitch detection. By offloading the computationally intensive calculation of signal correlations across mult">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-pitch-detection-using-gpu-js-autocorrelation">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel Pitch Detection Using gpu.js Autocorrelation - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-pitch-detection-using-gpu-js-autocorrelation" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article demonstrates how to leverage WebGL-accelerated parallel computing in JavaScript using gpu.js to perform real-time autocorrelation for pitch detection. By offloading the computationally intensive calculation of signal correlations across mult" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-pitch-detection-using-gpujs-autocorrelation">Parallel
+Pitch Detection Using gpu.js Autocorrelation</h1>
+<p>This article demonstrates how to leverage WebGL-accelerated parallel
+computing in JavaScript using gpu.js to perform real-time
+autocorrelation for pitch detection. By offloading the computationally
+intensive calculation of signal correlations across multiple time lags
+to the GPU, applications can detect the fundamental frequency (<span
+class="math inline">\(f_0\)</span>) of audio signals with high
+throughput and low CPU overhead. Below, you will find the mathematical
+background, the gpu.js kernel design, and the full implementation
+pipeline.</p>
+<hr />
+<h3 id="autocorrelation-and-pitch-detection">Autocorrelation and Pitch
+Detection</h3>
+<p>Autocorrelation measures the similarity between a signal and a
+time-shifted version of itself. For a discrete audio signal <span
+class="math inline">\(x[n]\)</span> of length <span
+class="math inline">\(N\)</span>, the autocorrelation function <span
+class="math inline">\(R(\tau)\)</span> at lag <span
+class="math inline">\(\tau\)</span> is defined as:</p>
+<p><span class="math display">\[R(\tau) = \sum_{n=0}^{N - 1 - \tau} x[n]
+\cdot x[n + \tau]\]</span></p>
+<p>When an audio signal contains a periodic waveform, <span
+class="math inline">\(R(\tau)\)</span> reaches high values at lags
+corresponding to multiples of the fundamental period <span
+class="math inline">\(T\)</span>. The fundamental frequency <span
+class="math inline">\(f_0\)</span> is calculated using the sampling rate
+<span class="math inline">\(f_s\)</span> and the optimal lag <span
+class="math inline">\(\tau_{\text{peak}}\)</span>:</p>
+<p><span class="math display">\[f_0 =
+\frac{f_s}{\tau_{\text{peak}}}\]</span></p>
+<p>Because calculating <span class="math inline">\(R(\tau)\)</span> for
+every lag independently requires <span class="math inline">\(O(N \cdot
+\text{maxLag})\)</span> operations, running it iteratively on a single
+CPU thread can introduce latency. Because each lag <span
+class="math inline">\(\tau\)</span> can be calculated independently, it
+is an ideal candidate for parallel execution on the GPU.</p>
+<hr />
+<h3 id="setting-up-the-gpujs-kernel">Setting Up the gpu.js Kernel</h3>
+<p>gpu.js compiles a subset of JavaScript into WebGL shaders, allowing
+you to run calculations concurrently across GPU threads. In our
+implementation, each thread computes the autocorrelation value for a
+single lag <span class="math inline">\(\tau\)</span>.</p>
+<h4 id="installation">Installation</h4>
+<p>Install gpu.js via npm or include it via a CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<h4 id="kernel-definition">Kernel Definition</h4>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Create the autocorrelation kernel</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createAutocorrelationKernel <span class="op">=</span> (bufferSize<span class="op">,</span> maxLag) <span class="kw">=&gt;</span> {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (signal<span class="op">,</span> length) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> tau <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate sum of products for lag tau</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> length <span class="op">-</span> tau<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>      sum <span class="op">+=</span> signal[i] <span class="op">*</span> signal[i <span class="op">+</span> tau]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([maxLag])</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setDynamicOutput</span>(<span class="kw">false</span>)<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="peak-detection-and-frequency-extraction">Peak Detection and
+Frequency Extraction</h3>
+<p>The output array from the kernel contains <span
+class="math inline">\(R(\tau)\)</span> values ranging from <span
+class="math inline">\(\tau = 0\)</span> to <span
+class="math inline">\(\tau = \text{maxLag} - 1\)</span>.</p>
+<ol type="1">
+<li><strong>Ignore <span class="math inline">\(\tau =
+0\)</span></strong>: The maximum autocorrelation always occurs at zero
+lag (<span class="math inline">\(R(0)\)</span>), representing total
+signal energy.</li>
+<li><strong>Find the Zero Crossing</strong>: Walk forward from <span
+class="math inline">\(\tau = 0\)</span> until the correlation drops
+below a certain threshold or crosses zero to move past the initial main
+lobe.</li>
+<li><strong>Locate the First Major Peak</strong>: Find the local maximum
+after the zero crossing.</li>
+<li><strong>Parabolic Interpolation (Optional)</strong>: Refine <span
+class="math inline">\(\tau_{\text{peak}}\)</span> to fractional
+precision to improve frequency resolution.</li>
+</ol>
+<hr />
+<h3 id="complete-implementation">Complete Implementation</h3>
+<p>Below is a complete module that initializes the GPU context, captures
+an audio frame, calculates autocorrelation in parallel, and returns the
+detected pitch.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="im">export</span> <span class="kw">class</span> GPUPitchDetector {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">constructor</span>(sampleRate <span class="op">=</span> <span class="dv">44100</span><span class="op">,</span> bufferSize <span class="op">=</span> <span class="dv">2048</span><span class="op">,</span> minFreq <span class="op">=</span> <span class="dv">50</span><span class="op">,</span> maxFreq <span class="op">=</span> <span class="dv">1000</span>) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">sampleRate</span> <span class="op">=</span> sampleRate<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">bufferSize</span> <span class="op">=</span> bufferSize<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate lag boundaries based on target frequency range</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">minLag</span> <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(sampleRate <span class="op">/</span> maxFreq)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">maxLag</span> <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">ceil</span>(sampleRate <span class="op">/</span> minFreq)<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">gpu</span> <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">kernel</span> <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">gpu</span><span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (signal<span class="op">,</span> length) {</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> tau <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>      <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> length <span class="op">-</span> tau<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> signal[i] <span class="op">*</span> signal[i <span class="op">+</span> tau]<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    })</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="op">.</span><span class="fu">setOutput</span>([<span class="kw">this</span><span class="op">.</span><span class="at">maxLag</span>])<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">detectPitch</span>(audioFrame) {</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (audioFrame<span class="op">.</span><span class="at">length</span> <span class="op">!==</span> <span class="kw">this</span><span class="op">.</span><span class="at">bufferSize</span>) {</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>      <span class="cf">throw</span> <span class="kw">new</span> <span class="bu">Error</span>(<span class="vs">`Audio frame length must be </span><span class="sc">${</span><span class="kw">this</span><span class="op">.</span><span class="at">bufferSize</span><span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Run parallel autocorrelation on GPU</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> correlation <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="fu">kernel</span>(audioFrame<span class="op">,</span> <span class="kw">this</span><span class="op">.</span><span class="at">bufferSize</span>)<span class="op">;</span></span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Peak picking on the correlation result</span></span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> peakLag <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> maxCorrelation <span class="op">=</span> <span class="op">-</span><span class="kw">Infinity</span><span class="op">;</span></span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Search strictly within lag bounds corresponding to target frequencies</span></span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> tau <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">minLag</span><span class="op">;</span> tau <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">maxLag</span> <span class="op">-</span> <span class="dv">1</span><span class="op">;</span> tau<span class="op">++</span>) {</span>
+<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> current <span class="op">=</span> correlation[tau]<span class="op">;</span></span>
+<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Detect local peak</span></span>
+<span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (current <span class="op">&gt;</span> correlation[tau <span class="op">-</span> <span class="dv">1</span>] <span class="op">&amp;&amp;</span> current <span class="op">&gt;</span> correlation[tau <span class="op">+</span> <span class="dv">1</span>]) {</span>
+<span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (current <span class="op">&gt;</span> maxCorrelation) {</span>
+<span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a>          maxCorrelation <span class="op">=</span> current<span class="op">;</span></span>
+<span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a>          peakLag <span class="op">=</span> tau<span class="op">;</span></span>
+<span id="cb3-47"><a href="#cb3-47" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb3-49"><a href="#cb3-49" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-50"><a href="#cb3-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-51"><a href="#cb3-51" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (peakLag <span class="op">===</span> <span class="op">-</span><span class="dv">1</span>) {</span>
+<span id="cb3-52"><a href="#cb3-52" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> <span class="kw">null</span><span class="op">;</span> <span class="co">// No defined periodic pitch found</span></span>
+<span id="cb3-53"><a href="#cb3-53" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-54"><a href="#cb3-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-55"><a href="#cb3-55" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Parabolic interpolation for sub-sample accuracy</span></span>
+<span id="cb3-56"><a href="#cb3-56" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> alpha <span class="op">=</span> correlation[peakLag <span class="op">-</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-57"><a href="#cb3-57" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> beta <span class="op">=</span> correlation[peakLag]<span class="op">;</span></span>
+<span id="cb3-58"><a href="#cb3-58" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gamma <span class="op">=</span> correlation[peakLag <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-59"><a href="#cb3-59" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> delta <span class="op">=</span> (alpha <span class="op">-</span> gamma) <span class="op">/</span> (<span class="dv">2</span> <span class="op">*</span> (alpha <span class="op">-</span> <span class="dv">2</span> <span class="op">*</span> beta <span class="op">+</span> gamma))<span class="op">;</span></span>
+<span id="cb3-60"><a href="#cb3-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-61"><a href="#cb3-61" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> refinedLag <span class="op">=</span> peakLag <span class="op">+</span> delta<span class="op">;</span></span>
+<span id="cb3-62"><a href="#cb3-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-63"><a href="#cb3-63" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">sampleRate</span> <span class="op">/</span> refinedLag<span class="op">;</span></span>
+<span id="cb3-64"><a href="#cb3-64" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-65"><a href="#cb3-65" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-66"><a href="#cb3-66" aria-hidden="true" tabindex="-1"></a>  <span class="fu">destroy</span>() {</span>
+<span id="cb3-67"><a href="#cb3-67" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">kernel</span><span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span>
+<span id="cb3-68"><a href="#cb3-68" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">gpu</span><span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span>
+<span id="cb3-69"><a href="#cb3-69" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-70"><a href="#cb3-70" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li><strong>Memory Transfers</strong>: Transferring data from the CPU to
+GPU via textures introduces a slight overhead. To maximize efficiency,
+keep the buffer size power-of-two (e.g., 1024, 2048) and avoid running
+the kernel on unnecessarily small chunks.</li>
+<li><strong>Normalization</strong>: If working with audio containing
+varying gain, divide the correlation by <span
+class="math inline">\(R(0)\)</span> to normalize values between -1.0 and
+1.0, simplifying peak thresholding.</li>
+<li><strong>Dynamic Frequency Limits</strong>: Restricting
+<code>maxLag</code> to the lowest frequency you realistically need to
+detect reduces the thread count and iteration length of the GPU loops,
+improving frame rates.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

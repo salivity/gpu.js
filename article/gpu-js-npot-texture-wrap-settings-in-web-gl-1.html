@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js NPOT Texture Wrap Settings in WebGL 1 - gpu.js</title>
+    <meta name="description" content="In WebGL 1, GPU.js configures texture wrap parameters strictly to gl.CLAMPTOEDGE for both horizontal and vertical axes whenever dealing with non-power-of-two (NPOT) textures. Because the base WebGL 1 specification prohibits repeat modes on NPOT dimension">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-npot-texture-wrap-settings-in-web-gl-1">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js NPOT Texture Wrap Settings in WebGL 1 - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-npot-texture-wrap-settings-in-web-gl-1" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In WebGL 1, GPU.js configures texture wrap parameters strictly to gl.CLAMPTOEDGE for both horizontal and vertical axes whenever dealing with non-power-of-two (NPOT) textures. Because the base WebGL 1 specification prohibits repeat modes on NPOT dimension" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-npot-texture-wrap-settings-in-webgl-1">GPU.js NPOT Texture
+Wrap Settings in WebGL 1</h1>
+<p>In WebGL 1, GPU.js configures texture wrap parameters strictly to
+<code>gl.CLAMP_TO_EDGE</code> for both horizontal and vertical axes
+whenever dealing with non-power-of-two (NPOT) textures. Because the base
+WebGL 1 specification prohibits repeat modes on NPOT dimensions without
+specific extensions, GPU.js enforces these clamping parameters along
+with disabling mipmapping to ensure shaders compile cleanly and data
+textures execute without runtime render failures.</p>
+<h3 id="webgl-1-npot-limitations">WebGL 1 NPOT Limitations</h3>
+<p>The WebGL 1.0 specification imposes strict requirements on textures
+with dimensions that are not powers of two (<span
+class="math inline">\(2^n \times 2^m\)</span>). According to the
+specification, an NPOT texture cannot:</p>
+<ol type="1">
+<li>Use <code>gl.REPEAT</code> or <code>gl.MIRRORED_REPEAT</code> as
+wrapping modes.</li>
+<li>Use minification filters that require mipmaps (such as
+<code>gl.NEAREST_MIPMAP_NEAREST</code> or
+<code>gl.LINEAR_MIPMAP_LINEAR</code>).</li>
+</ol>
+<p>If an application attempts to sample an NPOT texture under an
+unsupported wrap or filter configuration, WebGL treats the texture as
+incomplete and returns solid black <code>(0, 0, 0, 1)</code> pixels.</p>
+<h3 id="gpujs-texture-configuration-implementation">GPU.js Texture
+Configuration Implementation</h3>
+<p>When compiling kernels and generating input or output textures,
+GPU.js operates primarily as a General-Purpose Computing on GPU (GPGPU)
+engine. Because matrix sizes, arrays, and compute payloads rarely match
+power-of-two boundaries, GPU.js enforces strict compliance with the
+WebGL 1 state machine during texture initialization.</p>
+<p>During texture setup on the underlying
+<code>WebGLRenderingContext</code>, GPU.js sets the wrap parameters
+using <code>texParameteri</code>:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">texParameteri</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> gl<span class="op">.</span><span class="at">TEXTURE_WRAP_S</span><span class="op">,</span> gl<span class="op">.</span><span class="at">CLAMP_TO_EDGE</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">texParameteri</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> gl<span class="op">.</span><span class="at">TEXTURE_WRAP_T</span><span class="op">,</span> gl<span class="op">.</span><span class="at">CLAMP_TO_EDGE</span>)<span class="op">;</span></span></code></pre></div>
+<ul>
+<li><strong><code>gl.TEXTURE_WRAP_S</code></strong>: Configured to
+<code>gl.CLAMP_TO_EDGE</code>, forcing coordinate sampling along the
+horizontal axis to stop at the border of the pixel matrix.</li>
+<li><strong><code>gl.TEXTURE_WRAP_T</code></strong>: Configured to
+<code>gl.CLAMP_TO_EDGE</code>, forcing coordinate sampling along the
+vertical axis to stop at the border.</li>
+</ul>
+<h3 id="filter-configuration-requirement">Filter Configuration
+Requirement</h3>
+<p>Setting <code>CLAMP_TO_EDGE</code> is only half of the WebGL 1 NPOT
+requirement. GPU.js simultaneously configures the minification and
+magnification filters to avoid mipmap generation:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">texParameteri</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> gl<span class="op">.</span><span class="at">TEXTURE_MIN_FILTER</span><span class="op">,</span> gl<span class="op">.</span><span class="at">NEAREST</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">texParameteri</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> gl<span class="op">.</span><span class="at">TEXTURE_MAG_FILTER</span><span class="op">,</span> gl<span class="op">.</span><span class="at">NEAREST</span>)<span class="op">;</span></span></code></pre></div>
+<p>Using <code>gl.NEAREST</code> guarantees that calculations remain
+deterministic without blending adjacent data elements, while also
+satisfying the WebGL 1 rule that minification on an NPOT texture must be
+either <code>gl.NEAREST</code> or <code>gl.LINEAR</code>.</p>
+<h3 id="impact-on-gpu-computations">Impact on GPU Computations</h3>
+<p>In standard computer graphics, clamping stretches the edge pixels
+when coordinates exceed the <span class="math inline">\([0.0,
+1.0]\)</span> UV range. In GPU.js, texture coordinates are directly
+calculated from thread indices:</p>
+<p><span class="math display">\[\text{coordinate} = \frac{\text{index} +
+0.5}{\text{dimension}}\]</span></p>
+<p>Because GPU.js maps output coordinates precisely to memory offsets on
+a 1:1 basis, sampling outside the valid range is fundamentally prevented
+by the generated shader logic. Forcing <code>gl.CLAMP_TO_EDGE</code>
+fulfills the WebGL 1 validation rules while preserving complete data
+integrity across all compute array dimensions.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

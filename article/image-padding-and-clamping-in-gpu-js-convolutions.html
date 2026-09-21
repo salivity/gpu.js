@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Padding and Clamping in GPU.js Convolutions - gpu.js</title>
+    <meta name="description" content="Applying convolution kernels to images using GPU.js requires handling out-of-bounds pixel access along image borders. When neighbor sampling offsets cross the boundary of an image matrix, shaders can sample undefined memory or return artifacts. This guid">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/image-padding-and-clamping-in-gpu-js-convolutions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Image Padding and Clamping in GPU.js Convolutions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/image-padding-and-clamping-in-gpu-js-convolutions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Applying convolution kernels to images using GPU.js requires handling out-of-bounds pixel access along image borders. When neighbor sampling offsets cross the boundary of an image matrix, shaders can sample undefined memory or return artifacts. This guid" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="image-padding-and-clamping-in-gpujs-convolutions">Image Padding
+and Clamping in GPU.js Convolutions</h1>
+<p>Applying convolution kernels to images using GPU.js requires handling
+out-of-bounds pixel access along image borders. When neighbor sampling
+offsets cross the boundary of an image matrix, shaders can sample
+undefined memory or return artifacts. This guide demonstrates how to
+implement zero padding and edge clamping directly within GPU.js kernel
+functions to ensure seamless 2D image processing.</p>
+<h3 id="the-border-problem-in-convolutions">The Border Problem in
+Convolutions</h3>
+<p>A standard 2D convolution kernel (such as a 3x3 blur, sharpen, or
+Sobel filter) calculates each output pixel by weighting adjacent input
+pixels relative to a center coordinate <code>(x, y)</code>. When
+calculating pixels on the perimeter where <code>x = 0</code>,
+<code>y = 0</code>, <code>x = width - 1</code>, or
+<code>y = height - 1</code>, offset indices become negative or exceed
+the image dimensions.</p>
+<p>In WebGL and GPU.js, accessing an array index out of bounds does not
+throw a traditional JavaScript error; instead, it yields unexpected
+results or black artifacts. You must handle boundary logic inside the
+kernel using conditional checks or mathematical constraints.</p>
+<h3 id="method-1-edge-clamping-replicate-padding">Method 1: Edge
+Clamping (Replicate Padding)</h3>
+<p>Edge clamping restricts sample coordinates to the valid dimensions of
+the image. Any sample request falling outside the border is mapped back
+to the nearest valid pixel on the edge. This avoids creating dark
+fringes around filtered images.</p>
+<p>Because GPU.js compiles JavaScript into WebGL GLSL shaders, using
+<code>Math.max</code> and <code>Math.min</code> maps directly to
+hardware-accelerated GLSL <code>clamp</code> operations.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> clampConvolution <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(image<span class="op">,</span> kernel<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Standard 3x3 convolution</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> ky <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> ky <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> ky<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> kx <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> kx <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> kx<span class="op">++</span>) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Clamp coordinates to image boundaries</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> sampleX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(x <span class="op">+</span> kx<span class="op">,</span> <span class="dv">0</span>)<span class="op">,</span> width <span class="op">-</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> sampleY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(y <span class="op">+</span> ky<span class="op">,</span> <span class="dv">0</span>)<span class="op">,</span> height <span class="op">-</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> pixel <span class="op">=</span> image[sampleY][sampleX]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> weight <span class="op">=</span> kernel[ky <span class="op">+</span> <span class="dv">1</span>][kx <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>            sum <span class="op">+=</span> pixel <span class="op">*</span> weight<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<h3 id="method-2-zero-padding-constant-padding">Method 2: Zero Padding
+(Constant Padding)</h3>
+<p>Zero padding treats any coordinate outside the image boundary as
+having a value of <code>0</code> (black or transparent). This method is
+commonly used in convolutional neural networks (CNNs) to preserve
+spatial dimensions without repeating edge data.</p>
+<p>In GPU.js, zero padding is implemented using an <code>if-else</code>
+condition to test whether the calculated coordinate is within the valid
+range before sampling the array.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> zeroPaddingConvolution <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(image<span class="op">,</span> kernel<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> ky <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> ky <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> ky<span class="op">++</span>) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> kx <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> kx <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> kx<span class="op">++</span>) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> sampleX <span class="op">=</span> x <span class="op">+</span> kx<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> sampleY <span class="op">=</span> y <span class="op">+</span> ky<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Check if sampling coordinates fall within the valid bounds</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (sampleX <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> sampleX <span class="op">&lt;</span> width <span class="op">&amp;&amp;</span> sampleY <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> sampleY <span class="op">&lt;</span> height) {</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> pixel <span class="op">=</span> image[sampleY][sampleX]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> weight <span class="op">=</span> kernel[ky <span class="op">+</span> <span class="dv">1</span>][kx <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>                sum <span class="op">+=</span> pixel <span class="op">*</span> weight<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Out-of-bounds coordinates implicitly add 0 to the sum</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<h3 id="performance-and-pipeline-considerations">Performance and
+Pipeline Considerations</h3>
+<ol type="1">
+<li><strong>Avoid Branch Divergence:</strong> Edge clamping via
+<code>Math.min</code> and <code>Math.max</code> is generally faster
+across GPU architectures than branching
+(<code>if</code>/<code>else</code>) because GPUs execute arithmetic
+instructions uniformly across thread warps.</li>
+<li><strong>Dimension Arguments:</strong> Always pass <code>width</code>
+and <code>height</code> as kernel arguments rather than relying on
+dynamic lookups like <code>.length</code>, which are not supported
+within the GPU execution context.</li>
+<li><strong>Multi-Channel Processing:</strong> If handling RGBA image
+data, apply clamping logic to the spatial <code>(x, y)</code>
+coordinates while preserving the color channel index
+<code>(0 to 3)</code>.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

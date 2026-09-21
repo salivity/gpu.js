@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementing Granular Synthesis in GPU.js - gpu.js</title>
+    <meta name="description" content="Granular synthesis deconstructs audio into microscopic acoustic fragments called grains, typically between 10 and 100 milliseconds long, and recombines them into dense, evolving soundscapes. Implementing granular synthesis using gpu.js leverages the mass">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/implementing-granular-synthesis-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Implementing Granular Synthesis in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/implementing-granular-synthesis-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Granular synthesis deconstructs audio into microscopic acoustic fragments called grains, typically between 10 and 100 milliseconds long, and recombines them into dense, evolving soundscapes. Implementing granular synthesis using gpu.js leverages the mass" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="implementing-granular-synthesis-in-gpujs">Implementing Granular
+Synthesis in GPU.js</h1>
+<p>Granular synthesis deconstructs audio into microscopic acoustic
+fragments called grains, typically between 10 and 100 milliseconds long,
+and recombines them into dense, evolving soundscapes. Implementing
+granular synthesis using gpu.js leverages the massive parallel
+processing power of the GPU via WebGL shaders, allowing you to compute
+thousands of overlapping grains in real time without choking the main
+JavaScript audio thread. This guide demonstrates how to structure audio
+buffers, handle dynamic grain positioning, apply analytical window
+envelopes, and sum overlapping grains using a parallel "gather"
+architecture in gpu.js.</p>
+<h2 id="the-gather-architecture-for-gpu-audio">The Gather Architecture
+for GPU Audio</h2>
+<p>Traditional CPU-based granular synthesizers use a "scatter" model
+where each grain independently writes its values into an output buffer.
+On a GPU, multiple threads writing to the same memory address creates
+race conditions, and gpu.js does not support atomic floating-point
+additions.</p>
+<p>To overcome this limitation, you must invert the synthesis
+architecture to a "gather" model:</p>
+<ul>
+<li>Every GPU thread corresponds to a single output sample.</li>
+<li>Each thread inspects all currently active grains.</li>
+<li>If a grain spans the thread's sample index, the thread calculates
+the grain's read position in the source audio, computes the window
+attenuation, and adds the result to an accumulator.</li>
+</ul>
+<h2 id="1-structuring-grain-and-audio-data">1. Structuring Grain and
+Audio Data</h2>
+<p>The source audio is passed as a 1D array of floats (normalized
+between -1.0 and 1.0). Each grain requires four key parameters:</p>
+<ol type="1">
+<li><strong>Spawn Time (<span
+class="math inline">\(S\)</span>)</strong>: The output sample index
+where the grain starts.</li>
+<li><strong>Grain Length (<span
+class="math inline">\(L\)</span>)</strong>: The total duration of the
+grain in samples.</li>
+<li><strong>Source Offset (<span
+class="math inline">\(O\)</span>)</strong>: The starting sample position
+within the source audio buffer.</li>
+<li><strong>Playback Rate (<span
+class="math inline">\(R\)</span>)</strong>: The speed and pitch modifier
+(1.0 = normal, 2.0 = octave up, 0.5 = octave down).</li>
+</ol>
+<p>Because passing structured objects to GPU kernels can introduce
+serialization overhead, pack grain data into flat parallel arrays or a
+2D array.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> maxGrains <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> grainSpawnTimes <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(maxGrains)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> grainLengths <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(maxGrains)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> grainSourceOffsets <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(maxGrains)<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> grainPlaybackRates <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(maxGrains)<span class="op">;</span></span></code></pre></div>
+<h2 id="2-grain-positioning-logic">2. Grain Positioning Logic</h2>
+<p>For any given output sample <span class="math inline">\(n\)</span>, a
+grain is active if <span class="math inline">\(n \ge S\)</span> and
+<span class="math inline">\(n &lt; S + L\)</span>.</p>
+<p>The relative sample progress of the grain is:</p>
+<p><span class="math display">\[\text{grainIndex} = n - S\]</span></p>
+<p>The read position inside the source audio buffer is calculated by
+scaling the progress by the playback rate:</p>
+<p><span class="math display">\[\text{sourceIndex} = \lfloor O +
+(\text{grainIndex} \times R) \rfloor\]</span></p>
+<p>If <code>sourceIndex</code> exceeds the length of the source buffer,
+it can be clamped or wrapped using modulo operations to prevent
+out-of-bounds reading.</p>
+<h2 id="3-envelope-shaping-windowing">3. Envelope Shaping
+(Windowing)</h2>
+<p>Without windowing, grains produce audible clicks at their boundaries
+due to phase discontinuities. An analytical Hann (cosine-squared) window
+is ideal for GPU kernels because it avoids extra texture lookups:</p>
+<p><span class="math display">\[w(t) = 0.5 \times \left(1.0 -
+\cos\left(\frac{2\pi \times \text{grainIndex}}{L -
+1}\right)\right)\]</span></p>
+<p>This function outputs <code>0.0</code> at the start, ramps to
+<code>1.0</code> at the midpoint, and returns to <code>0.0</code> at the
+grain's termination.</p>
+<h2 id="4-kernel-implementation-in-gpujs">4. Kernel Implementation in
+GPU.js</h2>
+<p>The following gpu.js kernel implements positioning, Hann envelope
+calculation, and overlapping accumulation.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Function to synthesize a block of samples</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> granularKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  sourceAudio<span class="op">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  sourceLength<span class="op">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  spawnTimes<span class="op">,</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  lengths<span class="op">,</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  offsets<span class="op">,</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  rates<span class="op">,</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  activeGrainCount<span class="op">,</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  bufferStartSample</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>) {</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Current global output sample index</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> currentSample <span class="op">=</span> bufferStartSample <span class="op">+</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> accumulatedSample <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> <span class="cn">PI</span> <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">512</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">&lt;</span> activeGrainCount) {</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> spawn <span class="op">=</span> spawnTimes[i]<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> length <span class="op">=</span> lengths[i]<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Check if grain overlaps the current output sample</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (currentSample <span class="op">&gt;=</span> spawn <span class="op">&amp;&amp;</span> currentSample <span class="op">&lt;</span> spawn <span class="op">+</span> length) {</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> grainPhase <span class="op">=</span> currentSample <span class="op">-</span> spawn<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>        <span class="co">// 1. Positioning</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> rate <span class="op">=</span> rates[i]<span class="op">;</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> offset <span class="op">=</span> offsets[i]<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> readPos <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(offset <span class="op">+</span> (grainPhase <span class="op">*</span> rate))<span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>        readPos <span class="op">=</span> readPos <span class="op">%</span> sourceLength<span class="op">;</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (readPos <span class="op">&lt;</span> <span class="dv">0</span>) readPos <span class="op">+=</span> sourceLength<span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> rawSample <span class="op">=</span> sourceAudio[readPos]<span class="op">;</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>        <span class="co">// 2. Envelope Shaping (Hann Window)</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> envelope <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>((<span class="fl">2.0</span> <span class="op">*</span> <span class="cn">PI</span> <span class="op">*</span> grainPhase) <span class="op">/</span> (length <span class="op">-</span> <span class="fl">1.0</span>)))<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>        <span class="co">// 3. Overlapping: sum weighted sample</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>        accumulatedSample <span class="op">+=</span> rawSample <span class="op">*</span> envelope<span class="op">;</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> accumulatedSample<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span>])<span class="op">;</span> <span class="co">// Generates 512 samples per call (e.g., matching Web Audio block sizes)</span></span></code></pre></div>
+<h2 id="5-integrating-with-real-time-audio-output">5. Integrating with
+Real-Time Audio Output</h2>
+<p>To pipe the generated audio back into the Web Audio API:</p>
+<ol type="1">
+<li>Instantiate an <code>AudioWorkletNode</code> or a
+<code>ScriptProcessorNode</code> to drive audio playback.</li>
+<li>Maintain a ring buffer of active grains on the CPU.</li>
+<li>Every time an audio frame requests new data, pass the current sample
+counter via <code>bufferStartSample</code>.</li>
+<li>Run <code>granularKernel(...)</code> to receive an array of
+samples.</li>
+<li>Copy the kernel output into the audio context's output channel
+buffer.</li>
+</ol>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Grain Limit Capping</strong>: GPUs require static loop
+boundaries. Set a fixed maximum (e.g., <code>512</code> in the
+<code>for</code> loop) and break or guard using the dynamic
+<code>activeGrainCount</code>.</li>
+<li><strong>Interpolation</strong>: For high-quality pitch transposition
+without aliasing, replace nearest-neighbor rounding
+(<code>Math.floor</code>) with linear interpolation between
+<code>sourceAudio[readPos]</code> and
+<code>sourceAudio[readPos + 1]</code>.</li>
+<li><strong>Output Normalization</strong>: Because many overlapping
+grains can cause amplitude clipping, divide
+<code>accumulatedSample</code> by a gain factor proportional to the
+average grain density.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

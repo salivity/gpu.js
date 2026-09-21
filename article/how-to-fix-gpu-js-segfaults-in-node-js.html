@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How to Fix GPU.js Segfaults in Node.js - gpu.js</title>
+    <meta name="description" content="Running GPU-accelerated code in Node.js with gpu.js relies on native C++ bindings and headless graphics libraries that can crash the entire runtime with a segmentation fault instead of throwing a standard JavaScript error. This guide provides a direct, s">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-to-fix-gpu-js-segfaults-in-node-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How to Fix GPU.js Segfaults in Node.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-to-fix-gpu-js-segfaults-in-node-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running GPU-accelerated code in Node.js with gpu.js relies on native C++ bindings and headless graphics libraries that can crash the entire runtime with a segmentation fault instead of throwing a standard JavaScript error. This guide provides a direct, s" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-to-fix-gpujs-segfaults-in-nodejs">How to Fix GPU.js
+Segfaults in Node.js</h1>
+<p>Running GPU-accelerated code in Node.js with <code>gpu.js</code>
+relies on native C++ bindings and headless graphics libraries that can
+crash the entire runtime with a segmentation fault instead of throwing a
+standard JavaScript error. This guide provides a direct, systematic
+approach to diagnosing and resolving these native crashes by isolating
+kernel logic, configuring headless environments, managing memory
+constraints, and utilizing native debugging tools.</p>
+<h2 id="isolate-the-crash-with-cpu-fallback">Isolate the Crash with CPU
+Fallback</h2>
+<p>Determine whether the crash is caused by GPU hardware/driver
+interfaces or by your algorithm logic. Force <code>gpu.js</code> to
+execute using the CPU:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;cpu&#39;</span> })<span class="op">;</span></span></code></pre></div>
+<p>If the script runs without crashing on the CPU, the problem lies in
+the native headless graphics pipeline, driver integration, or GPU memory
+allocation. If the CPU mode also crashes or throws an error, the root
+cause is within the JavaScript kernel code, such as an infinite loop or
+bad memory reference.</p>
+<h2 id="verify-headless-webgl-dependencies">Verify Headless WebGL
+Dependencies</h2>
+<p>In Node.js, <code>gpu.js</code> relies on <code>headless-gl</code> to
+interface with system graphics drivers. A missing or corrupt native
+build commonly results in immediate segfaults.</p>
+<ol type="1">
+<li><strong>Rebuild Native Addons:</strong> Clean and rebuild native
+modules to ensure binary compatibility with your current Node.js
+version:
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> rebuild gl</span></code></pre></div></li>
+<li><strong>Install Required System Libraries (Linux):</strong> Headless
+rendering requires system-level OpenGL and X11 libraries:
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get install <span class="at">-y</span> build-essential libxi-dev libglu1-mesa-dev libglew-dev pkg-config</span></code></pre></div></li>
+<li><strong>Use a Virtual Framebuffer:</strong> If running in a headless
+Linux environment or Docker container without a physical display, run
+your process via Xvfb:
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">xvfb-run</span> <span class="at">-s</span> <span class="st">&quot;-ac -screen 0 1280x1024x24&quot;</span> node your-script.js</span></code></pre></div></li>
+</ol>
+<h2 id="check-kernel-code-constraints">Check Kernel Code
+Constraints</h2>
+<p>GPU kernels are compiled down to WebGL shaders. Certain unsupported
+operations do not fail gracefully and can trigger native driver
+crashes:</p>
+<ul>
+<li><strong>Out-of-Bounds Memory Access:</strong> Accessing indices
+outside the allocated matrix dimensions within the kernel function
+causes memory read violations in the underlying graphics pipeline.
+Double-check your loop bounds and matrix indexes.</li>
+<li><strong>Variable Matrix Sizes:</strong> Dynamically resizing input
+arrays between kernel calls can cause buffer allocation mismatches. Keep
+input dimensions uniform or recreate the kernel instance.</li>
+<li><strong>Complex Branching and Recursion:</strong> Shaders do not
+support deep recursion or dynamic loop termination conditions. Keep
+loops bounded by constants or fixed parameters.</li>
+</ul>
+<h2 id="manage-memory-and-output-dimensions">Manage Memory and Output
+Dimensions</h2>
+<p>Attempting to allocate more VRAM than is physically or virtually
+available causes immediate termination:</p>
+<ul>
+<li><strong>Reduce Output Sizes:</strong> Test with smaller dimensions
+(e.g., <code>setOutput([10, 10])</code>) to determine if memory pressure
+is triggering the crash.</li>
+<li><strong>Explicit Resource Cleanup:</strong> Call
+<code>kernel.destroy()</code> or recreate GPU instances if you are
+looping over large batches of executions to prevent unmanaged VRAM
+leaks.</li>
+</ul>
+<h2 id="test-with-software-rendering">Test with Software Rendering</h2>
+<p>To rule out proprietary GPU driver conflicts (particularly on NVIDIA
+or AMD setups), force your system to use Mesa's software rasterizer:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">LIBGL_ALWAYS_SOFTWARE</span><span class="op">=</span>1</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="ex">node</span> your-script.js</span></code></pre></div>
+<p>If the code runs successfully with software rendering, update your
+proprietary GPU drivers or adjust driver configurations to ensure
+compatibility with your Node.js runtime.</p>
+<h2 id="debug-the-native-stack-trace-with-gdb">Debug the Native Stack
+Trace with GDB</h2>
+<p>To identify the exact C++ library or function causing the fault, run
+Node.js under the GNU Debugger:</p>
+<ol type="1">
+<li>Launch Node through GDB:
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">gdb</span> <span class="at">--args</span> node your-script.js</span></code></pre></div></li>
+<li>Type <code>run</code> and press Enter.</li>
+<li>Once the segmentation fault occurs, type:
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">backtrace</span></span></code></pre></div></li>
+</ol>
+<p>Inspect the output stack trace. If the fault points to
+<code>gl.node</code>, the issue is inside <code>headless-gl</code>. If
+it points to your graphics driver (e.g.,
+<code>libnvidia-glcore.so</code> or <code>iris_dri.so</code>), the crash
+is triggered by an incompatible call sent to the hardware driver.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

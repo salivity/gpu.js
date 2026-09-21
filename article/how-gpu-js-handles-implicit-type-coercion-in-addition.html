@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Handles Implicit Type Coercion in Addition - gpu.js</title>
+    <meta name="description" content="When executing JavaScript code on the GPU, gpu.js transpiles standard JavaScript functions into WebGL Shading Language (GLSL). Because JavaScript is dynamically typed and performs implicit type coercion automatically, while GLSL is strictly and staticall">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-implicit-type-coercion-in-addition">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Handles Implicit Type Coercion in Addition - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-implicit-type-coercion-in-addition" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When executing JavaScript code on the GPU, gpu.js transpiles standard JavaScript functions into WebGL Shading Language (GLSL). Because JavaScript is dynamically typed and performs implicit type coercion automatically, while GLSL is strictly and staticall" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-implicit-type-coercion-in-addition">How gpu.js
+Handles Implicit Type Coercion in Addition</h1>
+<p>When executing JavaScript code on the GPU, gpu.js transpiles standard
+JavaScript functions into WebGL Shading Language (GLSL). Because
+JavaScript is dynamically typed and performs implicit type coercion
+automatically, while GLSL is strictly and statically typed, gpu.js must
+actively parse and normalize addition operations. It achieves this by
+analyzing the JavaScript Abstract Syntax Tree (AST), tracking variable
+types, promoting integer types to floating-point types, and appending
+explicit GLSL type casts to ensure error-free compilation on the
+GPU.</p>
+<h3 id="abstract-syntax-tree-ast-parsing">Abstract Syntax Tree (AST)
+Parsing</h3>
+<p>Before code reaches the GPU, gpu.js parses the JavaScript function
+using an AST parser. When it encounters a binary expression with the
+addition operator (<code>+</code>), it checks the data types of both the
+left-hand and right-hand operands.</p>
+<p>In standard JavaScript, expressions like <code>2 + 3.5</code>
+automatically evaluate to <code>5.5</code>. In GLSL, however, an
+operation between an <code>int</code> and a <code>float</code> results
+in a compilation failure. The AST parser detects whether the operands
+share the same type or require alignment.</p>
+<h3 id="literal-promotion">Literal Promotion</h3>
+<p>When numeric literals are used in an addition expression alongside
+floating-point variables, gpu.js evaluates the context of the
+operation:</p>
+<ul>
+<li>If a float is added to an integer literal (for example,
+<code>x + 1</code> where <code>x</code> is a float), gpu.js
+automatically appends a decimal point during code generation, converting
+the literal into <code>1.0</code>.</li>
+<li>This ensures that the generated shader code uses matching literal
+formats required by GLSL syntax.</li>
+</ul>
+<h3 id="explicit-cast-injection">Explicit Cast Injection</h3>
+<p>When two variables of differing numeric types are added together—such
+as a runtime integer and a runtime float—gpu.js injects GLSL constructor
+calls:</p>
+<ol type="1">
+<li><strong>Detection:</strong> The transpiler identifies that the left
+operand is of type <code>Integer</code> and the right operand is of type
+<code>Float</code> (or vice versa).</li>
+<li><strong>Promotion:</strong> In numeric addition, gpu.js follows
+standard numeric hierarchy and promotes the narrower type to the wider
+type (promoting <code>int</code> to <code>float</code>).</li>
+<li><strong>Code Emission:</strong> It wraps the integer operand in
+GLSL's <code>float()</code> cast function. For example, the JavaScript
+expression <code>intVal + floatVal</code> is compiled into the GLSL
+equivalent: <code>float(intVal) + floatVal</code>.</li>
+</ol>
+<h3 id="default-float-usage">Default Float Usage</h3>
+<p>To minimize type mismatch issues inherent in WebGL shaders, gpu.js
+defaults most internal number representations to 32-bit floating-point
+values (<code>highp float</code>). Unless a variable or argument is
+explicitly declared as an integer, numeric values and arithmetic
+calculations inside kernels are treated as floats from the start. By
+standardizing generic numbers to floats prior to transpilation, gpu.js
+eliminates many potential coercion conflicts before the code is compiled
+into the final shader program.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

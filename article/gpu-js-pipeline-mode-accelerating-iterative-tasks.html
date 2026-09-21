@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Pipeline Mode: Accelerating Iterative Tasks - gpu.js</title>
+    <meta name="description" content="GPU.js pipeline mode is an execution feature that keeps computed data inside the graphics processing unit (GPU) memory as textures rather than transferring it back to the central processing unit (CPU) as JavaScript arrays. In standard execution, converti">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-pipeline-mode-accelerating-iterative-tasks">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Pipeline Mode: Accelerating Iterative Tasks - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-pipeline-mode-accelerating-iterative-tasks" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js pipeline mode is an execution feature that keeps computed data inside the graphics processing unit (GPU) memory as textures rather than transferring it back to the central processing unit (CPU) as JavaScript arrays. In standard execution, converti" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-pipeline-mode-accelerating-iterative-tasks">GPU.js
+Pipeline Mode: Accelerating Iterative Tasks</h1>
+<p>GPU.js pipeline mode is an execution feature that keeps computed data
+inside the graphics processing unit (GPU) memory as textures rather than
+transferring it back to the central processing unit (CPU) as JavaScript
+arrays. In standard execution, converting GPU textures to CPU memory
+creates an expensive performance bottleneck. By chaining calculations
+entirely within video RAM (VRAM), pipeline mode enables massive speedups
+for iterative computing tasks such as machine learning training loops,
+physics simulations, and cellular automata.</p>
+<h3 id="the-default-gpujs-bottleneck">The Default GPU.js Bottleneck</h3>
+<p>GPU.js allows developers to write complex parallel computing routines
+using standard JavaScript syntax, compiling functions on the fly into
+WebGL shaders. Under the default configuration, running a kernel
+executes code on the GPU and immediately converts the resulting WebGL
+texture back into a native JavaScript typed array.</p>
+<p>This read-back operation requires the GPU to flush its command queue
+and send memory over the system bus back to the CPU. In single-pass
+calculations, this memory transfer overhead is negligible compared to
+the processing speed gains. However, when an algorithm requires hundreds
+or thousands of successive steps, transferring data back and forth
+between host memory and device memory dominates the overall execution
+time.</p>
+<h3 id="how-pipeline-mode-works">How Pipeline Mode Works</h3>
+<p>Pipeline mode solves this memory-transfer issue by disabling
+automatic read-backs. When you enable pipeline mode on a kernel using
+<code>.setPipeline(true)</code>, the kernel outputs a WebGL texture
+handle instead of a standard array.</p>
+<p>Because GPU.js accepts textures as input arguments for other kernels,
+output textures can be fed directly into subsequent calculations. The
+data remains resident in VRAM across multiple kernel invocations,
+entirely eliminating the latency of CPU-GPU data transfers during the
+processing phase.</p>
+<h3 id="why-pipeline-mode-is-essential-for-iterative-workflows">Why
+Pipeline Mode Is Essential for Iterative Workflows</h3>
+<p>Iterative algorithms rely on the output of step <em>n</em> serving as
+the input for step <em>n + 1</em>. Common examples include:</p>
+<ul>
+<li><strong>Machine Learning and Neural Networks:</strong>
+Backpropagation and gradient descent require many weight-update cycles
+across multiple training epochs.</li>
+<li><strong>Physics and Fluid Dynamics:</strong> Particle systems and
+fluid grids update their state based strictly on the state calculated in
+the previous frame.</li>
+<li><strong>Cellular Automata:</strong> Systems like Conway’s Game of
+Life determine the next grid state exclusively from the current grid
+state.</li>
+</ul>
+<p>Without pipeline mode, an iterative algorithm with 1,000 steps
+executes 1,000 GPU-to-CPU transfers. With pipeline mode enabled, the
+algorithm performs only two memory transfers regardless of the iteration
+count: one initial upload of the starting data to the GPU, and one final
+download of the result back to the CPU via <code>.toArray()</code> once
+all iterations are complete.</p>
+<h3 id="implementation-flow">Implementation Flow</h3>
+<p>To implement pipeline mode in GPU.js:</p>
+<ol type="1">
+<li>Enable the pipeline on the kernel using
+<code>kernel.setPipeline(true)</code>.</li>
+<li>Pass the initial data into the kernel to generate the first
+texture.</li>
+<li>Run a standard JavaScript loop where each iteration passes the
+resulting texture back into the kernel.</li>
+<li>Call <code>resultTexture.toArray()</code> only after the loop
+finishes to pull the final dataset back to the CPU.</li>
+</ol>
+<p>By avoiding round-trip bus latency and eliminating unnecessary memory
+allocations on the CPU, pipeline mode transforms GPU.js from a simple
+parallel processing utility into an engine capable of running
+high-performance, real-time iterative algorithms directly in the browser
+or Node.js.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

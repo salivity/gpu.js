@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Separate Weight Normalization Parameters in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how weight normalization layers can be decoupled into distinct magnitude and direction parameters using gpu.js. It covers the mathematical formulation of weight reparameterization, how to implement the separated components using GPU">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/separate-weight-normalization-parameters-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Separate Weight Normalization Parameters in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/separate-weight-normalization-parameters-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how weight normalization layers can be decoupled into distinct magnitude and direction parameters using gpu.js. It covers the mathematical formulation of weight reparameterization, how to implement the separated components using GPU" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="separate-weight-normalization-parameters-in-gpujs">Separate
+Weight Normalization Parameters in gpu.js</h1>
+<p>This article explains how weight normalization layers can be
+decoupled into distinct magnitude and direction parameters using gpu.js.
+It covers the mathematical formulation of weight reparameterization, how
+to implement the separated components using GPU-accelerated JavaScript
+kernels, and performance considerations for forward and backward
+passes.</p>
+<p>Weight normalization decouples the length of a weight vector from its
+direction to accelerate the convergence of stochastic gradient descent.
+Mathematically, any weight vector <span
+class="math inline">\(\mathbf{w}\)</span> is reparameterized as:</p>
+<p><span class="math display">\[\mathbf{w} = \frac{g}{\|\mathbf{v}\|}
+\mathbf{v}\]</span></p>
+<p>where <span class="math inline">\(\mathbf{v}\)</span> is a parameter
+vector determining direction, <span
+class="math inline">\(\|\mathbf{v}\|\)</span> is its Euclidean norm, and
+<span class="math inline">\(g\)</span> is a scalar parameter determining
+magnitude.</p>
+<p>In gpu.js, weight normalization layers can indeed be separated into
+these magnitude and direction components. Because gpu.js compiles
+JavaScript functions into GLSL shaders that run on the GPU, you can
+define custom data buffers and computation kernels to handle <span
+class="math inline">\(g\)</span> and <span
+class="math inline">\(\mathbf{v}\)</span> independently.</p>
+<h3 id="implementing-the-forward-pass">Implementing the Forward
+Pass</h3>
+<p>To separate these parameters in gpu.js, you maintain two separate
+data structures: a 2D array representing the direction tensor <span
+class="math inline">\(\mathbf{v}\)</span> (for a dense or convolutional
+layer) and a 1D array representing the scalar magnitudes <span
+class="math inline">\(g\)</span> (one scalar per output neuron or
+filter).</p>
+<p>The forward computation can be implemented in two ways:</p>
+<ol type="1">
+<li><strong>Two-Stage Kernel Pipeline:</strong> First, a kernel computes
+the L2 norm of each row or filter vector in <span
+class="math inline">\(\mathbf{v}\)</span>. A second kernel computes the
+normalized weight matrix <span class="math inline">\(\mathbf{w}\)</span>
+by scaling each element <span class="math inline">\(v_{ij}\)</span> by
+<span class="math inline">\(g_i / \|\mathbf{v}_i\|\)</span>. The
+resulting <span class="math inline">\(\mathbf{w}\)</span> is then passed
+into standard matrix multiplication kernels.</li>
+<li><strong>Fused Dense Layer Kernel:</strong> To reduce GPU memory
+bandwidth overhead, the normalization step can be fused directly into
+the layer's forward pass. The kernel takes the input activations <span
+class="math inline">\(\mathbf{x}\)</span>, the direction tensor <span
+class="math inline">\(\mathbf{v}\)</span>, and the magnitude array <span
+class="math inline">\(g\)</span>. For each output node, the kernel
+calculates the norm <span class="math inline">\(\|\mathbf{v}\|\)</span>,
+scales the weights on the fly, and computes the dot product with the
+input features.</li>
+</ol>
+<h3 id="implementing-the-backward-pass">Implementing the Backward
+Pass</h3>
+<p>During backpropagation, gradients must be split between the direction
+parameter <span class="math inline">\(\mathbf{v}\)</span> and the
+magnitude parameter <span class="math inline">\(g\)</span>. In gpu.js,
+this requires writing dedicated backward kernels based on the chain
+rule:</p>
+<ul>
+<li><strong>Gradient with respect to <span
+class="math inline">\(g\)</span>:</strong> Computed by projecting the
+incoming weight gradient <span class="math inline">\(\nabla_{\mathbf{w}}
+L\)</span> onto the normalized direction vector: <span
+class="math display">\[\nabla_g L = \frac{\nabla_{\mathbf{w}} L \cdot
+\mathbf{v}}{\|\mathbf{v}\|}\]</span></li>
+<li><strong>Gradient with respect to <span
+class="math inline">\(\mathbf{v}\)</span>:</strong> Computed by scaling
+and projecting out the parallel component: <span
+class="math display">\[\nabla_{\mathbf{v}} L = \frac{g}{\|\mathbf{v}\|}
+\left( \nabla_{\mathbf{w}} L - \frac{\nabla_g L}{\|\mathbf{v}\|}
+\mathbf{v} \right)\]</span></li>
+</ul>
+<p>Because gpu.js supports outputting arrays and multi-dimensional
+textures, these gradient formulas can be translated directly into
+GLSL-compatible arithmetic operations across parallel threads.</p>
+<h3 id="technical-considerations-in-gpujs">Technical Considerations in
+gpu.js</h3>
+<ul>
+<li><strong>Numerical Stability:</strong> A small epsilon value (e.g.,
+<span class="math inline">\(10^{-7}\)</span>) must be added inside the
+square root when computing <span class="math inline">\(\|\mathbf{v}\| =
+\sqrt{\sum v_i^2 + \epsilon}\)</span> to prevent division by zero during
+GPU execution.</li>
+<li><strong>Floating-Point Precision:</strong> Standard WebGL contexts
+in gpu.js often default to 16-bit or 32-bit floats depending on hardware
+support. Ensure that 32-bit floating-point textures are enabled
+(<code>precision: 'single'</code>) to prevent precision loss when
+calculating norms and gradients.</li>
+<li><strong>Pipeline Overhead:</strong> Decoupling the parameters
+increases the total number of kernel invocations if not fused. For
+maximum throughput in gpu.js, keep the intermediate tensors on the GPU
+by setting <code>pipeline: true</code> on the kernels, avoiding costly
+readbacks to the CPU.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

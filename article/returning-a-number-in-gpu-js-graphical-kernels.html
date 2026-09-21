@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Returning a Number in GPU.js Graphical Kernels - gpu.js</title>
+    <meta name="description" content="In GPU.js, configuring a kernel with the graphical mode enabled allows developers to render visual output directly to an HTML5 canvas via WebGL. This article explains the technical consequences of returning a standard numerical value rather than invoking">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/returning-a-number-in-gpu-js-graphical-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Returning a Number in GPU.js Graphical Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/returning-a-number-in-gpu-js-graphical-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In GPU.js, configuring a kernel with the graphical mode enabled allows developers to render visual output directly to an HTML5 canvas via WebGL. This article explains the technical consequences of returning a standard numerical value rather than invoking" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="returning-a-number-in-gpujs-graphical-kernels">Returning a
+Number in GPU.js Graphical Kernels</h1>
+<p>In GPU.js, configuring a kernel with the graphical mode enabled
+allows developers to render visual output directly to an HTML5 canvas
+via WebGL. This article explains the technical consequences of returning
+a standard numerical value rather than invoking the built-in
+<code>this.color()</code> method inside a graphical kernel, detailing
+WebGL shader behavior, compilation failures, and canvas rendering
+issues.</p>
+<h3 id="the-role-of-thiscolor-in-graphical-kernels">The Role of
+<code>this.color</code> in Graphical Kernels</h3>
+<p>When you initialize a GPU.js kernel with
+<code>{ graphical: true }</code>, the library converts your JavaScript
+function into a WebGL fragment shader. In WebGL, every fragment (or
+pixel) requires a four-component vector representing red, green, blue,
+and alpha channels (<code>vec4(r, g, b, a)</code>).</p>
+<p>The <code>this.color(r, g, b, a)</code> function is an internal API
+binding provided by GPU.js. It directly translates your JavaScript
+arguments into an assignment to WebGL's native
+<code>gl_FragColor</code>. Each color channel expects a normalized
+floating-point value between <code>0</code> and <code>1</code>.</p>
+<h3 id="what-happens-when-returning-a-number">What Happens When
+Returning a Number</h3>
+<p>If you replace <code>this.color()</code> with a numerical return
+statement (such as <code>return 1;</code> or <code>return 0.5;</code>),
+the following issues occur:</p>
+<h4 id="1-webgl-type-mismatch-and-transpilation-errors">1. WebGL Type
+Mismatch and Transpilation Errors</h4>
+<p>GPU.js relies on an Abstract Syntax Tree (AST) parser to transpile
+JavaScript into GLSL (OpenGL Shading Language). In graphical mode, the
+compiler expects the kernel execution path to terminate with pixel
+operations. If the parser attempts to map a scalar <code>float</code>
+return type directly to a fragment shader that expects a
+<code>void</code> return type or a <code>vec4</code> color assignment,
+the internal shader compilation will fail. This results in a runtime
+JavaScript error indicating that the shader could not be compiled or
+linked.</p>
+<h4 id="2-blank-or-transparent-canvas-output">2. Blank or Transparent
+Canvas Output</h4>
+<p>If the compiler does not throw an explicit parsing error, it wraps
+the return value into dead code because it does not know which color
+channel the number belongs to. Because <code>gl_FragColor</code> is
+never assigned a value, the underlying WebGL context defaults to an
+unwritten state. The resulting canvas will appear entirely black, fully
+transparent <code>(0, 0, 0, 0)</code>, or retain whatever clear color
+the WebGL context was initialized with.</p>
+<h4 id="3-loss-of-canvas-output-mapping">3. Loss of Canvas Output
+Mapping</h4>
+<p>A standard kernel (non-graphical) uses the <code>return</code>
+statement to output multi-dimensional arrays of numbers back to the CPU.
+In graphical mode, GPU.js overrides the return pathway to optimize
+memory transfer straight to the screen buffer. Returning a raw number
+breaks the contract of the graphical pipeline, failing both to populate
+the canvas and to return an accessible numerical array.</p>
+<h3 id="correct-usage">Correct Usage</h3>
+<p>To display a grayscale or numerical representation on the canvas, map
+the numerical value across the RGB channels using
+<code>this.color()</code>:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> value <span class="op">=</span> <span class="fl">0.75</span><span class="op">;</span> <span class="co">// Calculated numerical value</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(value<span class="op">,</span> value<span class="op">,</span> value<span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>]<span class="op">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">graphical</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>If the objective is to perform parallel mathematical calculations and
+retrieve the raw numbers, disable graphical mode
+(<code>graphical: false</code> or omit the flag) and use
+<code>return value;</code> to receive standard typed arrays.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

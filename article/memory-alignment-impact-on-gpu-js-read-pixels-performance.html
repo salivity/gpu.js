@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Alignment Impact on GPU.js readPixels Performance - gpu.js</title>
+    <meta name="description" content="This article examines how memory alignment influences the performance of gl.readPixels when extracting kernel calculation results in GPU.js. It details the underlying WebGL memory transfer mechanisms, how row byte padding impacts readback speeds, the spe">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/memory-alignment-impact-on-gpu-js-read-pixels-performance">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Memory Alignment Impact on GPU.js readPixels Performance - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/memory-alignment-impact-on-gpu-js-read-pixels-performance" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how memory alignment influences the performance of gl.readPixels when extracting kernel calculation results in GPU.js. It details the underlying WebGL memory transfer mechanisms, how row byte padding impacts readback speeds, the spe" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="memory-alignment-impact-on-gpujs-readpixels-performance">Memory
+Alignment Impact on GPU.js readPixels Performance</h1>
+<p>This article examines how memory alignment influences the performance
+of <code>gl.readPixels</code> when extracting kernel calculation results
+in GPU.js. It details the underlying WebGL memory transfer mechanisms,
+how row byte padding impacts readback speeds, the specific performance
+penalties of misaligned memory buffers, and best practices for
+configuring kernel dimensions to achieve optimal data throughput between
+the GPU and CPU.</p>
+<h3 id="understanding-readpixels-in-gpujs">Understanding readPixels in
+GPU.js</h3>
+<p>GPU.js compiles JavaScript functions into GLSL shaders, running
+parallel computations across GPU textures. Once execution completes, the
+computed output resides in GPU memory as a texture. To return this data
+to standard JavaScript arrays or TypedArrays, the library relies on the
+underlying WebGL call <code>gl.readPixels</code>.</p>
+<p>Because data transfer across the PCI-e bus represents one of the most
+severe bottlenecks in WebGL computing, the efficiency of
+<code>gl.readPixels</code> dictates overall application throughput.
+Memory alignment plays a decisive role in whether this transfer occurs
+via a fast direct memory access path or a slow, CPU-bound parsing
+loop.</p>
+<h3 id="webgl-pack-alignment-and-byte-strides">WebGL Pack Alignment and
+Byte Strides</h3>
+<p>WebGL manages data packing through the <code>gl.pixelStorei</code>
+parameter <code>PACK_ALIGNMENT</code>. By default, WebGL sets this
+alignment to 4 bytes. This rule requires that the start of every
+individual row of pixel data in the destination memory buffer must begin
+at a byte offset that is an exact multiple of 4 (or 1, 2, or 8,
+depending on the configuration).</p>
+<p>When calculating the byte width of a row, the formula is:</p>
+<p><span class="math display">\[\text{Row Bytes} = \text{Width} \times
+\text{Components per Pixel} \times \text{Bytes per
+Component}\]</span></p>
+<p>If the total number of bytes in a row is not a multiple of the
+<code>PACK_ALIGNMENT</code> value, WebGL must insert padding bytes at
+the end of every row to ensure the subsequent row starts on an aligned
+boundary.</p>
+<h3 id="how-misalignment-degrades-performance">How Misalignment Degrades
+Performance</h3>
+<p>When GPU.js processes an output whose dimensions and format do not
+produce row byte lengths matching the pack alignment, severe performance
+penalties occur:</p>
+<ol type="1">
+<li><strong>Loss of Fast Direct Memory Copy (DMA):</strong> Hardware
+drivers are optimized to stream linear, contiguous memory blocks
+directly from VRAM to host RAM. When alignment requirements force the
+driver to insert or remove row padding, hardware-level bulk copying is
+disabled.</li>
+<li><strong>Driver-Level Strided Loops:</strong> The WebGL
+implementation must iterate through the buffer row-by-row on the CPU,
+copying valid data and inserting or discarding padding bytes. This
+introduces substantial CPU overhead and stalls the render pipeline.</li>
+<li><strong>GPU Pipeline Stalls:</strong> <code>readPixels</code> is
+inherently synchronous. If the CPU must perform manual memory
+realignment on incoming frames, the pipeline stall lasts significantly
+longer, blocking the event loop and reducing frames per second.</li>
+<li><strong>Sub-Optimal Cache Line Utilization:</strong> Misaligned
+reads disrupt CPU cache line boundaries (typically 64 bytes). Reading
+unaligned rows leads to multiple cache line fetches for individual
+values, increasing memory latency.</li>
+</ol>
+<h3 id="single-channel-vs-four-channel-alignment">Single-Channel vs.
+Four-Channel Alignment</h3>
+<p>In GPU.js, kernels often output single-channel scalar values (such as
+a single floating-point or integer value per thread) or packed RGBA
+vectors:</p>
+<ul>
+<li><strong>RGBA (4-Channel) Reads:</strong> Each pixel contains 4
+components. If using 8-bit integers (1 byte per channel), each pixel is
+4 bytes wide. Consequently, every row is automatically a multiple of 4
+bytes regardless of the width, satisfying the default
+<code>PACK_ALIGNMENT = 4</code> and maintaining high read
+performance.</li>
+<li><strong>Single-Channel Reads:</strong> When reading single-channel
+8-bit data, each pixel is 1 byte. If the output texture width is an odd
+number or not divisible by 4, row padding is introduced. Reading a <span
+class="math inline">\(513 \times 513\)</span> single-channel texture
+causes padding at the end of every single row, resulting in measurable
+latency spikes compared to a <span class="math inline">\(512 \times
+512\)</span> texture.</li>
+</ul>
+<h3 id="optimizing-memory-alignment-in-gpujs">Optimizing Memory
+Alignment in GPU.js</h3>
+<p>To minimize readback latency caused by memory alignment issues:</p>
+<ul>
+<li><strong>Align Output Dimensions:</strong> Ensure that kernel output
+widths are multiples of 4 or 8. Power-of-two widths (such as 256, 512,
+or 1024) inherently align across all common byte representations.</li>
+<li><strong>Pack Scalars into Vectors:</strong> If computing scalar
+outputs, pack four distinct values into a single RGBA pixel within the
+shader. This yields a naturally 4-byte aligned structure per pixel and
+reduces the total pixel count read by a factor of four.</li>
+<li><strong>Synchronize Pack Parameters:</strong> If non-aligned output
+widths are unavoidable, adjusting
+<code>gl.pixelStorei(gl.PACK_ALIGNMENT, 1)</code> allows tight byte
+packing without row padding. However, direct 4-byte or 8-byte aligned
+transfers typically remain faster at the hardware driver level than
+1-byte packed reads.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

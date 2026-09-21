@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handling Jagged Arrays in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js processes multidimensional array inputs with non-uniform or jagged row lengths. Because WebGL and GPU architectures require strict, uniform memory structures, GPU.js does not natively support ragged or jagged arrays. Belo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/handling-jagged-arrays-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Handling Jagged Arrays in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/handling-jagged-arrays-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js processes multidimensional array inputs with non-uniform or jagged row lengths. Because WebGL and GPU architectures require strict, uniform memory structures, GPU.js does not natively support ragged or jagged arrays. Belo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="handling-jagged-arrays-in-gpujs">Handling Jagged Arrays in
+GPU.js</h1>
+<p>This article explains how GPU.js processes multidimensional array
+inputs with non-uniform or jagged row lengths. Because WebGL and GPU
+architectures require strict, uniform memory structures, GPU.js does not
+natively support ragged or jagged arrays. Below, you will discover why
+this limitation exists, what happens when non-uniform data is supplied
+to a kernel, and the standard engineering workarounds—specifically array
+padding and 1D flattening with offset tracking—used to process such data
+efficiently.</p>
+<h3 id="native-incompatibility-with-jagged-arrays">Native
+Incompatibility with Jagged Arrays</h3>
+<p>GPU.js compiles JavaScript functions into WebGL shader language
+(GLSL) code. WebGL maps multidimensional arrays into fixed-dimension
+textures (typically 2D or 3D grids) where every row shares the exact
+same width and every column shares the exact same height.</p>
+<p>Because memory addressing in GPU hardware relies on uniform strides
+to calculate memory offsets rapidly, GPU.js requires regular,
+rectangular multidimensional arrays. It cannot inherently allocate
+variable-length memory rows within a single multidimensional input
+structure.</p>
+<h3 id="what-happens-when-jagged-arrays-are-passed">What Happens When
+Jagged Arrays Are Passed</h3>
+<p>If you pass a jagged array directly into a GPU.js kernel (for
+example, <code>[[1, 2], [3, 4, 5, 6]]</code>), the library determines
+the texture dimensions using the length of the top-level array and the
+length of the first inner array:</p>
+<ol type="1">
+<li><strong>Shorter Subsequent Rows:</strong> If a subsequent row is
+shorter than the first row, reading beyond its length results in
+<code>undefined</code> values being coerced into <code>0</code>,
+<code>NaN</code>, or garbage memory data depending on the platform's
+WebGL implementation.</li>
+<li><strong>Longer Subsequent Rows:</strong> If a subsequent row is
+longer than the first row, any elements extending past the initial row's
+width are silently truncated and ignored because the allocated texture
+width is too small.</li>
+<li><strong>Compilation/Runtime Errors:</strong> In certain versions or
+modes (such as CPU fallback mode), passing irregular arrays may throw
+explicit type errors or length mismatch exceptions during the input
+texture preparation phase.</li>
+</ol>
+<h3 id="workaround-1-array-padding-rectangularization">Workaround 1:
+Array Padding (Rectangularization)</h3>
+<p>The simplest method to handle non-uniform rows is to pad shorter rows
+with a sentinel value (such as <code>0</code>, <code>-1</code>, or
+<code>NaN</code>) so that all rows match the length of the longest
+row.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">padJaggedArray</span>(arr<span class="op">,</span> fillValue <span class="op">=</span> <span class="dv">0</span>) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> maxLength <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="op">...</span>arr<span class="op">.</span><span class="fu">map</span>(row <span class="kw">=&gt;</span> row<span class="op">.</span><span class="at">length</span>))<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> arr<span class="op">.</span><span class="fu">map</span>(row <span class="kw">=&gt;</span> {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> padded <span class="op">=</span> <span class="kw">new</span> <span class="bu">Array</span>(maxLength)<span class="op">.</span><span class="fu">fill</span>(fillValue)<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> row<span class="op">.</span><span class="at">length</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>      padded[i] <span class="op">=</span> row[i]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> padded<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Within the GPU.js kernel, you can check for the fill value to ignore
+padding elements during calculations. While this approach introduces
+unused memory overhead, it keeps array indexing straightforward.</p>
+<h3 id="workaround-2-1d-flattening-with-an-offset-array">Workaround 2:
+1D Flattening with an Offset Array</h3>
+<p>For highly irregular or sparse datasets where padding consumes
+excessive memory, the optimal pattern is to flatten the jagged array
+into a single continuous 1D array and supply a secondary 1D array
+containing row offsets or lengths. This technique mirrors the standard
+Compressed Sparse Row (CSR) storage format.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">flattenJaggedArray</span>(arr) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> flatData <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rowOffsets <span class="op">=</span> [<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> arr<span class="op">.</span><span class="at">length</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> arr[i]<span class="op">.</span><span class="at">length</span><span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>      flatData<span class="op">.</span><span class="fu">push</span>(arr[i][j])<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    rowOffsets<span class="op">.</span><span class="fu">push</span>(flatData<span class="op">.</span><span class="at">length</span>)<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> { flatData<span class="op">,</span> rowOffsets }<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>In your GPU.js kernel, configure the output dimension to match the
+number of rows. Each thread uses the <code>rowOffsets</code> array to
+determine the start index and end index for its assigned row within the
+<code>flatData</code> array, iterating only through the actual data
+elements present.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

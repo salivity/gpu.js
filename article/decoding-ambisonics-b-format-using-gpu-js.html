@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decoding Ambisonics B-Format Using GPU.js - gpu.js</title>
+    <meta name="description" content="This article examines the feasibility and performance implications of performing spatial Ambisonics B-format decoding to surround sound speaker arrays using gpu.js. While GPU acceleration is mathematically well-suited for the matrix transformations inher">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/decoding-ambisonics-b-format-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Decoding Ambisonics B-Format Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/decoding-ambisonics-b-format-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines the feasibility and performance implications of performing spatial Ambisonics B-format decoding to surround sound speaker arrays using gpu.js. While GPU acceleration is mathematically well-suited for the matrix transformations inher" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="decoding-ambisonics-b-format-using-gpujs">Decoding Ambisonics
+B-Format Using GPU.js</h1>
+<p>This article examines the feasibility and performance implications of
+performing spatial Ambisonics B-format decoding to surround sound
+speaker arrays using gpu.js. While GPU acceleration is mathematically
+well-suited for the matrix transformations inherent to spatial audio
+decoding, its practical implementation in JavaScript introduces
+architectural challenges related to memory transfer overhead, thread
+isolation, and buffer latency. Below is a breakdown of the underlying
+math, the role of gpu.js, and the technical trade-offs between real-time
+and offline processing.</p>
+<h3 id="mathematical-feasibility">Mathematical Feasibility</h3>
+<p>Spatial Ambisonics decoding is fundamentally an operation of linear
+algebra. First-Order Ambisonics (FOA) represents a 3D soundfield using
+four channels: <span class="math inline">\(W\)</span> (omnidirectional
+pressure), and <span class="math inline">\(X, Y, Z\)</span> (directional
+figure-of-eight gradients). Higher-Order Ambisonics (HOA) extends this
+representation to <span class="math inline">\((L+1)^2\)</span> channels,
+where <span class="math inline">\(L\)</span> is the ambisonic order.</p>
+<p>To decode B-format signals for a specific speaker layout (such as
+5.1, 7.1.4, or custom multichannel arrays), the input channels must be
+mapped to discrete speaker feeds via a decoding matrix:</p>
+<p><span class="math display">\[\mathbf{S} = \mathbf{D} \times
+\mathbf{B}\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(\mathbf{B}\)</span> is the vector of
+Ambisonic input signals at a given sample.</li>
+<li><span class="math inline">\(\mathbf{D}\)</span> is the <span
+class="math inline">\(M \times N\)</span> decoding matrix (<span
+class="math inline">\(M\)</span> speaker outputs by <span
+class="math inline">\(N\)</span> Ambisonic components), typically
+derived via sampling, projection, or energy-preserving optimization
+(like max-<span class="math inline">\(r_E\)</span>).</li>
+<li><span class="math inline">\(\mathbf{S}\)</span> is the resulting
+multichannel speaker output.</li>
+</ul>
+<p>Because this computation requires evaluating dot products across
+large blocks of audio samples independently, it is an embarrassingly
+parallel problem that maps directly to the compute shaders generated by
+gpu.js.</p>
+<h3 id="implementation-via-gpujs">Implementation via gpu.js</h3>
+<p>gpu.js compiles standard JavaScript functions into WebGL or WebGPU
+shader language, executing parallel operations across graphics hardware
+cores.</p>
+<p>A gpu.js kernel for Ambisonic decoding accepts two primary inputs:
+the flattened audio buffer containing the B-format channels and the
+static decoding matrix. The kernel calculates the dot product for each
+target speaker output at each sample frame index. Because the GPU can
+process thousands of samples simultaneously, high-order Ambisonics (such
+as 5th or 7th order, requiring 36 to 64 channels decoded across dozens
+of virtual or physical speakers) compute rapidly in parallel.</p>
+<h3 id="real-time-vs-offline-constraints">Real-Time vs. Offline
+Constraints</h3>
+<p>Although the mathematical transformation runs efficiently on the GPU,
+real-time playback introduces hardware-level bottlenecks:</p>
+<ol type="1">
+<li><strong>Host-to-Device Latency:</strong> Audio in the browser
+operates within strict latency bounds, typically processing blocks of
+128 samples at 48kHz (roughly 2.67 milliseconds per block). Transferring
+audio arrays from CPU memory (RAM) to GPU memory (VRAM) and back
+introduces readback latency (via <code>gl.readPixels</code> or WebGPU
+buffer mapping) that often exceeds the 2.67ms threshold, leading to
+buffer underruns, clicks, and pops.</li>
+<li><strong>AudioWorklet Isolation:</strong> Real-time Web Audio API
+applications rely on the <code>AudioWorkletGlobalScope</code>, which
+executes on a dedicated, synchronous high-priority audio thread. WebGL
+and GPU contexts generally run outside this scope, either on the main
+thread or inside standard Web Workers, making direct GPU computation
+within an <code>AudioWorkletProcessor</code> difficult without
+asynchronous message passing.</li>
+<li><strong>Low Compute Intensity for Standard Layouts:</strong> For
+First-Order Ambisonics decoding to conventional surround systems (like
+5.1 or 7.1), modern CPUs can execute the required vector multiplications
+using SIMD (Single Instruction, Multiple Data) instructions in a few
+microseconds, rendering GPU offloading unnecessary.</li>
+</ol>
+<h3 id="conclusion">Conclusion</h3>
+<p>Ambisonics B-format decoding can be computed using gpu.js, and it is
+particularly effective for offline batch processing, rendering
+spatialized audio files, or decoding massive Higher-Order Ambisonic
+arrays with dense speaker counts. However, for real-time surround sound
+playback within web browsers, the latency introduced by CPU-to-GPU data
+transfers and architectural limitations of the <code>AudioWorklet</code>
+make optimized CPU-based matrix multiplication the superior choice.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

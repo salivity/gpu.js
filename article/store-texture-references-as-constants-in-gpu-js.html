@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store Texture References as Constants in GPU.js - gpu.js</title>
+    <meta name="description" content="This article examines whether texture references can be stored as persistent constants within a gpu.js instance. It explores the technical constraints of the GPU.js compilation model, clarifies the difference between kernel constants and WebGL texture bi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/store-texture-references-as-constants-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Store Texture References as Constants in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/store-texture-references-as-constants-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether texture references can be stored as persistent constants within a gpu.js instance. It explores the technical constraints of the GPU.js compilation model, clarifies the difference between kernel constants and WebGL texture bi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="store-texture-references-as-constants-in-gpujs">Store Texture
+References as Constants in GPU.js</h1>
+<p>This article examines whether texture references can be stored as
+persistent constants within a <code>gpu.js</code> instance. It explores
+the technical constraints of the GPU.js compilation model, clarifies the
+difference between kernel constants and WebGL texture bindings, and
+outlines the correct methods for persistently reusing texture data
+across multiple kernel executions without sacrificing performance.</p>
+<h2 id="the-short-answer-no-direct-texture-constants">The Short Answer:
+No Direct Texture Constants</h2>
+<p>In GPU.js, you cannot pass or store a <code>Texture</code> object
+directly inside the <code>constants</code> configuration object of a
+kernel.</p>
+<p>When you define constants in GPU.js using the kernel settings (for
+example, <code>{ constants: { myValue: 42 } }</code>), the library
+injects these values directly into the generated WebGL GLSL shader code
+as compile-time constants or preprocessor macros. Because WebGL textures
+require dedicated texture units, texture targets, and uniform samplers
+(<code>sampler2D</code>), they cannot be inlined as standard GLSL
+constants. Attempting to assign a texture object into the
+<code>constants</code> map will cause compilation errors or unexpected
+behavior.</p>
+<h2 id="how-to-persist-textures-across-kernel-executions">How to Persist
+Textures Across Kernel Executions</h2>
+<p>While you cannot declare a texture as an internal constant in the
+kernel configuration, you can achieve the exact same performance
+benefits—avoiding costly CPU-to-GPU data uploads—by persisting the
+texture in memory and passing it as an argument.</p>
+<h3 id="1-enable-pipeline-mode">1. Enable Pipeline Mode</h3>
+<p>GPU.js provides pipeline mode specifically for handling persistent
+textures. When pipeline mode is enabled, the kernel outputs a WebGL
+texture instead of converting the output data back into a JavaScript
+array.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> generateTextureKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> processTextureKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(inputTexture) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> inputTexture[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="2-store-the-texture-reference-in-javascript-scope">2. Store the
+Texture Reference in JavaScript Scope</h3>
+<p>Run the initial kernel once to create the texture on the GPU. Keep
+the resulting reference in a standard variable within your application's
+scope:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// The texture remains allocated on the GPU</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> persistentTexture <span class="op">=</span> <span class="fu">generateTextureKernel</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="3-pass-the-stored-texture-as-a-parameter">3. Pass the Stored
+Texture as a Parameter</h3>
+<p>Whenever you run downstream kernels, pass the persistent texture
+reference directly as a kernel parameter. Because the texture already
+lives on the GPU, passing it introduces virtually zero CPU-to-GPU
+transfer overhead:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Reusing the persistent texture across multiple frames or iterations</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">60</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> resultTexture <span class="op">=</span> <span class="fu">processTextureKernel</span>(persistentTexture)<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Use or display result...</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="memory-management">Memory Management</h2>
+<p>Because persistent textures reside in VRAM on the GPU, they are not
+automatically garbage-collected by the JavaScript runtime immediately.
+If you replace or discard a persistent texture reference, explicitly
+delete it to prevent WebGL memory leaks:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>persistentTexture<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span></code></pre></div>
+<h2 id="summary">Summary</h2>
+<p>GPU.js does not support storing textures inside the static
+<code>constants</code> dictionary due to the underlying requirements of
+WebGL GLSL compilation. However, full persistence is natively supported
+by enabling <code>setPipeline(true)</code>, retaining the resulting
+<code>Texture</code> reference in your application logic, and passing it
+as a regular argument to subsequent kernel calls.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

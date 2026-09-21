@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculating Molecular RMSD Using GPU.js - gpu.js</title>
+    <meta name="description" content="Root-Mean-Square Deviation (RMSD) is the standard metric used to quantify structural similarity between molecular conformations by measuring the average distance between corresponding atoms. When analyzing molecular dynamics trajectories or massive struc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/calculating-molecular-rmsd-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Calculating Molecular RMSD Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/calculating-molecular-rmsd-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Root-Mean-Square Deviation (RMSD) is the standard metric used to quantify structural similarity between molecular conformations by measuring the average distance between corresponding atoms. When analyzing molecular dynamics trajectories or massive struc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="calculating-molecular-rmsd-using-gpujs">Calculating Molecular
+RMSD Using GPU.js</h1>
+<p>Root-Mean-Square Deviation (RMSD) is the standard metric used to
+quantify structural similarity between molecular conformations by
+measuring the average distance between corresponding atoms. When
+analyzing molecular dynamics trajectories or massive structural
+ensembles, computing RMSD on a standard CPU can create significant
+performance bottlenecks. This article demonstrates how to leverage
+GPU.js to offload and parallelize the calculation of RMSD values for
+pre-aligned molecular structures directly on the graphics hardware using
+JavaScript.</p>
+<h2 id="understanding-the-rmsd-formula">Understanding the RMSD
+Formula</h2>
+<p>For two aligned conformations of a molecule containing <span
+class="math inline">\(N\)</span> atoms, where the Cartesian coordinates
+of atom <span class="math inline">\(i\)</span> are <span
+class="math inline">\((x_{1,i}, y_{1,i}, z_{1,i})\)</span> and <span
+class="math inline">\((x_{2,i}, y_{2,i}, z_{2,i})\)</span>, the RMSD is
+defined as:</p>
+<p><span class="math display">\[\text{RMSD} = \sqrt{\frac{1}{N}
+\sum_{i=1}^{N} \left( (x_{1,i} - x_{2,i})^2 + (y_{1,i} - y_{2,i})^2 +
+(z_{1,i} - z_{2,i})^2 \right)}\]</span></p>
+<p>Because each atomic distance calculation is independent, the problem
+maps directly to data-parallel execution models supported by GPU
+shaders.</p>
+<h2 id="setting-up-gpujs">Setting Up GPU.js</h2>
+<p>GPU.js compiles a subset of JavaScript into WebGL or WebGPU shader
+code, allowing calculations to execute on the GPU. Install GPU.js in
+your project using npm:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>Or load it via a script tag in the browser:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdn.jsdelivr.net/npm/gpu.js@latest/dist/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<h2 id="structuring-molecular-coordinates">Structuring Molecular
+Coordinates</h2>
+<p>GPU shaders operate most efficiently on fixed-size numerical
+matrices. For molecular structures:</p>
+<ol type="1">
+<li><strong>Reference Structure:</strong> Represented as an <span
+class="math inline">\(N \times 3\)</span> array, where <span
+class="math inline">\(N\)</span> is the number of atoms, and the inner
+dimension holds <span class="math inline">\([X, Y, Z]\)</span>.</li>
+<li><strong>Trajectory / Comparison Frames:</strong> Represented as an
+<span class="math inline">\(M \times N \times 3\)</span> array, where
+<span class="math inline">\(M\)</span> is the number of conformations to
+compare against the reference.</li>
+</ol>
+<h2 id="implementing-the-batch-rmsd-kernel">Implementing the Batch RMSD
+Kernel</h2>
+<p>The following implementation computes the RMSD of <span
+class="math inline">\(M\)</span> pre-aligned frames against a single
+reference structure in parallel. Each GPU thread evaluates one frame
+against the reference.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co"> * Creates an optimized GPU kernel for batch RMSD evaluation.</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{number}</span><span class="co"> numFrames - Number of conformations to evaluate.</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{number}</span><span class="co"> numAtoms - Number of atoms per conformation.</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createRMSDKernel</span>(numFrames<span class="op">,</span> numAtoms) {</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(reference<span class="op">,</span> trajectory<span class="op">,</span> atomCount) {</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumSquaredDistance <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> atomCount<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> dx <span class="op">=</span> reference[i][<span class="dv">0</span>] <span class="op">-</span> trajectory[frameIndex][i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> dy <span class="op">=</span> reference[i][<span class="dv">1</span>] <span class="op">-</span> trajectory[frameIndex][i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> dz <span class="op">=</span> reference[i][<span class="dv">2</span>] <span class="op">-</span> trajectory[frameIndex][i][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>      sumSquaredDistance <span class="op">+=</span> (dx <span class="op">*</span> dx) <span class="op">+</span> (dy <span class="op">*</span> dy) <span class="op">+</span> (dz <span class="op">*</span> dz)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(sumSquaredDistance <span class="op">/</span> atomCount)<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([numFrames])<span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="running-the-calculation">Running the Calculation</h2>
+<p>Below is a complete script generating mock aligned molecular data and
+executing the kernel:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numAtoms <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numFrames <span class="op">=</span> <span class="dv">500</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Generate mock reference coordinates: [[x, y, z], ...]</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> reference <span class="op">=</span> <span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>({ <span class="dt">length</span><span class="op">:</span> numAtoms }<span class="op">,</span> () <span class="kw">=&gt;</span> [</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">50</span><span class="op">,</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">50</span><span class="op">,</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">50</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>])<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="co">// Generate mock aligned trajectory frames: [[[x, y, z], ...], ...]</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> trajectory <span class="op">=</span> <span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>({ <span class="dt">length</span><span class="op">:</span> numFrames }<span class="op">,</span> () <span class="kw">=&gt;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>({ <span class="dt">length</span><span class="op">:</span> numAtoms }<span class="op">,</span> (_<span class="op">,</span> atomIdx) <span class="kw">=&gt;</span> [</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    reference[atomIdx][<span class="dv">0</span>] <span class="op">+</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">-</span> <span class="fl">0.5</span>) <span class="op">*</span> <span class="dv">2</span><span class="op">,</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    reference[atomIdx][<span class="dv">1</span>] <span class="op">+</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">-</span> <span class="fl">0.5</span>) <span class="op">*</span> <span class="dv">2</span><span class="op">,</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    reference[atomIdx][<span class="dv">2</span>] <span class="op">+</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">-</span> <span class="fl">0.5</span>) <span class="op">*</span> <span class="dv">2</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  ])</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="co">// Instantiate kernel and compute RMSD values</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rmsdKernel <span class="op">=</span> <span class="fu">createRMSDKernel</span>(numFrames<span class="op">,</span> numAtoms)<span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rmsdResults <span class="op">=</span> <span class="fu">rmsdKernel</span>(reference<span class="op">,</span> trajectory<span class="op">,</span> numAtoms)<span class="op">;</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Calculated </span><span class="sc">${</span>rmsdResults<span class="op">.</span><span class="at">length</span><span class="sc">}</span><span class="vs"> RMSD values.`</span>)<span class="op">;</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`RMSD for Frame 0: </span><span class="sc">${</span>rmsdResults[<span class="dv">0</span>]<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">4</span>)<span class="sc">}</span><span class="vs"> Å`</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="performance-and-precision-notes">Performance and Precision
+Notes</h2>
+<ul>
+<li><strong>Input Flattening:</strong> For very large atomic systems
+(e.g., &gt;50,000 atoms), multidimensional array conversions can
+introduce CPU-side serialization overhead. Flattening inputs into 1D
+arrays of floats (<code>[x0, y0, z0, x1, y1, z1, ...]</code>) can
+minimize memory transfer latency.</li>
+<li><strong>Floating-Point Precision:</strong> GPU shaders generally
+process 32-bit single-precision floating-point numbers
+(<code>float</code>). While adequate for structural RMSD comparisons,
+slight rounding differences (typically <span class="math inline">\(&lt;
+10^{-5}\)</span>) may occur compared to 64-bit CPU implementations.</li>
+<li><strong>Kernel Reuse:</strong> Instantiating
+<code>createKernel</code> invokes shader compilation. Always reuse the
+compiled kernel instance across calculation steps rather than creating
+new kernels inside an animation or iteration loop.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

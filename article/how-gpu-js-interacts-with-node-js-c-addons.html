@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Interacts with Node.js C++ Addons - gpu.js</title>
+    <meta name="description" content="This article examines how GPU.js and native C++ addons communicate and integrate within a Node.js runtime environment. While GPU.js compiles JavaScript functions into compute shaders to run on graphics hardware, native C++ addons execute precompiled C++">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-interacts-with-node-js-c-addons">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Interacts with Node.js C++ Addons - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-interacts-with-node-js-c-addons" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how GPU.js and native C++ addons communicate and integrate within a Node.js runtime environment. While GPU.js compiles JavaScript functions into compute shaders to run on graphics hardware, native C++ addons execute precompiled C++" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-interacts-with-nodejs-c-addons">How GPU.js Interacts
+with Node.js C++ Addons</h1>
+<p>This article examines how GPU.js and native C++ addons communicate
+and integrate within a Node.js runtime environment. While GPU.js
+compiles JavaScript functions into compute shaders to run on graphics
+hardware, native C++ addons execute precompiled C++ code via the V8 and
+Node-API (N-API) interfaces. Because these two systems do not directly
+hook into one another at the hardware level, their interaction relies on
+the Node.js event loop and shared memory constructs, such as
+TypedArrays, to exchange data between GPU memory, the V8 heap, and
+native C++ memory space.</p>
+<h2 id="architecture-of-gpujs-in-nodejs">Architecture of GPU.js in
+Node.js</h2>
+<p>GPU.js was originally designed for the browser using WebGL compute
+shaders, but in a Node.js environment, it lacks a native DOM and
+browser-based WebGL context. To bypass this limitation, GPU.js relies on
+headless WebGL bindings—typically the <code>headless-gl</code>
+package.</p>
+<p>Under the hood, <code>headless-gl</code> is itself a native C++ addon
+that interfaces directly with system graphics drivers via OpenGL, ANGLE,
+or DirectX. When a GPU.js kernel runs in Node.js:</p>
+<ol type="1">
+<li>GPU.js translates the kernel function into GLSL (OpenGL Shading
+Language).</li>
+<li>It calls the headless WebGL context provided by the underlying C++
+binding.</li>
+<li>The underlying addon handles context creation, texture uploads,
+shader execution, and reading the resulting pixels back into
+Node.js.</li>
+</ol>
+<h2 id="the-interaction-pipeline-between-gpujs-and-c-addons">The
+Interaction Pipeline Between GPU.js and C++ Addons</h2>
+<p>A custom C++ addon cannot execute commands directly within a GPU.js
+WebGL context unless they share the same underlying graphics context at
+the native layer. In standard Node.js applications, interaction between
+GPU.js and custom C++ addons follows a shared-pipeline model managed by
+the JavaScript runtime.</p>
+<h3 id="1-data-ingestion-via-typedarrays">1. Data Ingestion via
+TypedArrays</h3>
+<p>Communication begins by marshaling data through JavaScript
+<code>TypedArrays</code> (such as <code>Float32Array</code> or
+<code>Uint8Array</code>) or Node.js <code>Buffer</code> instances. A C++
+addon implemented with Node-API creates or mutates a typed buffer in
+native memory:</p>
+<ul>
+<li>The C++ addon wraps a native pointer inside an
+<code>napi_create_external_arraybuffer</code> or populates a standard
+<code>napi_create_typedarray</code>.</li>
+<li>This data is handed off to the Node.js JavaScript context with zero
+or minimal copying.</li>
+</ul>
+<h3 id="2-kernel-processing-in-gpujs">2. Kernel Processing in
+GPU.js</h3>
+<p>Once the typed array is accessible in JavaScript, it is passed into a
+GPU.js kernel:</p>
+<ul>
+<li>GPU.js uploads the array into GPU VRAM as a texture.</li>
+<li>The GPU processes the kernel across multiple threads in
+parallel.</li>
+<li>The output is read back from the GPU using WebGL's
+<code>readPixels</code> or an equivalent off-screen buffer extraction
+method, returning the final output as a new TypedArray or a
+multi-dimensional array.</li>
+</ul>
+<h3 id="3-handoff-back-to-the-c-addon">3. Handoff Back to the C++
+Addon</h3>
+<p>The processed data returned by GPU.js can be routed immediately back
+to a native C++ addon:</p>
+<ul>
+<li>The JavaScript layer calls a method exported by the C++ addon,
+passing the output <code>TypedArray</code>.</li>
+<li>The C++ addon retrieves the underlying raw pointer using
+<code>napi_get_typedarray_info</code> or
+<code>napi_get_buffer_info</code>.</li>
+<li>The addon can then use this data for native operations, such as
+low-level file I/O, passing to high-performance libraries like OpenCV,
+or feeding an inference engine like LibTorch.</li>
+</ul>
+<h2 id="memory-management-and-performance-bottlenecks">Memory Management
+and Performance Bottlenecks</h2>
+<p>While combining GPU.js compute kernels with native C++ logic creates
+powerful data-processing pipelines, performance hinges on managing data
+transfers between three distinct memory domains:</p>
+<ol type="1">
+<li><strong>Host Native Memory (C++):</strong> Managed manually via
+<code>malloc</code>, <code>new</code>, or standard library
+containers.</li>
+<li><strong>V8 Managed Memory (JavaScript):</strong> Managed by V8's
+garbage collector.</li>
+<li><strong>Device Memory (VRAM):</strong> Managed by the graphics
+driver and GPU hardware.</li>
+</ol>
+<p>The primary bottleneck in this architecture is bus transfer latency.
+Moving data from C++ memory into V8, uploading it to the GPU via the
+PCI-e bus, reading it back over the bus into V8, and sending it back to
+C++ introduces significant I/O overhead.</p>
+<p>To maximize throughput when using GPU.js alongside native addons:</p>
+<ul>
+<li><strong>Batch Transfers:</strong> Keep data sizes large to offset
+the fixed cost of GPU kernel dispatch and Node-API boundary
+crossings.</li>
+<li><strong>Avoid Nested Arrays:</strong> Ensure GPU.js uses flat
+TypedArrays for both input and output rather than nested JavaScript
+arrays, eliminating the serialization penalty.</li>
+<li><strong>Direct Pointer Access:</strong> Use Node-API functions that
+access the memory address of an <code>ArrayBuffer</code> directly rather
+than copying data across the boundary.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

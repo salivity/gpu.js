@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js AST Parsing: Comments and Whitespace - gpu.js</title>
+    <meta name="description" content="This article explores how the AST (Abstract Syntax Tree) parser in gpu.js handles comments and whitespace when transpiling JavaScript kernel functions into GLSL shader code. It covers the parsing stage using Acorn, the omission of non-functional syntacti">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-ast-parsing-comments-and-whitespace">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js AST Parsing: Comments and Whitespace - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-ast-parsing-comments-and-whitespace" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how the AST (Abstract Syntax Tree) parser in gpu.js handles comments and whitespace when transpiling JavaScript kernel functions into GLSL shader code. It covers the parsing stage using Acorn, the omission of non-functional syntacti" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-ast-parsing-comments-and-whitespace">gpu.js AST Parsing:
+Comments and Whitespace</h1>
+<p>This article explores how the AST (Abstract Syntax Tree) parser in
+gpu.js handles comments and whitespace when transpiling JavaScript
+kernel functions into GLSL shader code. It covers the parsing stage
+using Acorn, the omission of non-functional syntactic trivia during
+lexical analysis, and how the transpiler generates clean, deterministic
+shader output.</p>
+<h3 id="the-parsing-mechanism-in-gpujs">The Parsing Mechanism in
+gpu.js</h3>
+<p>To run JavaScript on the GPU, gpu.js must translate written
+JavaScript functions into GLSL (OpenGL Shading Language) compatible with
+WebGL or WebGPU. To achieve this, gpu.js uses the Acorn JavaScript
+parser to convert the function string into an Abstract Syntax Tree
+(AST).</p>
+<p>An AST is a structural, hierarchical tree representation of the
+source code's syntax. During this conversion, code is broken down into
+semantic nodes such as <code>VariableDeclaration</code>,
+<code>BinaryExpression</code>, and <code>ReturnStatement</code>.</p>
+<h3 id="how-whitespace-is-handled">How Whitespace is Handled</h3>
+<p>During the lexical analysis (tokenization) phase of parsing:</p>
+<ol type="1">
+<li><strong>Token Delimitation:</strong> Whitespace characters (spaces,
+tabs, and line breaks) are used solely to distinguish between separate
+identifiers, keywords, and operators.</li>
+<li><strong>Discarding Trivia:</strong> Once the parser identifies
+tokens, it discards whitespace entirely. The generated AST contains no
+dedicated nodes for whitespace because structural hierarchy and
+parent-child node relationships inherently define execution flow.</li>
+<li><strong>Synthetic Formatting:</strong> When gpu.js traverses the AST
+to construct GLSL code, it emits its own formatting. Any indentation or
+line breaks present in the final GLSL shader string are generated
+programmatically by the transpiler to produce valid GLSL, completely
+independent of the original JavaScript layout.</li>
+</ol>
+<h3 id="how-comments-are-handled">How Comments Are Handled</h3>
+<p>Comments—both single-line (<code>//</code>) and multi-line
+(<code>/* */</code>)—are treated similarly to whitespace during the
+compilation process:</p>
+<ol type="1">
+<li><strong>Ignored During Parsing:</strong> By default, standard AST
+generation treats comments as trivia. Unless an AST parser is explicitly
+configured to preserve comments by attaching them as node metadata, the
+tokenizer simply skips them. gpu.js does not configure Acorn to attach
+comment metadata to AST nodes.</li>
+<li><strong>Omission in Transpilation:</strong> Because comments do not
+generate AST nodes, they are absent from the structural representation
+traversed by the GLSL code generator.</li>
+<li><strong>Absence in Output:</strong> The transpiled GLSL string
+contains only executable instructions, variable definitions, and
+framework-specific header declarations required by the GPU. JavaScript
+comments are never forwarded into the resulting shader program.</li>
+</ol>
+<h3 id="implications-for-kernel-development">Implications for Kernel
+Development</h3>
+<p>Because whitespace and comments are discarded at the AST stage,
+developers writing gpu.js kernels can format their code and write
+extensive inline documentation without impacting GPU memory, shader
+compile times, or runtime execution performance. The resulting GLSL
+shader remains strictly functional and minimal.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

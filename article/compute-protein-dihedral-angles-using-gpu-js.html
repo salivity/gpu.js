@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Compute Protein Dihedral Angles Using GPU.js - gpu.js</title>
+    <meta name="description" content="Computing dihedral torsion angles—specifically phi ($\phi$), psi ($\psi$), and omega ($\omega$)—along a protein peptide backbone is essential for structural biology, molecular modeling, and conformation analysis. This article demonstrates how to leve">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/compute-protein-dihedral-angles-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Compute Protein Dihedral Angles Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/compute-protein-dihedral-angles-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing dihedral torsion angles—specifically phi ($\phi$), psi ($\psi$), and omega ($\omega$)—along a protein peptide backbone is essential for structural biology, molecular modeling, and conformation analysis. This article demonstrates how to leve" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="compute-protein-dihedral-angles-using-gpujs">Compute Protein
+Dihedral Angles Using GPU.js</h1>
+<p>Computing dihedral torsion angles—specifically phi (<span
+class="math inline">\(\phi\)</span>), psi (<span
+class="math inline">\(\psi\)</span>), and omega (<span
+class="math inline">\(\omega\)</span>)—along a protein peptide backbone
+is essential for structural biology, molecular modeling, and
+conformation analysis. This article demonstrates how to leverage GPU.js
+to parallelize dihedral angle computations on the GPU using WebGL. You
+will learn how to structure backbone coordinate data, implement the
+vector mathematics of four-atom dihedral calculations inside a GPU
+kernel, and efficiently process thousands of residues
+simultaneously.</p>
+<h3 id="backbone-dihedral-angles-overview">Backbone Dihedral Angles
+Overview</h3>
+<p>A dihedral angle is the angle between two intersecting planes defined
+by four sequentially bonded atoms: <span
+class="math inline">\(A\)</span>, <span
+class="math inline">\(B\)</span>, <span
+class="math inline">\(C\)</span>, and <span
+class="math inline">\(D\)</span>. The three primary backbone torsion
+angles for residue <span class="math inline">\(i\)</span> are:</p>
+<ul>
+<li><strong><span class="math inline">\(\phi\)</span> (Phi):</strong>
+<span class="math inline">\(\text{C}_{i-1} - \text{N}_i -
+\text{C}\alpha_i - \text{C}_i\)</span></li>
+<li><strong><span class="math inline">\(\psi\)</span> (Psi):</strong>
+<span class="math inline">\(\text{N}_i - \text{C}\alpha_i - \text{C}_i -
+\text{N}_{i+1}\)</span></li>
+<li><strong><span class="math inline">\(\omega\)</span>
+(Omega):</strong> <span class="math inline">\(\text{C}\alpha_i -
+\text{C}_i - \text{N}_{i+1} - \text{C}\alpha_{i+1}\)</span></li>
+</ul>
+<p>Because every dihedral calculation depends only on four 3D
+coordinates, every angle can be calculated independently and
+concurrently using a GPU.</p>
+<h3 id="mathematical-formulation">Mathematical Formulation</h3>
+<p>Given four points <span class="math inline">\(\mathbf{p}_1,
+\mathbf{p}_2, \mathbf{p}_3, \mathbf{p}_4 \in \mathbb{R}^3\)</span>:</p>
+<ol type="1">
+<li><p>Compute bond displacement vectors: <span
+class="math display">\[\mathbf{b}_1 = \mathbf{p}_2 -
+\mathbf{p}_1\]</span> <span class="math display">\[\mathbf{b}_2 =
+\mathbf{p}_3 - \mathbf{p}_2\]</span> <span
+class="math display">\[\mathbf{b}_3 = \mathbf{p}_4 -
+\mathbf{p}_3\]</span></p></li>
+<li><p>Compute normal vectors to the planes: <span
+class="math display">\[\mathbf{n}_1 = \mathbf{b}_1 \times
+\mathbf{b}_2\]</span> <span class="math display">\[\mathbf{n}_2 =
+\mathbf{b}_2 \times \mathbf{b}_3\]</span></p></li>
+<li><p>Compute an orthogonal unit vector along <span
+class="math inline">\(\mathbf{b}_2\)</span>: <span
+class="math display">\[\mathbf{u}_{\mathbf{b}_2} =
+\frac{\mathbf{b}_2}{\|\mathbf{b}_2\|}\]</span> <span
+class="math display">\[\mathbf{m}_1 = \mathbf{n}_1 \times
+\mathbf{u}_{\mathbf{b}_2}\]</span></p></li>
+<li><p>Compute the angle using the two-argument arctangent: <span
+class="math display">\[x = \mathbf{n}_1 \cdot \mathbf{n}_2\]</span>
+<span class="math display">\[y = \mathbf{m}_1 \cdot
+\mathbf{n}_2\]</span> <span class="math display">\[\theta =
+\text{atan2}(y, x)\]</span></p></li>
+</ol>
+<h3 id="preparing-input-data-for-gpujs">Preparing Input Data for
+GPU.js</h3>
+<p>GPU.js works best with flat arrays or 2D coordinate matrices. To
+compute <span class="math inline">\(N\)</span> dihedral angles, arrange
+the coordinates of the four corresponding atoms into four parallel
+arrays (<span class="math inline">\(A\)</span>, <span
+class="math inline">\(B\)</span>, <span
+class="math inline">\(C\)</span>, and <span
+class="math inline">\(D\)</span>), where each element contains three
+floats <code>[x, y, z]</code>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Example structure: N angles to compute</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> N <span class="op">=</span> <span class="dv">3</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Points A, B, C, D for each angle</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> atomA <span class="op">=</span> [[<span class="fl">1.0</span><span class="op">,</span> <span class="fl">2.0</span><span class="op">,</span> <span class="fl">3.0</span>]<span class="op">,</span> [<span class="fl">4.0</span><span class="op">,</span> <span class="fl">5.0</span><span class="op">,</span> <span class="fl">6.0</span>]<span class="op">,</span> [<span class="fl">7.0</span><span class="op">,</span> <span class="fl">8.0</span><span class="op">,</span> <span class="fl">9.0</span>]]<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> atomB <span class="op">=</span> [[<span class="fl">2.0</span><span class="op">,</span> <span class="fl">2.5</span><span class="op">,</span> <span class="fl">3.1</span>]<span class="op">,</span> [<span class="fl">5.0</span><span class="op">,</span> <span class="fl">5.5</span><span class="op">,</span> <span class="fl">6.1</span>]<span class="op">,</span> [<span class="fl">8.0</span><span class="op">,</span> <span class="fl">8.5</span><span class="op">,</span> <span class="fl">9.1</span>]]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> atomC <span class="op">=</span> [[<span class="fl">2.5</span><span class="op">,</span> <span class="fl">3.5</span><span class="op">,</span> <span class="fl">3.2</span>]<span class="op">,</span> [<span class="fl">5.5</span><span class="op">,</span> <span class="fl">6.5</span><span class="op">,</span> <span class="fl">6.2</span>]<span class="op">,</span> [<span class="fl">8.5</span><span class="op">,</span> <span class="fl">9.5</span><span class="op">,</span> <span class="fl">9.2</span>]]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> atomD <span class="op">=</span> [[<span class="fl">3.5</span><span class="op">,</span> <span class="fl">4.0</span><span class="op">,</span> <span class="fl">4.0</span>]<span class="op">,</span> [<span class="fl">6.5</span><span class="op">,</span> <span class="fl">7.0</span><span class="op">,</span> <span class="fl">7.0</span>]<span class="op">,</span> [<span class="fl">9.5</span><span class="op">,</span> <span class="fl">10.0</span><span class="op">,</span> <span class="fl">10.0</span>]]<span class="op">;</span></span></code></pre></div>
+<h3 id="implementing-the-gpujs-kernel">Implementing the GPU.js
+Kernel</h3>
+<p>Install GPU.js via npm (<code>npm install gpu.js</code>) or include
+it via CDN. The following kernel executes the mathematical formulation
+directly inside a fragment shader:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDihedrals <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b<span class="op">,</span> c<span class="op">,</span> d) {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> idx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Vector b1 = B - A</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b1x <span class="op">=</span> b[idx][<span class="dv">0</span>] <span class="op">-</span> a[idx][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b1y <span class="op">=</span> b[idx][<span class="dv">1</span>] <span class="op">-</span> a[idx][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b1z <span class="op">=</span> b[idx][<span class="dv">2</span>] <span class="op">-</span> a[idx][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Vector b2 = C - B</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b2x <span class="op">=</span> c[idx][<span class="dv">0</span>] <span class="op">-</span> b[idx][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b2y <span class="op">=</span> c[idx][<span class="dv">1</span>] <span class="op">-</span> b[idx][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b2z <span class="op">=</span> c[idx][<span class="dv">2</span>] <span class="op">-</span> b[idx][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Vector b3 = D - C</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b3x <span class="op">=</span> d[idx][<span class="dv">0</span>] <span class="op">-</span> c[idx][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b3y <span class="op">=</span> d[idx][<span class="dv">1</span>] <span class="op">-</span> c[idx][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b3z <span class="op">=</span> d[idx][<span class="dv">2</span>] <span class="op">-</span> c[idx][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Normal vector n1 = b1 x b2</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n1x <span class="op">=</span> b1y <span class="op">*</span> b2z <span class="op">-</span> b1z <span class="op">*</span> b2y<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n1y <span class="op">=</span> b1z <span class="op">*</span> b2x <span class="op">-</span> b1x <span class="op">*</span> b2z<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n1z <span class="op">=</span> b1x <span class="op">*</span> b2y <span class="op">-</span> b1y <span class="op">*</span> b2x<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Normal vector n2 = b2 x b3</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n2x <span class="op">=</span> b2y <span class="op">*</span> b3z <span class="op">-</span> b2z <span class="op">*</span> b3y<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n2y <span class="op">=</span> b2z <span class="op">*</span> b3x <span class="op">-</span> b2x <span class="op">*</span> b3z<span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n2z <span class="op">=</span> b2x <span class="op">*</span> b3y <span class="op">-</span> b2y <span class="op">*</span> b3x<span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Norm of b2</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b2_len <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(b2x <span class="op">*</span> b2x <span class="op">+</span> b2y <span class="op">*</span> b2y <span class="op">+</span> b2z <span class="op">*</span> b2z)<span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> ub2x <span class="op">=</span> b2x <span class="op">/</span> b2_len<span class="op">;</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> ub2y <span class="op">=</span> b2y <span class="op">/</span> b2_len<span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> ub2z <span class="op">=</span> b2z <span class="op">/</span> b2_len<span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Vector m1 = n1 x ub2</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> m1x <span class="op">=</span> n1y <span class="op">*</span> ub2z <span class="op">-</span> n1z <span class="op">*</span> ub2y<span class="op">;</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> m1y <span class="op">=</span> n1z <span class="op">*</span> ub2x <span class="op">-</span> n1x <span class="op">*</span> ub2z<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> m1z <span class="op">=</span> n1x <span class="op">*</span> ub2y <span class="op">-</span> n1y <span class="op">*</span> ub2x<span class="op">;</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Dot products</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> n1x <span class="op">*</span> n2x <span class="op">+</span> n1y <span class="op">*</span> n2y <span class="op">+</span> n1z <span class="op">*</span> n2z<span class="op">;</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> m1x <span class="op">*</span> n2x <span class="op">+</span> m1y <span class="op">*</span> n2y <span class="op">+</span> m1z <span class="op">*</span> n2z<span class="op">;</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Result in radians (-PI to +PI)</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">atan2</span>(y<span class="op">,</span> x)<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">;</span></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> anglesInRadians <span class="op">=</span> <span class="fu">computeDihedrals</span>(atomA<span class="op">,</span> atomB<span class="op">,</span> atomC<span class="op">,</span> atomD)<span class="op">;</span></span></code></pre></div>
+<h3 id="converting-to-degrees-and-handling-edge-cases">Converting to
+Degrees and Handling Edge Cases</h3>
+<p>The output of <code>Math.atan2</code> is in radians in the range
+<span class="math inline">\([-\pi, \pi]\)</span>. You can convert this
+directly within the kernel or downstream in JavaScript:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> radToDeg <span class="op">=</span> <span class="dv">180</span> <span class="op">/</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> anglesInDegrees <span class="op">=</span> <span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>(anglesInRadians)<span class="op">.</span><span class="fu">map</span>(rad <span class="kw">=&gt;</span> rad <span class="op">*</span> radToDeg)<span class="op">;</span></span></code></pre></div>
+<p>For peptide backbones, account for terminal conditions:</p>
+<ul>
+<li>The first residue lacks a preceding <span
+class="math inline">\(\text{C}_{i-1}\)</span>, so its <span
+class="math inline">\(\phi\)</span> angle cannot be computed.</li>
+<li>The last residue lacks a subsequent <span
+class="math inline">\(\text{N}_{i+1}\)</span>, so its <span
+class="math inline">\(\psi\)</span> and <span
+class="math inline">\(\omega\)</span> angles cannot be computed.</li>
+</ul>
+<p>Filter out incomplete atom quartets before passing coordinate arrays
+to the GPU kernel, or fill missing terminal coordinates with dummy
+values and mask them post-calculation.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

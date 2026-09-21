@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using gpu.js in Cordova and PhoneGap Apps - gpu.js</title>
+    <meta name="description" content="Deploying gpu.js inside Apache Cordova or Adobe PhoneGap applications is technically possible because modern mobile WebViews support WebGL, but achieving production-grade reliability across a wide range of mobile devices remains difficult. While high-end">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-gpu-js-in-cordova-and-phone-gap-apps">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using gpu.js in Cordova and PhoneGap Apps - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-gpu-js-in-cordova-and-phone-gap-apps" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Deploying gpu.js inside Apache Cordova or Adobe PhoneGap applications is technically possible because modern mobile WebViews support WebGL, but achieving production-grade reliability across a wide range of mobile devices remains difficult. While high-end" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-gpujs-in-cordova-and-phonegap-apps">Using gpu.js in
+Cordova and PhoneGap Apps</h1>
+<p>Deploying gpu.js inside Apache Cordova or Adobe PhoneGap applications
+is technically possible because modern mobile WebViews support WebGL,
+but achieving production-grade reliability across a wide range of mobile
+devices remains difficult. While high-end iOS and Android devices can
+handle standard WebGL-based computations effectively, developers face
+significant challenges regarding hardware fragmentation, operating
+system memory limits, driver-level bugs, and aggressive WebGL context
+termination.</p>
+<h3 id="how-gpujs-works-in-cordova">How gpu.js Works in Cordova</h3>
+<p>Apache Cordova and Adobe PhoneGap run applications inside a
+platform-native WebView (WKWebView on iOS and Android System WebView on
+Android). Because gpu.js compiles JavaScript functions into GLSL shaders
+and executes them via standard WebGL APIs, it does not require a native
+plugin to run. If the target WebView exposes a functional WebGL context,
+gpu.js can execute kernels just as it does in a standard mobile
+browser.</p>
+<h3 id="primary-reliability-obstacles">Primary Reliability
+Obstacles</h3>
+<h4 id="1-webgl-context-loss">1. WebGL Context Loss</h4>
+<p>Mobile operating systems prioritize user interface responsiveness and
+battery management over persistent background tasks. When an application
+experiences heavy memory pressure, switches to the background, or
+encounters a heavy computational spike, the operating system may
+terminate the WebGL context (<code>webglcontextlost</code>). In a
+standard desktop environment, context restoration can be handled
+seamlessly, but mobile WebViews frequently fail to restore complex state
+without reloading the view or re-instantiating the entire gpu.js
+pipeline.</p>
+<h4 id="2-android-device-fragmentation-and-driver-instability">2.
+Android Device Fragmentation and Driver Instability</h4>
+<p>While iOS provides a relatively uniform hardware and driver
+environment via WKWebView, Android encompasses thousands of device
+variations with GPUs from Qualcomm, ARM Mali, PowerVR, and others. Many
+budget-tier Android devices utilize mobile GPU drivers with known WebGL
+bugs, incomplete support for floating-point textures
+(OES_texture_float), or strict limits on maximum texture dimensions and
+uniform buffer counts. These limitations can cause gpu.js kernels to
+fail silently or crash the WebView process entirely.</p>
+<h4 id="3-precision-and-accuracy-issues">3. Precision and Accuracy
+Issues</h4>
+<p>gpu.js often relies on high-precision floating-point numbers
+(<code>highp</code>) for general-purpose computing. On many mobile GPUs,
+<code>highp</code> precision is either not fully supported inside
+fragment shaders or is emulated as medium precision
+(<code>mediump</code>). This limitation can lead to severe numerical
+drift or calculation inaccuracies that do not occur when testing on
+desktop hardware.</p>
+<h4 id="4-thermal-throttling-and-power-limits">4. Thermal Throttling and
+Power Limits</h4>
+<p>Continuous GPU computations rapidly increase device temperature and
+trigger hardware thermal throttling. When throttling occurs, clock
+speeds drop drastically, negating the performance benefits of using
+gpu.js over standard CPU operations. Intense compute loops can also
+trigger native OS watchdog timers, which may kill the app if the main
+thread or render pipeline locks up for several seconds.</p>
+<h3 id="cpu-fallback-realities">CPU Fallback Realities</h3>
+<p>When gpu.js encounters an environment without compatible WebGL
+capabilities, it automatically falls back to standard JavaScript
+execution on the CPU. While this prevents fatal crashes, mobile
+JavaScript engines execute these intensive array operations
+significantly slower than desktop processors. Relying on the CPU
+fallback in a hybrid mobile app often causes severe UI frame drops and
+an unresponsive interface unless explicitly offloaded to Web
+Workers.</p>
+<h3 id="deployment-recommendations">Deployment Recommendations</h3>
+<p>If you must run gpu.js inside Cordova or PhoneGap, consider the
+following safeguards:</p>
+<ul>
+<li><strong>Detect Capabilities Early:</strong> Verify support for
+required WebGL extensions (such as floating-point textures) before
+dispatching workloads.</li>
+<li><strong>Chunk Workloads:</strong> Break massive computations into
+smaller micro-tasks to prevent watchdog timeouts and reduce the risk of
+context loss.</li>
+<li><strong>Handle Context Events:</strong> Explicitly attach listeners
+to <code>webglcontextlost</code> and <code>webglcontextrestored</code>
+to gracefully reinitialize kernels.</li>
+<li><strong>Use Native Plugins for Intensive Tasks:</strong> For
+mission-critical, high-performance computing, use native Cordova plugins
+that tap directly into Metal (iOS) or Vulkan/RenderScript (Android)
+rather than relying on the WebView WebGL layer.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

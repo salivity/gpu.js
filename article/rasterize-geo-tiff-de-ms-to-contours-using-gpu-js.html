@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rasterize GeoTIFF DEMs to Contours Using GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to efficiently convert large GeoTIFF digital elevation models (DEMs) into visual contour lines by offloading computation to the graphics card using gpu.js. You will learn how to extract elevation data from GeoTIFF files, initial">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/rasterize-geo-tiff-de-ms-to-contours-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Rasterize GeoTIFF DEMs to Contours Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/rasterize-geo-tiff-de-ms-to-contours-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to efficiently convert large GeoTIFF digital elevation models (DEMs) into visual contour lines by offloading computation to the graphics card using gpu.js. You will learn how to extract elevation data from GeoTIFF files, initial" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="rasterize-geotiff-dems-to-contours-using-gpujs">Rasterize
+GeoTIFF DEMs to Contours Using GPU.js</h1>
+<p>This article explains how to efficiently convert large GeoTIFF
+digital elevation models (DEMs) into visual contour lines by offloading
+computation to the graphics card using gpu.js. You will learn how to
+extract elevation data from GeoTIFF files, initialize a WebGL compute
+kernel, execute an isoline algorithm in parallel, and render the
+resulting visual contours directly onto an HTML canvas.</p>
+<h3 id="1-extracting-elevation-data-from-the-geotiff">1. Extracting
+Elevation Data from the GeoTIFF</h3>
+<p>Before performing GPU operations, you must parse the GeoTIFF file
+into a flat array of floating-point elevation values. You can use the
+standard <code>geotiff.js</code> library to read the file structure and
+extract the raster data.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { fromArrayBuffer } <span class="im">from</span> <span class="st">&#39;geotiff&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">async</span> <span class="kw">function</span> <span class="fu">loadDEM</span>(arrayBuffer) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> tiff <span class="op">=</span> <span class="cf">await</span> <span class="fu">fromArrayBuffer</span>(arrayBuffer)<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> image <span class="op">=</span> <span class="cf">await</span> tiff<span class="op">.</span><span class="fu">getImage</span>()<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> width <span class="op">=</span> image<span class="op">.</span><span class="fu">getWidth</span>()<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> height <span class="op">=</span> image<span class="op">.</span><span class="fu">getHeight</span>()<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Read elevation values as a 1D Float32Array</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rasters <span class="op">=</span> <span class="cf">await</span> image<span class="op">.</span><span class="fu">readRasters</span>()<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> elevations <span class="op">=</span> rasters[<span class="dv">0</span>]<span class="op">;</span> </span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> { elevations<span class="op">,</span> width<span class="op">,</span> height }<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="2-setting-up-the-gpujs-kernel">2. Setting Up the GPU.js
+Kernel</h3>
+<p>gpu.js compiles standard JavaScript functions into WebGL shader
+language (GLSL), allowing massively parallel pixel operations. To
+generate contours, initialize an instance of <code>GPU</code> and
+configure a kernel with the dimensions of your GeoTIFF. By enabling
+<code>graphical: true</code>, the kernel outputs color values directly
+to an internal HTML <code>&lt;canvas&gt;</code> element.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createContourKernel</span>(width<span class="op">,</span> height) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(elevations<span class="op">,</span> interval<span class="op">,</span> lineWidth) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentIdx <span class="op">=</span> y <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">+</span> x<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentElevation <span class="op">=</span> elevations[currentIdx]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read neighboring pixels to calculate elevation gradients</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> rightElevation <span class="op">=</span> elevations[currentIdx <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> topElevation <span class="op">=</span> elevations[currentIdx <span class="op">+</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span>]<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Determine contour boundaries</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentLevel <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(currentElevation <span class="op">/</span> interval)<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> rightLevel <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(rightElevation <span class="op">/</span> interval)<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> topLevel <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(topElevation <span class="op">/</span> interval)<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// If an elevation interval boundary is crossed between pixels, draw a contour line</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (currentLevel <span class="op">!==</span> rightLevel <span class="op">||</span> currentLevel <span class="op">!==</span> topLevel) {</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>      <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.1</span><span class="op">,</span> <span class="fl">0.1</span><span class="op">,</span> <span class="fl">0.1</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span> <span class="co">// Line color (Dark Gray)</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>      <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">1.0</span><span class="op">,</span> <span class="fl">1.0</span><span class="op">,</span> <span class="fl">1.0</span><span class="op">,</span> <span class="fl">0.0</span>)<span class="op">;</span> <span class="co">// Transparent background</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setConstants</span>({ width<span class="op">,</span> height })</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="3-rendering-large-datasets-via-tiling">3. Rendering Large
+Datasets via Tiling</h3>
+<p>WebGL textures are constrained by hardware limits (typically
+4096×4096 or 16384×16384 pixels). Large GeoTIFF datasets often exceed
+these limits and can exhaust GPU memory if processed in a single
+dispatch. To manage this:</p>
+<ol type="1">
+<li><strong>Subdivide the Dataset:</strong> Break the elevation array
+into square tiles (e.g., 1024×1024 or 2048×2048).</li>
+<li><strong>Include Overlaps:</strong> Add a 1-pixel border to each tile
+from adjacent tiles so the neighbor-sampling logic along the edges does
+not produce visual seams.</li>
+<li><strong>Execute in Sequence:</strong> Run each tile through the
+kernel and draw the resulting canvas regions into a final destination
+canvas using <code>CanvasRenderingContext2D.drawImage()</code>.</li>
+</ol>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">async</span> <span class="kw">function</span> <span class="fu">renderContourMap</span>(elevations<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> interval) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> kernel <span class="op">=</span> <span class="fu">createContourKernel</span>(width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Execute kernel on the GPU</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">kernel</span>(elevations<span class="op">,</span> interval<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Retrieve the canvas with rendered contours</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> contourCanvas <span class="op">=</span> kernel<span class="op">.</span><span class="at">canvas</span><span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(contourCanvas)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="4-customizing-contour-styles">4. Customizing Contour Styles</h3>
+<p>You can extend the kernel's logic without a significant performance
+penalty:</p>
+<ul>
+<li><strong>Index Contours:</strong> Highlight major contour intervals
+(e.g., every 5th line) by checking if
+<code>currentLevel % 5.0 === 0.0</code> and applying a darker color or
+thicker pixel footprint.</li>
+<li><strong>Hypsometric Tints:</strong> Blend an underlying terrain
+color gradient based on the raw elevation value
+(<code>currentElevation / maxElevation</code>) beneath the contour lines
+instead of using transparent pixels.</li>
+<li><strong>NoData Handling:</strong> Add an early exit condition inside
+the kernel function (e.g.,
+<code>if (currentElevation &lt;= -9999.0) { this.color(0, 0, 0, 0); return; }</code>)
+to exclude nodata values typical in DEM sources like SRTM or USGS
+3DEP.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

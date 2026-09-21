@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catastrophic Cancellation in gpu.js Float Math - gpu.js</title>
+    <meta name="description" content="Catastrophic cancellation is a severe numerical instability that occurs when subtracting two nearly equal floating-point values, and in gpu.js, this problem is heavily magnified due to the framework's reliance on WebGL-based single-precision arithmetic.">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/catastrophic-cancellation-in-gpu-js-float-math">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Catastrophic Cancellation in gpu.js Float Math - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/catastrophic-cancellation-in-gpu-js-float-math" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Catastrophic cancellation is a severe numerical instability that occurs when subtracting two nearly equal floating-point values, and in gpu.js, this problem is heavily magnified due to the framework's reliance on WebGL-based single-precision arithmetic." />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="catastrophic-cancellation-in-gpujs-float-math">Catastrophic
+Cancellation in gpu.js Float Math</h1>
+<p>Catastrophic cancellation is a severe numerical instability that
+occurs when subtracting two nearly equal floating-point values, and in
+gpu.js, this problem is heavily magnified due to the framework's
+reliance on WebGL-based single-precision arithmetic. This article
+examines the mechanics of catastrophic cancellation within gpu.js
+kernels, explains why WebGL precision constraints exacerbate accuracy
+loss compared to standard JavaScript execution, and details practical
+mathematical and architectural strategies to maintain precision in
+GPU-accelerated computing.</p>
+<h2 id="what-is-catastrophic-cancellation">What is Catastrophic
+Cancellation?</h2>
+<p>Catastrophic cancellation occurs when two nearly identical
+floating-point numbers are subtracted. In floating-point arithmetic,
+numbers are represented by a sign, an exponent, and a mantissa
+(significand). When two numbers share their most significant digits,
+subtracting them cancels out those leading digits, leaving only the
+least significant bits.</p>
+<p>Because the least significant bits often contain accumulated rounding
+errors from prior operations, shifting these remaining bits into the
+most significant position during normalization magnifies the noise. The
+result can lose most or all of its significant digits, yielding answers
+that are mathematically incorrect by orders of magnitude.</p>
+<h2 id="the-gpujs-precision-bottleneck">The gpu.js Precision
+Bottleneck</h2>
+<p>JavaScript executed on the CPU natively uses the IEEE 754
+double-precision (64-bit) floating-point format, which provides 53 bits
+of significand precision—roughly 15 to 17 decimal digits.</p>
+<p>When code is offloaded to the GPU using gpu.js, the library compiles
+the JavaScript kernel functions into WebGL fragment shaders (GLSL). Most
+WebGL environments and mobile GPUs natively execute floating-point
+operations using IEEE 754 single-precision (32-bit), designated by the
+<code>highp</code> precision qualifier. Single-precision floats allocate
+only 24 bits to the significand, providing roughly 7 decimal digits of
+precision.</p>
+<p>Because gpu.js runs operations in 32-bit precision by default, the
+margin for error before catastrophic cancellation occurs shrinks
+dramatically:</p>
+<ul>
+<li><strong>In native JavaScript (64-bit):</strong> Subtracting
+<code>1.000000000001</code> from <code>1.000000000002</code> retains
+sufficient precision to resolve the difference.</li>
+<li><strong>In gpu.js (32-bit):</strong> Numbers like
+<code>1.000001</code> and <code>1.000002</code> already sit at the
+boundary of 7 decimal digits. Subtracting them causes the identical
+high-order bits to cancel, leaving behind low-order rounding noise or
+rounding to zero entirely.</li>
+</ul>
+<h2 id="common-scenarios-in-gpujs-kernels">Common Scenarios in gpu.js
+Kernels</h2>
+<p>Catastrophic cancellation frequently affects specific algorithms run
+via gpu.js:</p>
+<ol type="1">
+<li><strong>Numerical Differentiation:</strong> Approximating
+derivatives using finite differences requires calculating expressions
+like <code>(f(x + h) - f(x)) / h</code>. As the step size <code>h</code>
+becomes small, <code>f(x + h)</code> and <code>f(x)</code> become nearly
+identical, leading to massive cancellation in 32-bit execution.</li>
+<li><strong>Geometric Distances and Collision Detection:</strong>
+Calculating distances between points that are far from the origin but
+very close to each other (such as large-scale coordinates in geospatial
+or physics simulations) requires subtracting large coordinates, which
+destroys the resolution of the small offset.</li>
+<li><strong>Statistical Variance:</strong> Using the naive formula
+<code>Var(X) = E[X^2] - (E[X])^2</code> causes catastrophic cancellation
+if the variance is small relative to the mean squared.</li>
+</ol>
+<h2 id="mitigating-cancellation-in-gpujs">Mitigating Cancellation in
+gpu.js</h2>
+<p>To avoid precision loss within gpu.js kernels, consider the following
+approaches:</p>
+<h3 id="1-algebraic-reformulation">1. Algebraic Reformulation</h3>
+<p>Restructure mathematical formulas to eliminate direct subtraction of
+nearly identical values. For example:</p>
+<ul>
+<li>Instead of computing <code>sqrt(x + 1) - sqrt(x)</code>, multiply by
+the conjugate to compute
+<code>1.0 / (sqrt(x + 1) + sqrt(x))</code>.</li>
+<li>For small angles, replace <code>1.0 - cos(x)</code> with
+<code>2.0 * sin(x / 2.0) * sin(x / 2.0)</code>.</li>
+</ul>
+<h3 id="2-relative-coordinates-local-reference-frames">2. Relative
+Coordinates (Local Reference Frames)</h3>
+<p>When dealing with spatial data, do not pass absolute global
+coordinates directly to the gpu.js kernel. Center the data on the CPU
+before passing it to the GPU:</p>
+<ul>
+<li>Subtract a local base origin on the CPU using 64-bit precision.</li>
+<li>Pass the smaller relative offsets into the 32-bit gpu.js kernel for
+difference, distance, or matrix transformations.</li>
+</ul>
+<h3 id="3-two-pass-variance-algorithms">3. Two-Pass Variance
+Algorithms</h3>
+<p>Instead of computing variance via <code>E[X^2] - (E[X])^2</code>, use
+a two-pass approach. First, calculate the mean across the dataset.
+Second, pass the precalculated mean to the gpu.js kernel to compute the
+sum of squared deviations <code>(x - mean)^2</code>, ensuring the
+difference operation does not subtract two massive squared sums.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

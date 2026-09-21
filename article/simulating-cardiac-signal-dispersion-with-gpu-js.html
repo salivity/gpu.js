@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulating Cardiac Signal Dispersion with GPU.js - gpu.js</title>
+    <meta name="description" content="Simulating electrical signal propagation across cardiac muscle tissue requires solving reaction-diffusion differential equations over large spatial grids. This article demonstrates how to accelerate this computational process using GPU.js, a library that">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulating-cardiac-signal-dispersion-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulating Cardiac Signal Dispersion with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulating-cardiac-signal-dispersion-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating electrical signal propagation across cardiac muscle tissue requires solving reaction-diffusion differential equations over large spatial grids. This article demonstrates how to accelerate this computational process using GPU.js, a library that" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulating-cardiac-signal-dispersion-with-gpujs">Simulating
+Cardiac Signal Dispersion with GPU.js</h1>
+<p>Simulating electrical signal propagation across cardiac muscle tissue
+requires solving reaction-diffusion differential equations over large
+spatial grids. This article demonstrates how to accelerate this
+computational process using GPU.js, a library that transpiles JavaScript
+functions into WebGL shaders. By implementing a simplified cardiac
+electrophysiology model, such as the FitzHugh-Nagumo model, you can
+compute wave diffusion across a 2D myocardial grid in parallel,
+achieving real-time performance inside a web browser or Node.js
+environment.</p>
+<h3 id="the-electrophysiological-model">The Electrophysiological
+Model</h3>
+<p>Cardiac muscle cells (cardiomyocytes) conduct electrical excitation
+via ion channel dynamics and gap junctions. On a macroscopic scale, this
+can be modeled using a reaction-diffusion system:</p>
+<p><span class="math display">\[\frac{\partial u}{\partial t} = D
+\nabla^2 u + f(u) - v\]</span> <span
+class="math display">\[\frac{\partial v}{\partial t} = \epsilon (k u -
+v)\]</span></p>
+<ul>
+<li><span class="math inline">\(u\)</span> represents the normalized
+transmembrane potential.</li>
+<li><span class="math inline">\(v\)</span> represents the recovery
+variable (inactivation of ion channels).</li>
+<li><span class="math inline">\(D\)</span> is the diffusion coefficient
+representing intercellular coupling via gap junctions.</li>
+<li><span class="math inline">\(\nabla^2 u\)</span> is the 2D Laplacian
+operator describing spatial voltage diffusion.</li>
+<li><span class="math inline">\(f(u) = u(1 - u)(u - a)\)</span> models
+the non-linear excitation threshold.</li>
+<li><span class="math inline">\(\epsilon\)</span>, <span
+class="math inline">\(a\)</span>, and <span
+class="math inline">\(k\)</span> are dimensionless scaling
+parameters.</li>
+</ul>
+<h3 id="setting-up-gpujs">Setting Up GPU.js</h3>
+<p>First, include GPU.js in your project via npm or a CDN script
+tag:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>Initialize the GPU context and configure the grid dimensions:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span></code></pre></div>
+<h3 id="implementing-the-simulation-kernel">Implementing the Simulation
+Kernel</h3>
+<p>Because finite difference approximations require reading neighboring
+cells, compute the discrete 5-point 2D Laplacian:</p>
+<p><span class="math display">\[\nabla^2 u_{x,y} \approx \frac{u_{x+1,y}
++ u_{x-1,y} + u_{x,y+1} + u_{x,y-1} - 4u_{x,y}}{\Delta x^2}\]</span></p>
+<p>Define the GPU.js kernel to compute both diffusion and reaction
+kinetics in a single pass. GPU.js handles array indexes via
+<code>this.thread.x</code> and <code>this.thread.y</code>:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateCardiacTissue <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(uGrid<span class="op">,</span> vGrid<span class="op">,</span> dt<span class="op">,</span> D<span class="op">,</span> a<span class="op">,</span> epsilon<span class="op">,</span> k) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> w <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> h <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Periodic or no-flux boundary conditions</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> left <span class="op">=</span> x <span class="op">&gt;</span> <span class="dv">0</span> <span class="op">?</span> uGrid[y][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> uGrid[y][x]<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> right <span class="op">=</span> x <span class="op">&lt;</span> w <span class="op">-</span> <span class="dv">1</span> <span class="op">?</span> uGrid[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> uGrid[y][x]<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> top <span class="op">=</span> y <span class="op">&lt;</span> h <span class="op">-</span> <span class="dv">1</span> <span class="op">?</span> uGrid[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">:</span> uGrid[y][x]<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bottom <span class="op">=</span> y <span class="op">&gt;</span> <span class="dv">0</span> <span class="op">?</span> uGrid[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">:</span> uGrid[y][x]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentU <span class="op">=</span> uGrid[y][x]<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentV <span class="op">=</span> vGrid[y][x]<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute Laplacian</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> laplacian <span class="op">=</span> (left <span class="op">+</span> right <span class="op">+</span> top <span class="op">+</span> bottom <span class="op">-</span> <span class="fl">4.0</span> <span class="op">*</span> currentU)<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute FitzHugh-Nagumo reaction kinetics</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dU <span class="op">=</span> (D <span class="op">*</span> laplacian <span class="op">+</span> currentU <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> currentU) <span class="op">*</span> (currentU <span class="op">-</span> a) <span class="op">-</span> currentV) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dV <span class="op">=</span> (epsilon <span class="op">*</span> (k <span class="op">*</span> currentU <span class="op">-</span> currentV)) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Pack updated states into a 2D vector or run separate kernels</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> currentU <span class="op">+</span> dU<span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Keeps output in GPU memory as a texture</span></span></code></pre></div>
+<p>For the recovery variable <span class="math inline">\(v\)</span>,
+create a companion kernel or configure the primary kernel to update
+<span class="math inline">\(v\)</span> simultaneously:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateRecovery <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(uGrid<span class="op">,</span> vGrid<span class="op">,</span> dt<span class="op">,</span> epsilon<span class="op">,</span> k) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentU <span class="op">=</span> uGrid[y][x]<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentV <span class="op">=</span> vGrid[y][x]<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> currentV <span class="op">+</span> (epsilon <span class="op">*</span> (k <span class="op">*</span> currentU <span class="op">-</span> currentV)) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="initializing-the-tissue-state">Initializing the Tissue
+State</h3>
+<p>Create initial 2D arrays containing resting state values (<span
+class="math inline">\(u \approx 0, v \approx 0\)</span>) and stimulate a
+specific region by elevating the potential <span
+class="math inline">\(u\)</span> to trigger depolarization:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> uState <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> vState <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> uRow <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vRow <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Stimulate the left edge to initiate an electrical wavefront</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>        uRow<span class="op">.</span><span class="fu">push</span>(x <span class="op">&lt;</span> <span class="dv">10</span> <span class="op">?</span> <span class="fl">1.0</span> <span class="op">:</span> <span class="fl">0.0</span>)<span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        vRow<span class="op">.</span><span class="fu">push</span>(<span class="fl">0.0</span>)<span class="op">;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    uState<span class="op">.</span><span class="fu">push</span>(uRow)<span class="op">;</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    vState<span class="op">.</span><span class="fu">push</span>(vRow)<span class="op">;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="running-the-temporal-evolution-loop">Running the Temporal
+Evolution Loop</h3>
+<p>Because <code>.setPipeline(true)</code> returns WebGL textures
+instead of raw arrays, chain the simulation steps using ping-pong
+buffering. This minimizes memory transfer overhead between the CPU and
+GPU:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Model parameters</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dt <span class="op">=</span> <span class="fl">0.05</span><span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> D <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> a <span class="op">=</span> <span class="fl">0.1</span><span class="op">;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> epsilon <span class="op">=</span> <span class="fl">0.01</span><span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> k <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">stepSimulation</span>() {</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Run GPU calculations</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> nextU <span class="op">=</span> <span class="fu">updateCardiacTissue</span>(uState<span class="op">,</span> vState<span class="op">,</span> dt<span class="op">,</span> D<span class="op">,</span> a<span class="op">,</span> epsilon<span class="op">,</span> k)<span class="op">;</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> nextV <span class="op">=</span> <span class="fu">updateRecovery</span>(uState<span class="op">,</span> vState<span class="op">,</span> dt<span class="op">,</span> epsilon<span class="op">,</span> k)<span class="op">;</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Update references for the next iteration</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    uState <span class="op">=</span> nextU<span class="op">;</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>    vState <span class="op">=</span> nextV<span class="op">;</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="co">// Execution loop</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">animate</span>() {</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> i<span class="op">++</span>) { <span class="co">// Sub-stepping for numerical stability</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>        <span class="fu">stepSimulation</span>()<span class="op">;</span></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(animate)<span class="op">;</span></span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a><span class="fu">animate</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="rendering-the-dispersion-pattern">Rendering the Dispersion
+Pattern</h3>
+<p>To visualize the propagating signal, utilize a final rendering kernel
+that reads the current <code>uState</code> texture and maps the
+normalized membrane voltage to an RGBA canvas output:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderTissue <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(uGrid) {</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> u <span class="op">=</span> uGrid[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Map voltage to an action-potential color ramp (e.g., black to red to yellow)</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(u<span class="op">,</span> u <span class="op">*</span> <span class="fl">0.5</span><span class="op">,</span> <span class="fl">0.2</span> <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> u)<span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Inside the animation loop:</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a><span class="fu">renderTissue</span>(uState)<span class="op">;</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> renderTissue<span class="op">.</span><span class="at">canvas</span><span class="op">;</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(canvas)<span class="op">;</span></span></code></pre></div>
+<p>Using this pipeline, electrical waves will spread smoothly across the
+2D domain, displaying depolarization fronts, repolarization tails, and,
+under appropriate tissue heterogeneity parameters, realistic spiral wave
+breakup analogous to cardiac arrhythmia.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

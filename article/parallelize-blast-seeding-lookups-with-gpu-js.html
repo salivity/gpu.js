@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelize BLAST Seeding Lookups with GPU.js - gpu.js</title>
+    <meta name="description" content="BLAST (Basic Local Alignment Search Tool) relies on a computationally intensive seeding step, where short, fixed-length sequences ($k$-mers) from a query are matched against a reference database. By leveraging GPU.js, developers can compile JavaScript fu">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelize-blast-seeding-lookups-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelize BLAST Seeding Lookups with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelize-blast-seeding-lookups-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="BLAST (Basic Local Alignment Search Tool) relies on a computationally intensive seeding step, where short, fixed-length sequences ($k$-mers) from a query are matched against a reference database. By leveraging GPU.js, developers can compile JavaScript fu" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelize-blast-seeding-lookups-with-gpujs">Parallelize BLAST
+Seeding Lookups with GPU.js</h1>
+<p>BLAST (Basic Local Alignment Search Tool) relies on a computationally
+intensive seeding step, where short, fixed-length sequences (<span
+class="math inline">\(k\)</span>-mers) from a query are matched against
+a reference database. By leveraging GPU.js, developers can compile
+JavaScript functions into WebGL or WebGPU shaders to execute thousands
+of sequence lookups simultaneously on the graphics hardware. This
+article explains how to encode sequence data, construct an efficient
+lookup strategy, and implement a parallel <span
+class="math inline">\(k\)</span>-mer matching kernel using GPU.js.</p>
+<h2 id="the-seeding-bottleneck">The Seeding Bottleneck</h2>
+<p>The initial phase of BLAST identifies matching "words" of length
+<span class="math inline">\(k\)</span> (typically <span
+class="math inline">\(k=11\)</span> for DNA or <span
+class="math inline">\(k=3\)</span> for protein sequences). In a standard
+CPU implementation, the algorithm iterates through each offset of the
+query sequence and queries a hash table or scans the database linearly.
+When scaling to genomic databases with millions of base pairs, this
+linear scan or repeated memory access becomes a major latency
+bottleneck.</p>
+<p>Because each <span class="math inline">\(k\)</span>-mer comparison is
+independent of the others, this phase maps directly to the SIMD (Single
+Instruction, Multiple Data) execution model of modern GPUs.</p>
+<h2 id="1-encoding-sequences-for-gpu-processing">1. Encoding Sequences
+for GPU Processing</h2>
+<p>GPUs are designed to process numerical matrices rather than character
+strings. Before feeding sequences to GPU.js, convert biological
+characters (such as <span class="math inline">\(A, C, G, T\)</span>)
+into a numeric representation.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">encodeSequence</span>(seq) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> map <span class="op">=</span> { <span class="st">&#39;A&#39;</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span> <span class="st">&#39;C&#39;</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span> <span class="st">&#39;G&#39;</span><span class="op">:</span> <span class="dv">2</span><span class="op">,</span> <span class="st">&#39;T&#39;</span><span class="op">:</span> <span class="dv">3</span> }<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> seq<span class="op">.</span><span class="fu">toUpperCase</span>()<span class="op">.</span><span class="fu">split</span>(<span class="st">&#39;&#39;</span>)<span class="op">.</span><span class="fu">map</span>(char <span class="kw">=&gt;</span> map[char] <span class="op">??</span> <span class="dv">4</span>)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>By encoding each nucleotide as an integer, the data can be passed to
+GPU.js as flat 1D arrays or textures.</p>
+<h2 id="2-implementing-the-seeding-kernel">2. Implementing the Seeding
+Kernel</h2>
+<p>GPU.js allows you to write the search algorithm in pure JavaScript,
+which it compiles into shader code.</p>
+<p>In this parallelized approach, each GPU thread is assigned a specific
+position in the reference database. The thread checks whether the <span
+class="math inline">\(k\)</span>-mer starting at its assigned index
+matches the target <span class="math inline">\(k\)</span>-mer from the
+query sequence.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// k-mer length</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> K <span class="op">=</span> <span class="dv">11</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Define kernel: 1 thread per reference database position</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> blastSeedKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(reference<span class="op">,</span> queryKmer<span class="op">,</span> k) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> match <span class="op">=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> k<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (reference[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> i] <span class="op">!==</span> queryKmer[i]) {</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>      match <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>      <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> match<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([referenceLength <span class="op">-</span> K <span class="op">+</span> <span class="dv">1</span>])</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Retains output on GPU memory if chaining operations</span></span></code></pre></div>
+<h3 id="extending-to-multi-query-lookups">Extending to Multi-Query
+Lookups</h3>
+<p>To check multiple query <span class="math inline">\(k\)</span>-mers
+simultaneously, configure a 2D output grid where the X-dimension
+represents the reference database index and the Y-dimension represents
+the index of the query <span class="math inline">\(k\)</span>-mer:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> blastMultiSeedKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(reference<span class="op">,</span> queryKmers<span class="op">,</span> k) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> match <span class="op">=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> k<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// queryKmers is a 2D array: [queryIndex][positionInKmer]</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (reference[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> i] <span class="op">!==</span> queryKmers[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i]) {</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>      match <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>      <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Return 1 if match is found at reference[this.thread.x] for query[this.thread.y]</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> match<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([referenceLength <span class="op">-</span> K <span class="op">+</span> <span class="dv">1</span><span class="op">,</span> totalQueryKmers])<span class="op">;</span></span></code></pre></div>
+<h2 id="3-gathering-and-filtering-matches">3. Gathering and Filtering
+Matches</h2>
+<p>Once the kernel finishes execution, the output matrix contains binary
+indicators (<span class="math inline">\(1\)</span> for a match, <span
+class="math inline">\(0\)</span> for a mismatch).</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> results <span class="op">=</span> <span class="fu">blastMultiSeedKernel</span>(encodedRef<span class="op">,</span> encodedQueryKmers<span class="op">,</span> K)<span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> seedHits <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> qIdx <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> qIdx <span class="op">&lt;</span> totalQueryKmers<span class="op">;</span> qIdx<span class="op">++</span>) {</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> rIdx <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> rIdx <span class="op">&lt;</span> referenceLength <span class="op">-</span> K <span class="op">+</span> <span class="dv">1</span><span class="op">;</span> rIdx<span class="op">++</span>) {</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (results[qIdx][rIdx] <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>      seedHits<span class="op">.</span><span class="fu">push</span>({ <span class="dt">queryIndex</span><span class="op">:</span> qIdx<span class="op">,</span> <span class="dt">referenceIndex</span><span class="op">:</span> rIdx })<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>These identified index pairs represent exact seed matches, which can
+be forwarded directly to the BLAST seed extension stage (such as
+Smith-Waterman or banded dynamic programming) on the CPU.</p>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Memory Transfer Overhead:</strong> Moving large genomic
+arrays between CPU host memory and GPU device memory creates bus
+latency. Minimize transfers by batching thousands of query <span
+class="math inline">\(k\)</span>-mers into a single GPU call rather than
+querying one <span class="math inline">\(k\)</span>-mer at a time.</li>
+<li><strong>Array Length Limits:</strong> GPUs have maximum texture size
+limits depending on hardware and backend (WebGL vs. WebGPU). For
+databases exceeding <span class="math inline">\(16,384\)</span> elements
+per dimension, split the reference sequence into chunks and execute the
+kernel sequentially over each block.</li>
+<li><strong>Avoid Complex Branching:</strong> GPUs handle divergence
+poorly. Keep the inner matching loop straightforward so that threads
+within the same warp/workgroup execute synchronized operations
+efficiently.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

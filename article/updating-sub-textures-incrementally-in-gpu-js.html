@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Updating Sub-Textures Incrementally in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains whether you can update sub-textures incrementally in GPU.js without re-uploading the entire data array. While GPU.js does not expose a native, high-level API for partial CPU-to-GPU data transfers (such as a direct wrapper for gl.tex">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/updating-sub-textures-incrementally-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Updating Sub-Textures Incrementally in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/updating-sub-textures-incrementally-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains whether you can update sub-textures incrementally in GPU.js without re-uploading the entire data array. While GPU.js does not expose a native, high-level API for partial CPU-to-GPU data transfers (such as a direct wrapper for gl.tex" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="updating-sub-textures-incrementally-in-gpujs">Updating
+Sub-Textures Incrementally in GPU.js</h1>
+<p>This article explains whether you can update sub-textures
+incrementally in GPU.js without re-uploading the entire data array.
+While GPU.js does not expose a native, high-level API for partial
+CPU-to-GPU data transfers (such as a direct wrapper for
+<code>gl.texSubImage2D</code>), incremental updates can be achieved
+either by mutating textures directly on the GPU using pipelined kernels
+or by dropping down to the underlying WebGL context.</p>
+<h2 id="the-native-gpujs-limitation">The Native GPU.js Limitation</h2>
+<p>GPU.js abstracts WebGL texture creation and memory management to
+simplify parallel computing in JavaScript. When you pass a standard
+JavaScript array or typed array into a GPU.js kernel, the library
+automatically serializes the data, creates an internal WebGL texture,
+and uses <code>gl.texImage2D</code> to upload the entire buffer to the
+GPU.</p>
+<p>Because the library handles input binding automatically, there is no
+high-level method (such as
+<code>kernel.updateSubTexture(x, y, width, height, data)</code>) to
+selectively write only a modified portion of a JavaScript array into an
+existing texture. Re-invoking a kernel with an updated JavaScript array
+forces a full re-upload of that array, introducing memory overhead and
+CPU-to-GPU bandwidth bottlenecks.</p>
+<h2 id="method-1-incremental-updates-via-gpu-memory-pipelining">Method
+1: Incremental Updates via GPU Memory (Pipelining)</h2>
+<p>If your goal is to update a portion of an existing texture without
+transferring the entire dataset from the CPU, you should keep the data
+on the GPU using kernel pipelining.</p>
+<p>When you enable <code>pipeline: true</code>, a kernel returns a
+<code>Texture</code> object instead of reading pixels back to a CPU
+array. You can pass this output texture back into a subsequent kernel
+along with only the patch data and coordinates.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel configured with pipeline enabled</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> patchKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(baseTexture<span class="op">,</span> patchTexture<span class="op">,</span> offsetX<span class="op">,</span> offsetY<span class="op">,</span> patchWidth<span class="op">,</span> patchHeight) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Check if current thread falls inside the target sub-region</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (x <span class="op">&gt;=</span> offsetX <span class="op">&amp;&amp;</span> x <span class="op">&lt;</span> offsetX <span class="op">+</span> patchWidth <span class="op">&amp;&amp;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>      y <span class="op">&gt;=</span> offsetY <span class="op">&amp;&amp;</span> y <span class="op">&lt;</span> offsetY <span class="op">+</span> patchHeight) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> patchTexture[y <span class="op">-</span> offsetY][x <span class="op">-</span> offsetX]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Preserve existing texture data</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> baseTexture[y][x]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span><span class="op">,</span> <span class="dv">1024</span>])</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>In this architecture:</p>
+<ol type="1">
+<li>The base data stays in GPU memory as a texture.</li>
+<li>Only the small patch array is uploaded from JavaScript.</li>
+<li>The GPU updates the sub-region internally, avoiding a full re-upload
+of the base data.</li>
+</ol>
+<h2 id="method-2-accessing-the-underlying-webgl-context">Method 2:
+Accessing the Underlying WebGL Context</h2>
+<p>For scenarios where high-frequency streaming of partial CPU data to
+the GPU is required, you can interact with the raw WebGL context managed
+by GPU.js via <code>gpu.context</code>.</p>
+<ol type="1">
+<li><strong>Extract Context and Texture:</strong> Use
+<code>gpu.context</code> to access WebGL functions and target the
+<code>texture</code> property of a GPU.js <code>Texture</code>
+instance.</li>
+<li><strong>Execute Partial Upload:</strong> Call
+<code>gl.texSubImage2D</code> directly on the texture target.</li>
+</ol>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> gpu<span class="op">.</span><span class="at">context</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">updateSubRegion</span>(targetTexture<span class="op">,</span> xOffset<span class="op">,</span> yOffset<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> pixelData) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  gl<span class="op">.</span><span class="fu">bindTexture</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> targetTexture<span class="op">.</span><span class="at">texture</span>)<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  gl<span class="op">.</span><span class="fu">texSubImage2D</span>(</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="dv">0</span><span class="op">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    xOffset<span class="op">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    yOffset<span class="op">,</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    width<span class="op">,</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    height<span class="op">,</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    gl<span class="op">.</span><span class="at">RGBA</span><span class="op">,</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    gl<span class="op">.</span><span class="at">UNSIGNED_BYTE</span><span class="op">,</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    pixelData</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  gl<span class="op">.</span><span class="fu">bindTexture</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> <span class="kw">null</span>)<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>This bypasses GPU.js input handling completely, updating only the
+designated rectangular area directly in VRAM without creating duplicate
+allocations.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>GPU.js does not provide an out-of-the-box mechanism for incremental
+CPU-to-GPU sub-texture uploads. If the updates are calculated
+dynamically, compute and merge them directly on the GPU using pipelined
+kernels. If you must send sub-arrays from the CPU to an active GPU.js
+texture, bypass the high-level API and invoke <code>texSubImage2D</code>
+via <code>gpu.context</code>.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL2 vs WebGL1 in gpu.js Texture Limits and Precision - gpu.js</title>
+    <meta name="description" content="Running gpu.js in WebGL2 mode delivers substantial performance and architectural improvements over the legacy WebGL1 backend, specifically regarding memory capacity and computational accuracy. By taking advantage of the modern WebGL2 standard, gpu.js inc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-2-vs-web-gl-1-in-gpu-js-texture-limits-and-precision">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL2 vs WebGL1 in gpu.js Texture Limits and Precision - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-2-vs-web-gl-1-in-gpu-js-texture-limits-and-precision" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running gpu.js in WebGL2 mode delivers substantial performance and architectural improvements over the legacy WebGL1 backend, specifically regarding memory capacity and computational accuracy. By taking advantage of the modern WebGL2 standard, gpu.js inc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl2-vs-webgl1-in-gpujs-texture-limits-and-precision">WebGL2
+vs WebGL1 in gpu.js Texture Limits and Precision</h1>
+<p>Running gpu.js in WebGL2 mode delivers substantial performance and
+architectural improvements over the legacy WebGL1 backend, specifically
+regarding memory capacity and computational accuracy. By taking
+advantage of the modern WebGL2 standard, gpu.js increases maximum
+texture sizes, doubles accessible texture units, natively handles 3D
+memory layouts, and guarantees native 32-bit floating-point and integer
+arithmetic. These upgrades eliminate the memory workarounds, precision
+degradation, and performance overhead common in WebGL1 mathematical
+operations.</p>
+<h3 id="expanded-texture-size-and-allocation-limits">Expanded Texture
+Size and Allocation Limits</h3>
+<p>In gpu.js, arrays and matrices are mapped to GPU textures to perform
+general-purpose computing (GPGPU). WebGL2 significantly broadens the
+scale of data that can be bound and processed simultaneously:</p>
+<ul>
+<li><strong>Larger Maximum Texture Dimensions:</strong> WebGL1 mandates
+a minimum hardware texture size support of only 2048×2048 pixels,
+whereas WebGL2 raises baseline hardware requirements, often enabling
+allocations of 8192×8192, 16384×16384, or higher on modern hardware.
+This allows gpu.js to process substantially larger single-kernel
+matrices without splitting data across multiple passes.</li>
+<li><strong>Increased Texture Units:</strong> WebGL1 requires
+implementations to support only 8 texture image units in the fragment
+stage. WebGL2 increases the mandatory minimum to 16. This doubling of
+texture units allows gpu.js kernels to accept more concurrent array
+arguments and large input matrices at once without running out of
+hardware sampler slots.</li>
+<li><strong>Native 3D Textures:</strong> When handling three-dimensional
+datasets, WebGL1 requires flattening the 3D space into a 2D mosaic
+texture, adding index calculation overhead in the generated shader code.
+WebGL2 introduces native 3D textures (<code>TEXTURE_3D</code>), enabling
+direct 3D array addressing and more efficient volumetric calculations
+inside gpu.js kernels.</li>
+</ul>
+<h3 id="enhanced-floating-point-precision-and-type-support">Enhanced
+Floating-Point Precision and Type Support</h3>
+<p>Precision limitations in WebGL1 frequently introduce floating-point
+drift and rounding errors. WebGL2 standardizes modern data
+representations:</p>
+<ul>
+<li><strong>Guaranteed 32-Bit Float Support:</strong> In WebGL1, 32-bit
+floating-point textures were dependent on optional vendor extensions
+(<code>OES_texture_float</code> and
+<code>WEBGL_color_buffer_float</code>). When these extensions were
+missing or read-only, gpu.js had to encode floating-point numbers across
+four 8-bit RGBA channels (byte-packing). WebGL2 makes high-precision
+floating-point formats like <code>R32F</code> and <code>RGBA32F</code>
+core capabilities, allowing direct reading and writing of standard IEEE
+754 single-precision floats without conversion overhead.</li>
+<li><strong>Native Integer and Bitwise Operations:</strong> WebGL1
+shaders rely on GLSL ES 1.00, which lacks genuine integer data types and
+native bitwise operators, forcing integer math to be approximated using
+floating-point operations. WebGL2 uses GLSL ES 3.00, introducing signed
+and unsigned integers (<code>int</code>, <code>uint</code>) along with
+native bitwise operators (<code>&lt;&lt;</code>, <code>&gt;&gt;</code>,
+<code>&amp;</code>, <code>|</code>, <code>^</code>, <code>~</code>).
+This ensures exact bit-level operations and eliminates precision
+degradation during integer-based computations in gpu.js.</li>
+<li><strong>Uniform High Precision:</strong> WebGL2 tightens precision
+qualifiers across implementations. Shaders can reliably utilize
+<code>highp</code> precision across both fragment and vertex stages,
+producing consistent, deterministic mathematical output across varied
+consumer hardware.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Block Matrix Multiplication in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement block matrix multiplication in gpu.js to optimize performance by taking advantage of GPU texture caches. Standard matrix multiplication quickly becomes memory-bandwidth bound on large datasets; by partitioning matri">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/block-matrix-multiplication-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Block Matrix Multiplication in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/block-matrix-multiplication-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement block matrix multiplication in gpu.js to optimize performance by taking advantage of GPU texture caches. Standard matrix multiplication quickly becomes memory-bandwidth bound on large datasets; by partitioning matri" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="block-matrix-multiplication-in-gpujs">Block Matrix
+Multiplication in gpu.js</h1>
+<p>This article explains how to implement block matrix multiplication in
+gpu.js to optimize performance by taking advantage of GPU texture
+caches. Standard matrix multiplication quickly becomes memory-bandwidth
+bound on large datasets; by partitioning matrices into smaller
+sub-blocks, memory access patterns can be aligned with the GPU's spatial
+2D texture cache. Below, we cover the underlying cache mechanics in
+WebGL-based compute shaders, the algorithmic design of tiled matrix
+multiplication, and a complete code implementation in gpu.js.</p>
+<h3 id="the-memory-bottleneck-in-webgl-and-gpujs">The Memory Bottleneck
+in WebGL and gpu.js</h3>
+<p>Under the hood, gpu.js compiles JavaScript functions into WebGL
+fragment shaders. In this architecture, matrices are stored as 2D
+floating-point textures rather than linear memory buffers.</p>
+<p>In a naive matrix multiplication kernel (<span
+class="math inline">\(C = A \times B\)</span>), every thread computes a
+single output element <span class="math inline">\(C[i][j]\)</span> by
+calculating the dot product of row <span
+class="math inline">\(i\)</span> of matrix <span
+class="math inline">\(A\)</span> and column <span
+class="math inline">\(j\)</span> of matrix <span
+class="math inline">\(B\)</span>:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> size<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  sum <span class="op">+=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">A</span>[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][k] <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">B</span>[k][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="cf">return</span> sum<span class="op">;</span></span></code></pre></div>
+<p>While row traversal along <span class="math inline">\(A\)</span>
+benefits from linear memory reads, traversing column <span
+class="math inline">\(j\)</span> in matrix <span
+class="math inline">\(B\)</span> causes strided texture lookups across
+different cache lines. For large matrices, this creates frequent cache
+thrashing and memory latency, underutilizing the GPU's arithmetic logic
+units (ALUs).</p>
+<h3 id="leveraging-the-2d-texture-cache-via-tiling">Leveraging the 2D
+Texture Cache via Tiling</h3>
+<p>Dedicated compute environments (like CUDA or WebGPU) use
+programmer-managed shared memory to stage data blocks. In WebGL 1.0 and
+2.0 (the backends for gpu.js), shared memory is unavailable. However,
+GPUs feature dedicated 2D texture caches designed for spatial locality,
+which cache small spatial rectangular regions (e.g., <span
+class="math inline">\(4 \times 4\)</span> or <span
+class="math inline">\(8 \times 8\)</span> texels) rather than purely
+contiguous 1D memory lines.</p>
+<p>To exploit this hardware feature, matrix multiplication is
+reformulated into blocks of size <span class="math inline">\(M \times
+M\)</span>. Instead of streaming arbitrary rows and columns, the inner
+loop processes blocks sequentially. By synchronizing the reads across
+adjacent threads, texels fetched from matrix <span
+class="math inline">\(A\)</span> and matrix <span
+class="math inline">\(B\)</span> remain resident in the L1/L2 texture
+cache lines long enough to serve neighboring threads executing
+concurrently in the same warp or wavefront.</p>
+<h3 id="implementation-in-gpujs">Implementation in gpu.js</h3>
+<p>To structure block execution, the loop traverses the inner dimension
+<span class="math inline">\(K\)</span> in increments of a fixed tile
+size (e.g., 16 or 32). Inside each step, an unrolled sub-loop iterates
+through the coordinates within that tile.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> MATRIX_SIZE <span class="op">=</span> <span class="dv">1024</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> TILE_SIZE <span class="op">=</span> <span class="dv">16</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> blockedMatrixMultiply <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">function</span> (A<span class="op">,</span> B) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> numTiles <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">matrixSize</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">tileSize</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> t <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> t <span class="op">&lt;</span> numTiles<span class="op">;</span> t<span class="op">++</span>) {</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> tileOffset <span class="op">=</span> t <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">tileSize</span><span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Iterate through the current block/tile</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>      <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">tileSize</span><span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> currentK <span class="op">=</span> tileOffset <span class="op">+</span> k<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> A[row][currentK] <span class="op">*</span> B[currentK][col]<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>  {</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="dt">constants</span><span class="op">:</span> {</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>      <span class="dt">matrixSize</span><span class="op">:</span> MATRIX_SIZE<span class="op">,</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>      <span class="dt">tileSize</span><span class="op">:</span> TILE_SIZE<span class="op">,</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [MATRIX_SIZE<span class="op">,</span> MATRIX_SIZE]<span class="op">,</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    <span class="dt">tiling</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span></code></pre></div>
+<h3 id="register-tiling-expanding-outputs-per-thread">Register Tiling:
+Expanding Outputs per Thread</h3>
+<p>To extract even higher throughput from the 2D texture cache, register
+tiling can be applied. In register tiling, each GPU thread calculates a
+small <span class="math inline">\(2 \times 2\)</span> or <span
+class="math inline">\(4 \times 4\)</span> sub-patch of the output matrix
+rather than just a single point.</p>
+<p>By fetching a value from <span class="math inline">\(A\)</span> and
+storing it in a local register, that value can be multiplied across
+multiple values of <span class="math inline">\(B\)</span> loaded from
+the texture cache, drastically reducing total memory fetch
+instructions:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tiledKernel2x2 <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">function</span> (A<span class="op">,</span> B) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> c00 <span class="op">=</span> <span class="fl">0.0</span><span class="op">,</span> c01 <span class="op">=</span> <span class="fl">0.0</span><span class="op">,</span> c10 <span class="op">=</span> <span class="fl">0.0</span><span class="op">,</span> c11 <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">size</span><span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> a0 <span class="op">=</span> A[row][k]<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> a1 <span class="op">=</span> A[row <span class="op">+</span> <span class="dv">1</span>][k]<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> b0 <span class="op">=</span> B[k][col]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> b1 <span class="op">=</span> B[k][col <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>      c00 <span class="op">+=</span> a0 <span class="op">*</span> b0<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>      c01 <span class="op">+=</span> a0 <span class="op">*</span> b1<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>      c10 <span class="op">+=</span> a1 <span class="op">*</span> b0<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>      c11 <span class="op">+=</span> a1 <span class="op">*</span> b1<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Pack or return based on output format requirements</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> c00<span class="op">;</span> </span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  {</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="dt">constants</span><span class="op">:</span> { <span class="dt">size</span><span class="op">:</span> MATRIX_SIZE }<span class="op">,</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [MATRIX_SIZE <span class="op">/</span> <span class="dv">2</span><span class="op">,</span> MATRIX_SIZE <span class="op">/</span> <span class="dv">2</span>]<span class="op">,</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span></code></pre></div>
+<h3 id="optimization-considerations">Optimization Considerations</h3>
+<ol type="1">
+<li><strong>Tile Dimension Alignment</strong>: Choose a
+<code>TILE_SIZE</code> that aligns with GPU warp/wavefront dimensions
+(typically multiples of 16 or 32). The total matrix dimension should
+ideally be evenly divisible by the tile size to avoid branching inside
+the shader loop.</li>
+<li><strong>Loop Unrolling</strong>: Modern WebGL drivers unroll small,
+fixed-size inner loops automatically when loop counts are constants.
+Defining <code>tileSize</code> inside <code>constants</code> allows the
+shader compiler to optimize register allocation and issue parallel
+texture fetches.</li>
+<li><strong>Pipelining</strong>: Setting <code>pipeline: true</code> in
+the kernel configuration ensures the output remains as a WebGL texture
+on the GPU, avoiding expensive memory transfers back to the CPU if
+further matrix operations follow.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

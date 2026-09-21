@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Computing HFT VWAP Curves with GPU.js - gpu.js</title>
+    <meta name="description" content="High-frequency trading (HFT) Volume-Weighted Average Price (VWAP) curves can be computed using gpu.js, but its practical viability depends heavily on whether the workload is historical backtesting or live execution. While gpu.js accelerates parallel comp">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/computing-hft-vwap-curves-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Computing HFT VWAP Curves with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/computing-hft-vwap-curves-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="High-frequency trading (HFT) Volume-Weighted Average Price (VWAP) curves can be computed using gpu.js, but its practical viability depends heavily on whether the workload is historical backtesting or live execution. While gpu.js accelerates parallel comp" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="computing-hft-vwap-curves-with-gpujs">Computing HFT VWAP Curves
+with GPU.js</h1>
+<p>High-frequency trading (HFT) Volume-Weighted Average Price (VWAP)
+curves can be computed using gpu.js, but its practical viability depends
+heavily on whether the workload is historical backtesting or live
+execution. While gpu.js accelerates parallel computations by transpiling
+JavaScript into WebGL shaders, the latency associated with transferring
+data between CPU and GPU memory makes it optimal for bulk post-trade
+analysis and backtesting rather than real-time, microsecond-level
+trading.</p>
+<h3 id="understanding-the-computational-demand-of-vwap">Understanding
+the Computational Demand of VWAP</h3>
+<p>VWAP is defined as the cumulative sum of price multiplied by volume
+divided by the cumulative sum of volume over a specified window:</p>
+<p><span class="math display">\[\text{VWAP} = \frac{\sum (P_i \times
+V_i)}{\sum V_i}\]</span></p>
+<p>In an HFT environment, tick data arrives at rates exceeding tens of
+thousands of updates per second per asset. Computing rolling or intraday
+VWAP curves across thousands of order books simultaneously creates an
+<span class="math inline">\(O(N)\)</span> prefix-sum or rolling
+reduction problem that demands significant floating-point
+throughput.</p>
+<h3 id="how-gpujs-executes-the-computation">How gpu.js Executes the
+Computation</h3>
+<p>gpu.js allows developers to write computational kernels in standard
+JavaScript, which are then compiled into WebGL or WebGPU shader
+code.</p>
+<p>To calculate VWAP curves across historical tick batches:</p>
+<ol type="1">
+<li><strong>Data Formatting:</strong> Prices and trade volumes are
+flattened into typed arrays (such as <code>Float32Array</code>) and
+loaded into the GPU as textures.</li>
+<li><strong>Parallel Reductions:</strong> A custom kernel runs across a
+defined thread dimension, where each thread calculates the cumulative
+values for a specific timestamp, bar, or rolling window.</li>
+<li><strong>Execution:</strong> The GPU executes parallel
+multiply-accumulate operations simultaneously across thousands of cores,
+producing an array containing the VWAP values.</li>
+</ol>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeVWAP <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(prices<span class="op">,</span> volumes<span class="op">,</span> windowSize) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> cumulativePV <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> cumulativeVol <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> endIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> startIdx <span class="op">=</span> endIdx <span class="op">-</span> windowSize <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (startIdx <span class="op">&lt;</span> <span class="dv">0</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        startIdx <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> startIdx<span class="op">;</span> i <span class="op">&lt;=</span> endIdx<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        cumulativePV <span class="op">+=</span> prices[i] <span class="op">*</span> volumes[i]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        cumulativeVol <span class="op">+=</span> volumes[i]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (cumulativeVol <span class="op">===</span> <span class="dv">0</span>) <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> cumulativePV <span class="op">/</span> cumulativeVol<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([tickCount])<span class="op">;</span></span></code></pre></div>
+<h3 id="architectural-bottlenecks">Architectural Bottlenecks</h3>
+<p>While the raw computation is trivial for modern graphics cards, using
+gpu.js for live HFT exposes critical architectural bottlenecks:</p>
+<ul>
+<li><strong>PCIe Transfer Latency:</strong> Moving streaming tick data
+from host system memory to GPU VRAM introduces a latency penalty ranging
+from tens of microseconds to milliseconds. In live HFT, where decisions
+must occur in single-digit microseconds or nanoseconds, this latency
+negates the benefits of GPU acceleration.</li>
+<li><strong>V8 Engine Jitter:</strong> JavaScript runs within an engine
+like V8 that uses asynchronous event loops and non-deterministic Garbage
+Collection (GC). GC pauses introduce unacceptable latency spikes (tail
+risk) in production trading pipelines.</li>
+<li><strong>Precision Constraints:</strong> Older WebGL implementations
+default to 32-bit single-precision floats (<code>float32</code>). In
+financial calculations involving high nominal sums over millions of
+trades, <code>float32</code> can introduce rounding errors. gpu.js
+handles double precision (<code>float64</code>) only if the underlying
+hardware and WebGL/WebGPU context support it, often with a significant
+performance penalty.</li>
+</ul>
+<h3 id="practical-applications">Practical Applications</h3>
+<p>gpu.js is well-suited for:</p>
+<ul>
+<li><strong>Large-Scale Backtesting:</strong> Processing gigabytes of
+historical trade data across multiple instruments in parallel.</li>
+<li><strong>Intraday Simulation:</strong> Evaluating trading algorithms
+against historical VWAP benchmarks simultaneously.</li>
+<li><strong>Data Visualization:</strong> Rendering real-time interactive
+charting dashboards in browser-based interfaces where display updates
+are synchronized with the monitor refresh rate (60–144 Hz).</li>
+</ul>
+<p>For live production execution in HFT, native implementations using
+C++, CUDA, OpenCL, or FPGAs deployed directly on network interface cards
+remain the standard approach.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Deconvolution with Richardson-Lucy in GPU.js - gpu.js</title>
+    <meta name="description" content="Image deconvolution using the Richardson-Lucy iterative algorithm can be effectively implemented in JavaScript using gpu.js. By translating the mathematical pipeline—consisting of spatial 2D convolutions, element-wise array divisions, and element-wise">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/image-deconvolution-with-richardson-lucy-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Image Deconvolution with Richardson-Lucy in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/image-deconvolution-with-richardson-lucy-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Image deconvolution using the Richardson-Lucy iterative algorithm can be effectively implemented in JavaScript using gpu.js. By translating the mathematical pipeline—consisting of spatial 2D convolutions, element-wise array divisions, and element-wise" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="image-deconvolution-with-richardson-lucy-in-gpujs">Image
+Deconvolution with Richardson-Lucy in GPU.js</h1>
+<p>Image deconvolution using the Richardson-Lucy iterative algorithm can
+be effectively implemented in JavaScript using gpu.js. By translating
+the mathematical pipeline—consisting of spatial 2D convolutions,
+element-wise array divisions, and element-wise multiplications—into
+WebGL-accelerated kernels, gpu.js allows developers to execute
+computationally demanding image restoration tasks directly on the GPU
+within a browser or Node.js environment.</p>
+<h3 id="the-richardson-lucy-algorithm-overview">The Richardson-Lucy
+Algorithm Overview</h3>
+<p>The Richardson-Lucy (RL) algorithm is an iterative technique designed
+to recover an underlying latent image that has been degraded by a known
+Point Spread Function (PSF) and Poisson noise. The update formula for
+iteration <span class="math inline">\(t+1\)</span> is defined
+mathematically as:</p>
+<p><span class="math display">\[I_{t+1} = I_t \odot \left( \frac{Y}{I_t
+* P} * P^* \right)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(I_t\)</span> represents the estimated
+image at iteration <span class="math inline">\(t\)</span>.</li>
+<li><span class="math inline">\(Y\)</span> is the observed blurry
+image.</li>
+<li><span class="math inline">\(P\)</span> is the known Point Spread
+Function.</li>
+<li><span class="math inline">\(P^*\)</span> is the flipped (adjoint)
+Point Spread Function.</li>
+<li><span class="math inline">\(*\)</span> denotes a 2D convolution
+operation.</li>
+<li><span class="math inline">\(\odot\)</span> denotes element-wise
+multiplication.</li>
+<li>The fraction denotes element-wise division.</li>
+</ul>
+<h3 id="implementing-the-steps-in-gpujs">Implementing the Steps in
+gpu.js</h3>
+<p>Because gpu.js compiles JavaScript functions into GLSL shaders that
+run on GPU textures, the algorithm must be broken into discrete kernel
+functions.</p>
+<h4 id="1-2d-convolution-kernel">1. 2D Convolution Kernel</h4>
+<p>Convolution is the heaviest computational component. In gpu.js, a 2D
+spatial convolution kernel slides the PSF matrix over the image
+matrix:</p>
+<ul>
+<li>The kernel iterates over the local neighborhood of each pixel using
+the dimensions of the PSF.</li>
+<li>Two convolution functions are needed (or one reusable parameterized
+function): forward convolution with <span
+class="math inline">\(P\)</span> and backward convolution with the
+mirrored PSF <span class="math inline">\(P^*\)</span>.</li>
+</ul>
+<h4 id="2-element-wise-division-kernel">2. Element-Wise Division
+Kernel</h4>
+<p>Once the current estimate is convolved with <span
+class="math inline">\(P\)</span>, the observed image <span
+class="math inline">\(Y\)</span> is divided by this blurred estimate. In
+gpu.js, this is a lightweight kernel mapping directly over pixel
+coordinates <code>(this.thread.x, this.thread.y)</code> that calculates
+<code>Y[y][x] / blurredEstimate[y][x]</code>. A small epsilon value
+should be added to the denominator to prevent division-by-zero errors in
+dark regions.</p>
+<h4 id="3-element-wise-multiplication-kernel">3. Element-Wise
+Multiplication Kernel</h4>
+<p>The result of the backward convolution is multiplied by the current
+estimate <span class="math inline">\(I_t\)</span>. Another basic gpu.js
+kernel takes the correction factor texture and multiplies it by the
+previous iteration's texture to produce <span
+class="math inline">\(I_{t+1}\)</span>.</p>
+<h3 id="optimization-and-pipelining">Optimization and Pipelining</h3>
+<p>Running dozens of iterations can create significant memory overhead
+if data is constantly transferred between CPU and GPU memory. To ensure
+high performance:</p>
+<ul>
+<li><strong>Use Kernel Pipelining:</strong> Configure all gpu.js kernels
+with <code>pipeline: true</code>. This keeps textures stored inside
+WebGL framebuffers on the GPU across all iterations, eliminating the
+overhead of transferring data back to JavaScript arrays until the final
+iteration completes.</li>
+<li><strong>Float Texture Support:</strong> Richardson-Lucy calculations
+require floating-point precision to prevent truncation artifacts. Ensure
+float textures are enabled in the gpu.js initialization settings.</li>
+<li><strong>Kernel Size Limits:</strong> Direct spatial convolution in
+gpu.js is <span class="math inline">\(O(N^2 \cdot K^2)\)</span> where
+<span class="math inline">\(N\)</span> is image dimension and <span
+class="math inline">\(K\)</span> is PSF dimension. This spatial approach
+works exceptionally well for small to moderate PSF kernels (e.g., up to
+<span class="math inline">\(15 \times 15\)</span> or <span
+class="math inline">\(31 \times 31\)</span>). For very large blur
+kernels, a Fast Fourier Transform (FFT) approach is mathematically
+superior, though implementing full 2D FFTs natively in gpu.js requires
+custom butterfly network kernels.</li>
+</ul>
+<h3 id="practical-conclusion">Practical Conclusion</h3>
+<p>Performing Richardson-Lucy deconvolution in gpu.js is entirely
+feasible and delivers significant speedups over CPU-bound JavaScript
+loops. By chaining spatial convolution, division, and multiplication
+kernels using pipeline mode, real-time or near-real-time optical
+restoration can be achieved entirely client-side.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

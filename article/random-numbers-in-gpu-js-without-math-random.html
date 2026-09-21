@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Random Numbers in GPU.js Without Math.random - gpu.js</title>
+    <meta name="description" content="This article explains how to generate pseudo-random numbers inside GPU.js kernels where JavaScript's native Math.random() is unavailable. Because GPU.js compiles kernel functions into WebGL shaders, threads run strictly in parallel without access to nati">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/random-numbers-in-gpu-js-without-math-random">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Random Numbers in GPU.js Without Math.random - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/random-numbers-in-gpu-js-without-math-random" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to generate pseudo-random numbers inside GPU.js kernels where JavaScript's native Math.random() is unavailable. Because GPU.js compiles kernel functions into WebGL shaders, threads run strictly in parallel without access to nati" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="random-numbers-in-gpujs-without-mathrandom">Random Numbers in
+GPU.js Without Math.random</h1>
+<p>This article explains how to generate pseudo-random numbers inside
+GPU.js kernels where JavaScript's native <code>Math.random()</code> is
+unavailable. Because GPU.js compiles kernel functions into WebGL
+shaders, threads run strictly in parallel without access to native
+CPU-bound JavaScript APIs. You will learn how to implement deterministic
+mathematical hash functions using thread coordinates and seed values to
+produce uniform pseudo-random numbers directly on the GPU.</p>
+<h2 id="why-mathrandom-fails-in-gpujs">Why Math.random() Fails in
+GPU.js</h2>
+<p>When GPU.js compiles a JavaScript function into a GLSL shader, it
+only supports a subset of standard JavaScript operations. Shaders are
+stateless and execute concurrently across hundreds or thousands of GPU
+cores.</p>
+<p>Native <code>Math.random()</code> relies on internal state that
+mutates with every call on a single CPU thread. In a massively parallel
+GPU architecture, shared mutable state causes race conditions and severe
+performance penalties. Consequently, GPU.js does not transpile
+<code>Math.random()</code>, and attempting to use it inside a kernel
+will result in a compilation error.</p>
+<h2 id="the-solution-hash-based-prngs">The Solution: Hash-Based
+PRNGs</h2>
+<p>To generate pseudo-random numbers on the GPU, you must use a
+stateless Pseudo-Random Number Generator (PRNG). These functions take
+deterministic inputs—such as the thread's coordinate indices
+(<code>this.thread.x</code>, <code>this.thread.y</code>) and an external
+seed—and pass them through a mathematical hash function that produces an
+apparently random float between <code>0.0</code> and
+<code>1.0</code>.</p>
+<h3 id="the-canonical-sine-fraction-hash">The Canonical Sine-Fraction
+Hash</h3>
+<p>The most common shader-based pseudo-random function relies on a
+high-frequency sine wave and fractional extraction:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">pseudoRandom</span>(x<span class="op">,</span> y<span class="op">,</span> seed) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> n <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> seed) <span class="op">*</span> <span class="fl">43758.5453123</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> n <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(n)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>This function performs two main tasks:</p>
+<ol type="1">
+<li>Calculates a dot product between the thread coordinates and two
+distinct prime-derived constants, offset by an external seed.</li>
+<li>Multiplies the sine of the result by a large scalar
+(<code>43758.5453123</code>) and extracts the fractional part
+(<code>n - Math.floor(n)</code>), which yields a uniform distribution in
+the range <code>[0, 1)</code>.</li>
+</ol>
+<h2 id="implementing-the-prng-in-gpujs">Implementing the PRNG in
+GPU.js</h2>
+<p>To use the pseudo-random generator inside a GPU.js kernel, register
+the function using <code>gpu.addFunction()</code> or write it inline
+within the kernel.</p>
+<h3 id="full-implementation-example">Full Implementation Example</h3>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// 1. Register the PRNG function with GPU.js</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(<span class="kw">function</span> <span class="fu">pseudoRandom</span>(x<span class="op">,</span> y<span class="op">,</span> seed) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> n <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> seed) <span class="op">*</span> <span class="fl">43758.5453123</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> n <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(n)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="co">// 2. Create the kernel</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> generateRandomMatrix <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(seed) {</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> randVal <span class="op">=</span> <span class="fu">pseudoRandom</span>(<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">,</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">,</span> seed)<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> randVal<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co">// 3. Execute the kernel with an external seed</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> seed <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> randomMatrix <span class="op">=</span> <span class="fu">generateRandomMatrix</span>(seed)<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(randomMatrix)<span class="op">;</span></span></code></pre></div>
+<h2 id="best-practices-for-gpu-randomness">Best Practices for GPU
+Randomness</h2>
+<ul>
+<li><strong>Vary the Seed Per Frame:</strong> If you run the kernel in
+an animation loop or successive iterations, pass an updated seed (such
+as an incremental frame index or <code>performance.now()</code>) on
+every run. Without changing the seed, the kernel will output identical
+values across invocations.</li>
+<li><strong>3D Kernels:</strong> For three-dimensional kernels,
+incorporate <code>this.thread.z</code> with a third distinct factor:
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">pseudoRandom3D</span>(x<span class="op">,</span> y<span class="op">,</span> z<span class="op">,</span> seed) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> n <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> z <span class="op">*</span> <span class="fl">37.719</span> <span class="op">+</span> seed) <span class="op">*</span> <span class="fl">43758.5453123</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> n <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(n)<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div></li>
+<li><strong>Precision Awareness:</strong> The sine-based hash relies on
+32-bit floating-point precision. On certain low-end mobile GPUs with low
+float precision, artifacts or banding patterns may appear. In such
+cases, keep seed values within reasonable bounds (e.g., modulo the seed
+between <code>0</code> and <code>10000</code>) to avoid loss of
+precision in the multiplication step.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Maps Math.sin and Math.cos to Native GPU - gpu.js</title>
+    <meta name="description" content="This article explains the underlying translation pipeline used by gpu.js to execute JavaScript trigonometric functions on graphics hardware. By parsing JavaScript code into an Abstract Syntax Tree (AST), transpiling high-level mathematical calls into Ope">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-maps-math-sin-and-math-cos-to-native-gpu">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Maps Math.sin and Math.cos to Native GPU - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-maps-math-sin-and-math-cos-to-native-gpu" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains the underlying translation pipeline used by gpu.js to execute JavaScript trigonometric functions on graphics hardware. By parsing JavaScript code into an Abstract Syntax Tree (AST), transpiling high-level mathematical calls into Ope" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-maps-mathsin-and-mathcos-to-native-gpu">How gpu.js
+Maps Math.sin and Math.cos to Native GPU</h1>
+<p>This article explains the underlying translation pipeline used by
+gpu.js to execute JavaScript trigonometric functions on graphics
+hardware. By parsing JavaScript code into an Abstract Syntax Tree (AST),
+transpiling high-level mathematical calls into OpenGL Shading Language
+(GLSL), and leveraging the graphics driver’s shader compiler, gpu.js
+bridges the gap between the JavaScript runtime and native GPU Special
+Function Units (SFUs) that execute sine and cosine calculations at the
+silicon level.</p>
+<h3 id="javascript-ast-parsing">JavaScript AST Parsing</h3>
+<p>When you define a kernel in gpu.js, the library does not execute the
+function directly within the JavaScript engine. Instead, it extracts the
+function's source string and parses it into an Abstract Syntax Tree
+(AST) using a JavaScript parser (such as Acorn).</p>
+<p>During this traversal, the compiler watches for
+<code>CallExpression</code> nodes where the <code>callee</code> matches
+a member expression on the global <code>Math</code> object, specifically
+<code>Math.sin</code> and <code>Math.cos</code>. Once identified, the
+compiler flags these nodes for mathematical translation rather than
+standard JavaScript method dispatch.</p>
+<h3 id="transpilation-to-glsl">Transpilation to GLSL</h3>
+<p>After extracting the mathematical calls, gpu.js runs an internal GLSL
+code generator that converts the JavaScript AST into a WebGL fragment
+shader or compute shader.</p>
+<p>In OpenGL Shading Language (GLSL), trigonometry is supported out of
+the box through standard built-in functions. The gpu.js transpiler
+performs a direct name and signature substitution:</p>
+<ul>
+<li><code>Math.sin(x)</code> is rewritten as <code>sin(x)</code></li>
+<li><code>Math.cos(x)</code> is rewritten as <code>cos(x)</code></li>
+</ul>
+<p>The transpiler also ensures that arguments passed into these
+functions are cast to or maintained as standard floating-point types
+(<code>float</code>), matching GLSL's strict typing requirements.</p>
+<h3 id="webgl-shader-compilation-and-driver-optimization">WebGL Shader
+Compilation and Driver Optimization</h3>
+<p>Once the GLSL string is generated, gpu.js passes the shader code to
+the browser’s WebGL context via <code>gl.shaderSource()</code> and
+triggers compilation with <code>gl.compileShader()</code>.</p>
+<p>At this point, the host machine's graphics driver takes over. The
+driver contains an architecture-specific compiler that translates the
+high-level GLSL into the GPU's intermediate representation or native
+Machine Instruction Set Architecture (ISA). The driver recognizes GLSL's
+intrinsic <code>sin</code> and <code>cos</code> functions and maps them
+directly to the GPU's hardware instruction set rather than generating
+complex software-based polynomial expansion loops.</p>
+<h3 id="hardware-execution-via-special-function-units-sfus">Hardware
+Execution via Special Function Units (SFUs)</h3>
+<p>Modern GPU architectures (such as NVIDIA, AMD, Intel, and Apple
+Silicon) contain dedicated hardware blocks known as Special Function
+Units (SFUs) or Special Execution Units.</p>
+<p>When the compiled shader runs on the streaming multiprocessors:</p>
+<ol type="1">
+<li>The GPU scheduler routes the trigonometry instructions directly to
+the SFUs.</li>
+<li>The SFU executes hardware-level algorithms (often based on
+hardware-implemented Taylor series, minimax polynomial approximations,
+or CORDIC algorithms) to evaluate the trigonometric result in very few
+clock cycles.</li>
+<li>The result is returned directly to the general-purpose register file
+for subsequent kernel operations.</li>
+</ol>
+<h3 id="precision-differences">Precision Differences</h3>
+<p>Because <code>Math.sin</code> and <code>Math.cos</code> in standard
+JavaScript engines follow double-precision (64-bit) IEEE 754
+floating-point standards, results calculated via gpu.js may show slight
+precision variations. Most WebGL contexts target single-precision
+(32-bit) floats or lower, and hardware SFU implementations prioritize
+throughput over extreme precision, resulting in native, high-speed
+execution tailored for parallel computational workloads.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

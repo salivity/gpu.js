@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Serializes Data for the GPU - gpu.js</title>
+    <meta name="description" content="This article explains the internal mechanism gpu.js uses to convert JavaScript argument data into formats compatible with graphics hardware. While scalar primitives are converted directly into GLSL uniforms, complex multi-dimensional arrays cannot fit in">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-serializes-data-for-the-gpu">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Serializes Data for the GPU - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-serializes-data-for-the-gpu" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains the internal mechanism gpu.js uses to convert JavaScript argument data into formats compatible with graphics hardware. While scalar primitives are converted directly into GLSL uniforms, complex multi-dimensional arrays cannot fit in" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-serializes-data-for-the-gpu">How gpu.js Serializes
+Data for the GPU</h1>
+<p>This article explains the internal mechanism gpu.js uses to convert
+JavaScript argument data into formats compatible with graphics hardware.
+While scalar primitives are converted directly into GLSL uniforms,
+complex multi-dimensional arrays cannot fit into standard uniform
+registers. Instead, gpu.js flattens these data structures, converts them
+into typed arrays, and packs them into WebGL textures to be sampled
+inside the compiled shader.</p>
+<h3 id="primitive-types-and-uniform-mapping">Primitive Types and Uniform
+Mapping</h3>
+<p>When arguments are simple scalar values, such as numbers or booleans,
+gpu.js handles them directly using WebGL uniforms. The library inspects
+the runtime type of each parameter and matches it to the corresponding
+WebGL API call:</p>
+<ul>
+<li><strong>Floats and Integers:</strong> Passed to the GPU via calls
+such as <code>gl.uniform1f</code> or <code>gl.uniform1i</code>.</li>
+<li><strong>Booleans:</strong> Converted into integers (<code>1</code>
+or <code>0</code>) and uploaded as integer uniforms.</li>
+</ul>
+<p>Because uniforms reside in constant register memory accessible by all
+GPU threads, passing primitives requires almost no serialization
+overhead.</p>
+<h3 id="array-flattening-and-typedarray-conversion">Array Flattening and
+TypedArray Conversion</h3>
+<p>GLSL kernels cannot directly consume standard dynamic JavaScript
+arrays. To prepare arrays (1D, 2D, or 3D) for the GPU, gpu.js serializes
+them into flat, continuous blocks of memory:</p>
+<ol type="1">
+<li><strong>Shape Detection:</strong> The library recursively reads the
+dimensions of the input array to determine its rank (1D, 2D, or 3D) and
+size.</li>
+<li><strong>Flattening:</strong> Nested arrays are unrolled into a
+single continuous sequence.</li>
+<li><strong>TypedArray Instantiation:</strong> The flattened values are
+cast into a typed array, predominantly a <code>Float32Array</code>.</li>
+</ol>
+<p>This step eliminates JavaScript's dynamic array overhead and arranges
+the values into a layout that graphics memory can parse directly.</p>
+<h3 id="texture-packing">Texture Packing</h3>
+<p>WebGL limits the maximum size and memory footprint of standard
+uniform buffers. To handle large datasets, gpu.js serializes flattened
+arrays into 2D WebGL textures rather than uniform buffers:</p>
+<ul>
+<li><strong>Dimension Calculation:</strong> Textures must conform to the
+GPU's maximum texture size constraints. gpu.js calculates an optimal 2D
+dimension (width and height) capable of containing the total number of
+elements.</li>
+<li><strong>Channel Mapping:</strong> WebGL textures store data in pixel
+channels (Red, Green, Blue, Alpha). If WebGL 2 or floating-point texture
+extensions (<code>OES_texture_float</code>) are available, data can be
+written directly to floating-point textures. When limited to standard
+8-bit RGBA textures, gpu.js encodes 32-bit floating-point numbers across
+the four 8-bit color channels (RGBA) using bitwise operations.</li>
+<li><strong>GPU Upload:</strong> The serialized typed array is bound to
+a texture target and uploaded to VRAM using
+<code>gl.texImage2D</code>.</li>
+</ul>
+<h3 id="accompanying-metadata-uniforms">Accompanying Metadata
+Uniforms</h3>
+<p>Along with the encoded texture, gpu.js automatically sends metadata
+to the shader program via standard uniforms. This metadata includes:</p>
+<ul>
+<li>The texture's width and height.</li>
+<li>The original shape dimensions of the input array.</li>
+<li>Bit-depth and decoding flags (if byte-packing was used).</li>
+</ul>
+<p>The auto-generated GLSL kernel uses this metadata to map array
+indices (such as <code>arr[y][x]</code>) back to precise texture
+coordinates (<code>u, v</code>), decode the pixel values, and retrieve
+the original values inside the compute loop.</p>
+<h3 id="texture-optimization-texture-pipelining">Texture Optimization
+(Texture Pipelining)</h3>
+<p>If the output of a preceding kernel is passed directly as an argument
+to a subsequent kernel, gpu.js bypasses serialization entirely. The
+output remains in GPU VRAM as a WebGL texture, skipping both the
+readback to JavaScript memory and the subsequent re-flattening step.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

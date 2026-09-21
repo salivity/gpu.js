@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docker Buildpack Setup for gpu.js Headless WebGL - gpu.js</title>
+    <meta name="description" content="Running gpu.js in a headless Node.js environment requires compiling native OpenGL bindings such as headless-gl, which fail to build without specific operating system graphics libraries and C++ build tools. Because standard Cloud Native Buildpacks (CNBs)">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/docker-buildpack-setup-for-gpu-js-headless-web-gl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Docker Buildpack Setup for gpu.js Headless WebGL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/docker-buildpack-setup-for-gpu-js-headless-web-gl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running gpu.js in a headless Node.js environment requires compiling native OpenGL bindings such as headless-gl, which fail to build without specific operating system graphics libraries and C++ build tools. Because standard Cloud Native Buildpacks (CNBs)" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="docker-buildpack-setup-for-gpujs-headless-webgl">Docker
+Buildpack Setup for gpu.js Headless WebGL</h1>
+<p>Running <code>gpu.js</code> in a headless Node.js environment
+requires compiling native OpenGL bindings such as
+<code>headless-gl</code>, which fail to build without specific operating
+system graphics libraries and C++ build tools. Because standard Cloud
+Native Buildpacks (CNBs) for Node.js use minimal base images lacking
+these native C/C++ and Mesa libraries, you must inject system packages
+before the Node.js buildpack runs. This guide walks you through
+configuring buildpack declarations, defining system package
+requirements, and building a container capable of compiling and running
+WebGL natively.</p>
+<h3 id="1-identify-required-native-dependencies">1. Identify Required
+Native Dependencies</h3>
+<p>The underlying engine used by <code>gpu.js</code> for server-side
+WebGL compilation requires the following Ubuntu/Debian native
+libraries:</p>
+<ul>
+<li><code>build-essential</code> and <code>python3</code>: Required by
+<code>node-gyp</code> to compile native C++ addons.</li>
+<li><code>libxi-dev</code>: Provides X11 Input extension headers.</li>
+<li><code>libglu1-mesa-dev</code> and <code>libglew-dev</code>: Provides
+OpenGL Utility and Extension Wrangler libraries.</li>
+<li><code>mesa-common-dev</code>: Provides core Mesa graphics
+headers.</li>
+<li><code>libxext-dev</code>: Provides common X extensions.</li>
+</ul>
+<h3 id="2-configure-the-apt-package-definition">2. Configure the Apt
+Package Definition</h3>
+<p>To make these libraries available during the build lifecycle, create
+an <code>Aptfile</code> in the root directory of your project:</p>
+<pre class="text"><code>build-essential
+python3
+libxi-dev
+libglu1-mesa-dev
+libglew-dev
+mesa-common-dev
+libxext-dev</code></pre>
+<h3 id="3-configure-the-buildpack-ordering-with-projecttoml">3.
+Configure the Buildpack Ordering with <code>project.toml</code></h3>
+<p>Cloud Native Buildpacks execute sequentially. The system package
+buildpack must run first so the headers and shared objects are available
+on the system path when the Node.js buildpack executes
+<code>npm install</code>.</p>
+<p>Create a <code>project.toml</code> file in the root of your
+application to chain the Paketo Apt buildpack before the Node.js
+buildpack:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode toml"><code class="sourceCode toml"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">[_]</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="dt">schema-version</span> <span class="op">=</span> <span class="st">&quot;0.2&quot;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">[build]</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="dt">exclude</span> <span class="op">=</span> <span class="op">[</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;.git&quot;</span><span class="op">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">&quot;node_modules&quot;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="op">]</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">[[build.buildpacks]]</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="dt">uri</span> <span class="op">=</span> <span class="st">&quot;paketo-buildpacks/apt&quot;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="kw">[[build.buildpacks]]</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="dt">uri</span> <span class="op">=</span> <span class="st">&quot;paketo-buildpacks/nodejs&quot;</span></span></code></pre></div>
+<p>If you are using Heroku buildpacks instead of Paketo, define your
+buildpacks via the CLI or inside <code>app.json</code>:</p>
+<ol type="1">
+<li><code>heroku-community/apt</code></li>
+<li><code>heroku/nodejs</code></li>
+</ol>
+<h3 id="4-build-the-docker-image-with-pack-cli">4. Build the Docker
+Image with Pack CLI</h3>
+<p>Use the Cloud Native Buildpacks <code>pack</code> CLI to compile the
+container. Ensure you select a builder stack that includes the base
+system libraries needed for development:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pack</span> build my-gpu-app <span class="dt">\</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">--builder</span> pkt/builder-jammy-base <span class="dt">\</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">--descriptor</span> project.toml</span></code></pre></div>
+<p>During the build phase, the Apt buildpack reads your
+<code>Aptfile</code>, downloads the <code>.deb</code> archives, unpacks
+them into a build layer, and exports the <code>CPATH</code>,
+<code>LIBRARY_PATH</code>, and <code>LD_LIBRARY_PATH</code> environment
+variables. The Node.js buildpack then detects <code>package.json</code>,
+invokes <code>node-gyp rebuild</code> for <code>gpu.js</code>
+dependencies, and links against the Mesa and GLEW headers provided by
+the preceding layer.</p>
+<h3 id="5-verify-headless-execution">5. Verify Headless Execution</h3>
+<p>When running the container, software rendering via Mesa will handle
+WebGL instructions if no physical GPU hardware is passed through. Ensure
+your runtime environment has access to sufficient shared memory
+(<code>--shm-size=1g</code> or larger) to avoid buffer allocation errors
+during heavy compute tasks:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">docker</span> run <span class="at">--rm</span> <span class="at">-it</span> <span class="at">--shm-size</span><span class="op">=</span>1g my-gpu-app</span></code></pre></div></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

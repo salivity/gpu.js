@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accessing Properties on Null in GPU.js Kernels - gpu.js</title>
+    <meta name="description" content="When a kernel in GPU.js attempts to access properties on a null argument, the operation fails and triggers a host-side JavaScript runtime exception (typically a TypeError). Because GPU.js relies on CPU-side JavaScript to parse arguments and prepare GPU u">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/accessing-properties-on-null-in-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Accessing Properties on Null in GPU.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/accessing-properties-on-null-in-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When a kernel in GPU.js attempts to access properties on a null argument, the operation fails and triggers a host-side JavaScript runtime exception (typically a TypeError). Because GPU.js relies on CPU-side JavaScript to parse arguments and prepare GPU u" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="accessing-properties-on-null-in-gpujs-kernels">Accessing
+Properties on Null in GPU.js Kernels</h1>
+<p>When a kernel in GPU.js attempts to access properties on a
+<code>null</code> argument, the operation fails and triggers a host-side
+JavaScript runtime exception (typically a <code>TypeError</code>).
+Because GPU.js relies on CPU-side JavaScript to parse arguments and
+prepare GPU uniforms or textures before execution, passing
+<code>null</code> where an object or array is expected halts the process
+before any GPU shader code can run.</p>
+<h2 id="why-the-error-occurs">Why the Error Occurs</h2>
+<p>GPU.js works by transpiling JavaScript functions into WebGL shaders
+(GLSL). Unlike JavaScript, GLSL is a statically typed language that does
+not possess dynamic objects, references, or a <code>null</code>
+primitive.</p>
+<p>When you invoke a compiled kernel with arguments, the GPU.js runtime
+performs two critical tasks on the CPU before launching the GPU
+pipeline:</p>
+<ol type="1">
+<li><strong>Type and Dimension Inspection:</strong> GPU.js inspects
+arguments to determine how to upload them to the GPU. For arrays and
+objects, it checks properties such as <code>.length</code> or individual
+fields to construct textures or uniforms.</li>
+<li><strong>Uniform Binding:</strong> The CPU assigns the input values
+to the appropriate WebGL uniform locations.</li>
+</ol>
+<p>If an argument is passed as <code>null</code> and your kernel code
+attempts property access (such as <code>arg.x</code> or
+<code>arg[0]</code>), the CPU-side preparation logic immediately fails
+when attempting to read the underlying data structure, resulting in:</p>
+<pre class="text"><code>TypeError: Cannot read properties of null (reading &#39;...&#39;)</code></pre>
+<h2 id="behavior-in-gpu-mode-vs-cpu-fallback-mode">Behavior in GPU Mode
+vs. CPU Fallback Mode</h2>
+<p>The failure manifests slightly differently depending on the execution
+mode, but both result in an immediate crash:</p>
+<ul>
+<li><strong>WebGL / WebGL2 Mode:</strong> The error is raised on the CPU
+during the argument serialization and validation phase. The GPU never
+receives the execution command, preventing invalid memory reads or
+shader crashes at the hardware level.</li>
+<li><strong>CPU Fallback Mode:</strong> If GPU.js falls back to
+JavaScript execution (for debugging or on unsupported hardware),
+standard JavaScript rules apply. The kernel function executes as a
+regular loop on the CPU, directly hitting the property access on
+<code>null</code> and throwing an identical <code>TypeError</code>.</li>
+</ul>
+<h2 id="transpilation-restrictions">Transpilation Restrictions</h2>
+<p>GLSL cannot handle dynamic null-checking. In standard JavaScript, you
+might write code like:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> val <span class="op">=</span> myArg <span class="op">?</span> myArg<span class="op">.</span><span class="at">property</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span></code></pre></div>
+<p>GPU.js cannot transpile this pattern into valid GLSL if
+<code>myArg</code> is an object. GLSL requires fixed uniform structures
+defined at compile time. Therefore, attempting to pass optional or
+nullable objects directly into a kernel is not supported by the
+underlying abstraction.</p>
+<h2 id="how-to-prevent-the-error">How to Prevent the Error</h2>
+<p>To avoid runtime exceptions when working with potentially null
+data:</p>
+<ul>
+<li><strong>Validate Arguments Host-Side:</strong> Ensure all arguments
+are non-null and fully populated prior to calling the kernel.</li>
+<li><strong>Deconstruct Objects:</strong> Pass individual primitive
+values (numbers, floats, or booleans) instead of complex objects
+containing nullable fields.</li>
+<li><strong>Use Sentinel Values:</strong> If an input must represent an
+empty state, pass a typed array filled with predefined sentinel values
+(such as <code>-1</code> or <code>0</code>) alongside an explicit flag
+parameter rather than passing <code>null</code>.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

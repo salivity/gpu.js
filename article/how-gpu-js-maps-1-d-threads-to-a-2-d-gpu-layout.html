@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Maps 1D Threads to a 2D GPU Layout - gpu.js</title>
+    <meta name="description" content="When running a 1D kernel in gpu.js, the library must bridge the gap between abstract 1D thread arrays and the underlying hardware constraints of WebGL, which requires rendering to 2D textures. This article explains how gpu.js calculates the internal 2D t">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-maps-1-d-threads-to-a-2-d-gpu-layout">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Maps 1D Threads to a 2D GPU Layout - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-maps-1-d-threads-to-a-2-d-gpu-layout" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When running a 1D kernel in gpu.js, the library must bridge the gap between abstract 1D thread arrays and the underlying hardware constraints of WebGL, which requires rendering to 2D textures. This article explains how gpu.js calculates the internal 2D t" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-maps-1d-threads-to-a-2d-gpu-layout">How gpu.js Maps 1D
+Threads to a 2D GPU Layout</h1>
+<p>When running a 1D kernel in gpu.js, the library must bridge the gap
+between abstract 1D thread arrays and the underlying hardware
+constraints of WebGL, which requires rendering to 2D textures. This
+article explains how gpu.js calculates the internal 2D texture
+dimensions, transforms 2D fragment coordinates into linear thread
+indices inside the generated shader, and handles boundaries when packing
+1D data into a 2D grid.</p>
+<h3 id="the-webgl-texture-limitation">The WebGL Texture Limitation</h3>
+<p>Under the hood, gpu.js utilizes WebGL 1 or WebGL 2 to execute
+computations on the GPU. WebGL does not natively support arbitrary 1D
+compute buffers; instead, it executes fragment shaders over a 2D canvas
+and writes results to 2D textures bound to a framebuffer. Consequently,
+any output specified as a 1D array (e.g., <code>output: [N]</code>) must
+be mapped onto a 2D surface of dimensions <span
+class="math inline">\((W, H)\)</span>.</p>
+<h3 id="calculating-texture-dimensions">Calculating Texture
+Dimensions</h3>
+<p>To determine the width (<span class="math inline">\(W\)</span>) and
+height (<span class="math inline">\(H\)</span>) of the internal 2D
+texture, gpu.js checks the GPU's <code>MAX_TEXTURE_SIZE</code>
+capability via the WebGL context. The calculation generally follows a
+row-major packing strategy:</p>
+<ol type="1">
+<li><strong>Width (<span class="math inline">\(W\)</span>):</strong> Set
+to <span class="math inline">\(\min(N,
+\text{MAX\_TEXTURE\_SIZE})\)</span>. If the requested output size <span
+class="math inline">\(N\)</span> fits within the maximum
+single-dimension limit, the width is simply <span
+class="math inline">\(N\)</span>.</li>
+<li><strong>Height (<span class="math inline">\(H\)</span>):</strong>
+Set to <span class="math inline">\(\lceil N / W \rceil\)</span>. If
+<span class="math inline">\(N\)</span> exceeds the maximum texture
+width, the grid wraps into multiple rows, incrementing the height to
+accommodate the remaining threads.</li>
+</ol>
+<p>This creates the smallest rectangular texture grid that can contain
+all <span class="math inline">\(N\)</span> requested threads.</p>
+<h3 id="translating-2d-fragments-to-1d-thread-indices">Translating 2D
+Fragments to 1D Thread Indices</h3>
+<p>During execution, the GPU runs the compiled fragment shader for every
+pixel in the <span class="math inline">\(W \times H\)</span> grid. The
+shader accesses its current pixel position using the built-in GLSL
+variable <code>gl_FragCoord</code>. Because <code>gl_FragCoord</code>
+references pixel centers (offset by 0.5), gpu.js generates GLSL code
+that rounds or floors these coordinates to obtain integer pixel
+coordinates:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> x <span class="op">=</span> <span class="dt">int</span><span class="op">(</span><span class="bu">floor</span><span class="op">(</span><span class="bu">gl_FragCoord</span><span class="op">.</span><span class="fu">x</span><span class="op">));</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> y <span class="op">=</span> <span class="dt">int</span><span class="op">(</span><span class="bu">floor</span><span class="op">(</span><span class="bu">gl_FragCoord</span><span class="op">.</span><span class="fu">y</span><span class="op">));</span></span></code></pre></div>
+<p>To map these 2D coordinates back to the single thread index expected
+by the user kernel, gpu.js applies standard linear indexing:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> threadIndex <span class="op">=</span> y <span class="op">*</span> textureWidth <span class="op">+</span> x<span class="op">;</span></span></code></pre></div>
+<p>Within the context of your JavaScript kernel function, this
+calculated <code>threadIndex</code> is injected as
+<code>this.thread.x</code>. For 1D outputs, <code>this.thread.y</code>
+and <code>this.thread.z</code> are omitted or default to 0.</p>
+<h3 id="handling-overflows-and-boundaries">Handling Overflows and
+Boundaries</h3>
+<p>Because texture dimensions are rectangular, the total capacity <span
+class="math inline">\(W \times H\)</span> may exceed the requested 1D
+thread count <span class="math inline">\(N\)</span>. To prevent extra
+pixels from calculating invalid data or corrupting memory, gpu.js
+injects boundary guard checks directly into the preamble of the fragment
+shader:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> <span class="op">(</span>threadIndex <span class="op">&gt;=</span> totalOutputLength<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">discard</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>If a thread falls outside the range of <span
+class="math inline">\(N\)</span>, the <code>discard</code> directive
+halts shader execution for that fragment, ensuring no invalid writes
+occur.</p>
+<h3 id="data-readback-and-formatting">Data Readback and Formatting</h3>
+<p>Once computation completes, the 2D texture data is read back to the
+CPU using WebGL's <code>gl.readPixels()</code>. This returns a flattened
+typed array extracted row-by-row. Because the internal layout was
+arranged in row-major order, the resulting raw memory is already
+sequential. gpu.js then slices the array to the exact length <span
+class="math inline">\(N\)</span>, discarding any padding introduced by
+the 2D dimension rounding, and returns the result as a standard 1D
+JavaScript array or typed array.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

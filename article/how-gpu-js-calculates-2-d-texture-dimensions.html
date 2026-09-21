@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Calculates 2D Texture Dimensions - gpu.js</title>
+    <meta name="description" content="When running general-purpose computations on the GPU using WebGL, gpu.js must store output data inside 2D textures because graphics hardware natively operates on two-dimensional raster grids. When an output array is one-dimensional, it frequently exceeds">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-calculates-2-d-texture-dimensions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Calculates 2D Texture Dimensions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-calculates-2-d-texture-dimensions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When running general-purpose computations on the GPU using WebGL, gpu.js must store output data inside 2D textures because graphics hardware natively operates on two-dimensional raster grids. When an output array is one-dimensional, it frequently exceeds" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-calculates-2d-texture-dimensions">How GPU.js
+Calculates 2D Texture Dimensions</h1>
+<p>When running general-purpose computations on the GPU using WebGL,
+gpu.js must store output data inside 2D textures because graphics
+hardware natively operates on two-dimensional raster grids. When an
+output array is one-dimensional, it frequently exceeds the
+hardware-imposed limits of a single texture row. To bypass this
+limitation, gpu.js automatically packs the flat array into an optimal
+two-dimensional texture. This article details the mathematical
+calculation, hardware limit checks, and indexing formulas gpu.js uses to
+convert large 1D output buffers into efficient 2D textures.</p>
+<h2 id="the-webgl-hardware-constraint">The WebGL Hardware
+Constraint</h2>
+<p>Graphics processing units expose a hardware limit via the WebGL
+context through <code>gl.getParameter(gl.MAX_TEXTURE_SIZE)</code>. On
+modern hardware, this value is typically 4,096, 8,192, or 16,384 pixels
+along any single axis.</p>
+<p>If a 1D output array requires 1,000,000 elements, it cannot be
+represented as a 1D texture of dimension <code>[1000000, 1]</code>
+because <code>1,000,000</code> exceeds <code>MAX_TEXTURE_SIZE</code>.
+The kernel must fold the 1D data into a 2D grid
+<code>[width, height]</code> where both axes remain strictly within the
+maximum allowed boundary.</p>
+<h2 id="the-optimal-dimension-algorithm">The Optimal Dimension
+Algorithm</h2>
+<p>To calculate the dimensions, gpu.js utilizes internal utility logic
+that balances GPU memory locality, texture size limits, and shader index
+calculation overhead:</p>
+<ol type="1">
+<li><strong>Direct Fitting Check</strong>: If the total size of the 1D
+array (<span class="math inline">\(N\)</span>) is less than or equal to
+<code>MAX_TEXTURE_SIZE</code>, gpu.js can simply allocate a texture of
+<code>[N, 1]</code>. In this scenario, no folding is required.</li>
+<li><strong>Square Approximation</strong>: If <span
+class="math inline">\(N &gt; \text{MAX\_TEXTURE\_SIZE}\)</span>, the
+library attempts to make the texture as close to a square as possible.
+GPU texture caches perform best when access patterns are spatially
+clustered. The target width is initially computed as: <span
+class="math display">\[\text{width} = \lceil \sqrt{N}
+\rceil\]</span></li>
+<li><strong>Clamping to Hardware Limits</strong>: If the calculated
+width exceeds <code>MAX_TEXTURE_SIZE</code>, the width is clamped to the
+hardware maximum: <span class="math display">\[\text{width} =
+\min(\lceil \sqrt{N} \rceil, \text{MAX\_TEXTURE\_SIZE})\]</span></li>
+<li><strong>Deriving Height</strong>: Once the width is established, the
+required height is calculated to ensure the total pixel count can store
+all <span class="math inline">\(N\)</span> values: <span
+class="math display">\[\text{height} = \lceil \frac{N}{\text{width}}
+\rceil\]</span></li>
+</ol>
+<p>If <code>height</code> also exceeds <code>MAX_TEXTURE_SIZE</code>,
+the dataset exceeds the hardware's total single-texture capacity, and
+gpu.js will throw an allocation error.</p>
+<h2 id="shader-index-coordinate-transformation">Shader Index Coordinate
+Transformation</h2>
+<p>Packing a 1D array into a 2D texture requires bidirectional
+translation inside the generated GLSL shaders so that a thread computing
+output index <span class="math inline">\(i\)</span> writes to the
+correct pixel coordinates <span class="math inline">\((u,
+v)\)</span>:</p>
+<ul>
+<li><strong>1D Index to 2D Texture Coordinates</strong>: <span
+class="math display">\[x = i \pmod{\text{width}}\]</span> <span
+class="math display">\[y = \lfloor \frac{i}{\text{width}}
+\rfloor\]</span></li>
+<li><strong>Normalized UV Coordinates for WebGL Sampling</strong>: <span
+class="math display">\[u = \frac{x + 0.5}{\text{width}}\]</span> <span
+class="math display">\[v = \frac{y + 0.5}{\text{height}}\]</span></li>
+</ul>
+<p>Adding <span class="math inline">\(0.5\)</span> samples directly from
+the center of the pixel rather than the edge, avoiding floating-point
+interpolation artifacts.</p>
+<h2 id="handling-incomplete-grid-padding">Handling Incomplete Grid
+Padding</h2>
+<p>Because <span class="math inline">\(\lceil \sqrt{N} \rceil \times
+\lceil \frac{N}{\text{width}} \rceil\)</span> rarely equals <span
+class="math inline">\(N\)</span> exactly, the generated texture
+typically contains a small number of unused cells at the end of the
+final row:</p>
+<p><span class="math display">\[\text{Padded Cells} = (\text{width}
+\times \text{height}) - N\]</span></p>
+<p>gpu.js manages these trailing pixels during the read-back phase. When
+compiling the results back into a standard JavaScript typed array via
+<code>gl.readPixels</code>, the library reads the full 2D pixel
+rectangle into CPU memory, slices the underlying buffer to the exact
+original length <span class="math inline">\(N\)</span>, and discards the
+padded trailing elements.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

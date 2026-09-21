@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Enforces Strict Mode During Serialization - gpu.js</title>
+    <meta name="description" content="This article explains how the GPU.js library guarantees strict mode compliance when serializing JavaScript functions into WebGL-compatible shaders. When compiling JavaScript kernels to run on the GPU, GPU.js extracts, parses, and validates user code. By">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-enforces-strict-mode-during-serialization">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Enforces Strict Mode During Serialization - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-enforces-strict-mode-during-serialization" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how the GPU.js library guarantees strict mode compliance when serializing JavaScript functions into WebGL-compatible shaders. When compiling JavaScript kernels to run on the GPU, GPU.js extracts, parses, and validates user code. By" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-enforces-strict-mode-during-serialization">How GPU.js
+Enforces Strict Mode During Serialization</h1>
+<p>This article explains how the GPU.js library guarantees strict mode
+compliance when serializing JavaScript functions into WebGL-compatible
+shaders. When compiling JavaScript kernels to run on the GPU, GPU.js
+extracts, parses, and validates user code. By using syntax tree
+analysis, prohibiting dynamic JavaScript runtime behaviors, and
+verifying strict variable declarations, the library ensures that
+serialized functions adhere strictly to static typing and scoping rules
+before converting them into GLSL.</p>
+<h2 id="string-extraction-and-ast-parsing">String Extraction and AST
+Parsing</h2>
+<p>The serialization stage begins by converting the JavaScript kernel
+function into raw source text using
+<code>Function.prototype.toString()</code>. GPU.js uses an underlying
+JavaScript parser (such as Acorn) to transform this code string into an
+Abstract Syntax Tree (AST).</p>
+<p>During this initial parsing pass, strict mode constraints are
+introduced automatically if the source file or the function body
+includes the <code>"use strict";</code> directive. Even without an
+explicit directive, GPU.js evaluates the AST under strict-like
+assumptions because the target runtime—the GPU via WebGL—cannot support
+relaxed JavaScript semantics like dynamic scope lookups, implicit
+globals, or dynamic typing.</p>
+<h2 id="prohibition-of-dynamic-scope-constructs">Prohibition of Dynamic
+Scope Constructs</h2>
+<p>Strict mode explicitly disallows legacy features that obscure static
+scope, notably the <code>with</code> statement and indirect
+<code>eval()</code>. During AST traversal, GPU.js analyzes each node's
+type. If the transpiler encounters disallowed syntax constructs, it
+halts compilation immediately and throws an error:</p>
+<ul>
+<li><strong><code>with</code> Statements:</strong> Detected at the AST
+level as <code>WithStatement</code> nodes. GPU.js rejects these
+outright, preventing unresolvable identifier scopes.</li>
+<li><strong>Dynamic Code Execution:</strong> Direct calls to
+<code>eval()</code> or the <code>Function</code> constructor are
+blocked, ensuring that all variable names and references are fully
+resolvable ahead of time.</li>
+<li><strong>Context Binding (<code>this</code>):</strong> Dynamic
+re-binding of <code>this</code> is constrained. Within a GPU.js kernel,
+<code>this.thread</code> and built-in constants exist within a fixed
+execution context, preventing accidental access to the global window or
+worker scope.</li>
+</ul>
+<h2 id="enforcing-variable-declarations-and-immutability">Enforcing
+Variable Declarations and Immutability</h2>
+<p>In standard JavaScript without strict mode, assigning a value to an
+undeclared identifier silently creates a global variable. In GLSL and
+GPU compilation pipelines, undeclared identifiers cause low-level shader
+compilation failures.</p>
+<p>To enforce strict behavior:</p>
+<ol type="1">
+<li><strong>Declaration Tracking:</strong> GPU.js registers declared
+identifiers during the parsing phase. Each variable initialized in a
+kernel must be explicitly declared using <code>let</code>,
+<code>const</code>, or <code>var</code>.</li>
+<li><strong>Scope Validation:</strong> Assignments to identifiers that
+do not exist within the local scope tree, parameter list, or kernel
+constants are flagged as unresolved.</li>
+<li><strong>Read-Only Safeguards:</strong> Assigning new values to
+immutable parameters, thread indices (such as
+<code>this.thread.x</code>), or reserved constants triggers
+serialization errors, mirroring strict mode's assignment errors on
+non-writable properties.</li>
+</ol>
+<h2 id="type-and-syntax-normalization-for-glsl">Type and Syntax
+Normalization for GLSL</h2>
+<p>GLSL is a statically typed language that requires strict semantic
+definitions. During the AST-to-GLSL translation step, GPU.js performs
+type inference based on declared operations and literal values. Strict
+mode semantics directly enable this process by eliminating unpredictable
+object mutations and variable shadowing ambiguities. By requiring
+explicit declarations and rejecting non-deterministic runtime features
+early in the serialization pipeline, GPU.js ensures that the resulting
+code cleanly maps to the strict, deterministically compiled environment
+of the GPU.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

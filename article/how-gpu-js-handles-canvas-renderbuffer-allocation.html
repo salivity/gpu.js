@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Canvas Renderbuffer Allocation - gpu.js</title>
+    <meta name="description" content="When using GPU.js in graphical mode to render directly to an HTML5 canvas, the framework's internal memory management diverges significantly from its standard general-purpose computing (GPGPU) pipeline. This article breaks down how GPU.js handles renderb">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-canvas-renderbuffer-allocation">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Canvas Renderbuffer Allocation - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-canvas-renderbuffer-allocation" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When using GPU.js in graphical mode to render directly to an HTML5 canvas, the framework's internal memory management diverges significantly from its standard general-purpose computing (GPGPU) pipeline. This article breaks down how GPU.js handles renderb" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-canvas-renderbuffer-allocation">How GPU.js
+Handles Canvas Renderbuffer Allocation</h1>
+<p>When using GPU.js in graphical mode to render directly to an HTML5
+canvas, the framework's internal memory management diverges
+significantly from its standard general-purpose computing (GPGPU)
+pipeline. This article breaks down how GPU.js handles renderbuffer
+allocation during direct canvas rendering, explaining the shift from
+explicit offscreen framebuffers to the WebGL default drawing buffer, the
+lifecycle management dictated by the canvas dimensions, and the
+performance optimizations achieved by eliminating redundant memory
+copies.</p>
+<h3 id="the-shift-from-gpgpu-textures-to-the-default-framebuffer">The
+Shift from GPGPU Textures to the Default Framebuffer</h3>
+<p>In standard compute mode, GPU.js treats the GPU as a data processor.
+To retrieve data arrays from kernels, it allocates custom WebGL
+Framebuffer Objects (FBOs) and binds 2D textures as color attachments.
+The fragment shader writes mathematical calculations to these textures,
+which GPU.js either keeps on the GPU for chained calculations or
+extracts to JavaScript memory via <code>gl.readPixels()</code>.</p>
+<p>When a kernel is initialized with <code>{ graphical: true }</code>,
+GPU.js bypasses these custom offscreen framebuffers. Instead of
+allocating internal WebGL renderbuffers or color textures via
+<code>gl.createRenderbuffer()</code> and
+<code>gl.renderbufferStorage()</code>, GPU.js sets the active
+framebuffer target to <code>null</code>:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">bindFramebuffer</span>(gl<span class="op">.</span><span class="at">FRAMEBUFFER</span><span class="op">,</span> <span class="kw">null</span>)<span class="op">;</span></span></code></pre></div>
+<p>Binding <code>null</code> targets the WebGL context's default drawing
+buffer. This default buffer is intrinsically tied to the canvas element
+itself, offloading the physical allocation of color, depth, and stencil
+renderbuffers directly to the browser's graphics subsystem and the
+underlying GPU driver.</p>
+<h3 id="browser-managed-drawing-buffer-allocation">Browser-Managed
+Drawing Buffer Allocation</h3>
+<p>Because GPU.js targets the default framebuffer in graphical mode, it
+does not explicitly manage byte-level renderbuffer sizing through WebGL
+API allocation commands. Instead, renderbuffer sizing is handled
+reactively:</p>
+<ol type="1">
+<li><strong>Dimension Synchronization:</strong> GPU.js matches the WebGL
+viewport to the kernel output dimensions using
+<code>gl.viewport(0, 0, width, height)</code>.</li>
+<li><strong>Backing Store Allocation:</strong> The browser automatically
+allocates the color renderbuffer (the canvas drawing buffer) based on
+the canvas DOM element's <code>width</code> and <code>height</code>
+properties, rather than its CSS display size.</li>
+<li><strong>Double Buffering:</strong> The WebGL runtime creates and
+manages double-buffered color storage (a front buffer and a back buffer)
+to prevent screen tearing during draw calls.</li>
+</ol>
+<p>If the canvas resolution changes, the browser deallocates the
+existing backing store and reallocates a new color buffer to accommodate
+the new dimensions, completely abstracting manual renderbuffer
+destruction and reallocation away from GPU.js.</p>
+<h3 id="shader-pipeline-and-direct-output">Shader Pipeline and Direct
+Output</h3>
+<p>In graphical mode, GPU.js generates a fragment shader configured
+specifically for visual output rather than numeric encoding. A standard
+full-screen quad (two triangles covering normalized device coordinates
+from <code>[-1, -1]</code> to <code>[1, 1]</code>) is rasterized over
+the viewport.</p>
+<p>Within the kernel code, the developer calls
+<code>this.color(r, g, b, a)</code>. GPU.js translates this internal API
+call directly into writes to the native fragment shader output:</p>
+<ul>
+<li>In <strong>WebGL 1</strong>, it compiles to assignments targeting
+<code>gl_FragColor</code>.</li>
+<li>In <strong>WebGL 2</strong>, it binds to an <code>out vec4</code>
+output variable targeted at index 0.</li>
+</ul>
+<p>Because the active render target is the canvas back buffer, each
+fragment's color is written directly to the swap chain memory.</p>
+<h3 id="context-options-and-memory-overhead">Context Options and Memory
+Overhead</h3>
+<p>When GPU.js instantiates or adopts a canvas context for graphical
+rendering, the underlying renderbuffer footprint is constrained by the
+WebGL context attributes. By default, GPU.js attempts to configure
+contexts efficiently:</p>
+<ul>
+<li><strong>Depth and Stencil Buffers:</strong> Unless explicitly
+required, depth and stencil renderbuffers are omitted, saving
+significant VRAM since graphical kernels operate strictly as 2D
+screen-space pixel shaders.</li>
+<li><strong>Preserve Drawing Buffer:</strong> By leaving WebGL's
+<code>preserveDrawingBuffer</code> set to <code>false</code>, GPU.js
+allows the browser to clear or swap the canvas renderbuffer immediately
+after the compositor presents the frame to the display, reducing GPU
+memory pressure and enabling zero-copy hardware presentation.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

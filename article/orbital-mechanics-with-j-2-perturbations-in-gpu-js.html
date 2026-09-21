@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbital Mechanics with J2 Perturbations in GPU.js - gpu.js</title>
+    <meta name="description" content="Computing multi-body orbital mechanics with planetary oblateness ($J2$) perturbations is fully achievable in GPU.js by compiling custom numerical integrators into WebGL compute shaders. While central gravitational forces and $J2$ zonal harmonics introduc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/orbital-mechanics-with-j-2-perturbations-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Orbital Mechanics with J2 Perturbations in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/orbital-mechanics-with-j-2-perturbations-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing multi-body orbital mechanics with planetary oblateness ($J2$) perturbations is fully achievable in GPU.js by compiling custom numerical integrators into WebGL compute shaders. While central gravitational forces and $J2$ zonal harmonics introduc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="orbital-mechanics-with-j2-perturbations-in-gpujs">Orbital
+Mechanics with J2 Perturbations in GPU.js</h1>
+<p>Computing multi-body orbital mechanics with planetary oblateness
+(<span class="math inline">\(J_2\)</span>) perturbations is fully
+achievable in GPU.js by compiling custom numerical integrators into
+WebGL compute shaders. While central gravitational forces and <span
+class="math inline">\(J_2\)</span> zonal harmonics introduce non-linear,
+position-dependent accelerations, the computation for large
+constellations or independent particle clouds is embarrassingly
+parallel. This article explains how to implement the <span
+class="math inline">\(J_2\)</span> mathematical formulation in GPU.js,
+structures the numerical integration pipeline, and addresses critical
+floating-point precision constraints inherent to browser-based GPU
+computing.</p>
+<h3 id="the-physics-of-j_2-perturbations">The Physics of <span
+class="math inline">\(J_2\)</span> Perturbations</h3>
+<p>Standard multi-body orbital simulations assume point-mass celestial
+bodies with uniform, spherical gravity fields governed by Newton's law
+of universal gravitation. Real planets, including Earth, are oblate
+spheroids flattened at the poles due to rotational inertia. The second
+zonal harmonic, <span class="math inline">\(J_2\)</span>, represents the
+dominant gravitational perturbation caused by this equatorial bulge,
+driving secular changes such as the precession of the ascending node and
+the rotation of the argument of perigee.</p>
+<p>In a Cartesian coordinate system centered on the oblate primary body,
+the acceleration vector <span class="math inline">\(\vec{a}_{J_2} =
+(a_x, a_y, a_z)\)</span> acting on an orbiting object at position <span
+class="math inline">\((x, y, z)\)</span> with distance <span
+class="math inline">\(r = \sqrt{x^2 + y^2 + z^2}\)</span> is defined
+as:</p>
+<p><span class="math display">\[a_x = -\frac{3}{2} \frac{J_2 \mu R^2
+x}{r^5} \left( 1 - 5 \frac{z^2}{r^2} \right)\]</span></p>
+<p><span class="math display">\[a_y = -\frac{3}{2} \frac{J_2 \mu R^2
+y}{r^5} \left( 1 - 5 \frac{z^2}{r^2} \right)\]</span></p>
+<p><span class="math display">\[a_z = -\frac{3}{2} \frac{J_2 \mu R^2
+z}{r^5} \left( 3 - 5 \frac{z^2}{r^2} \right)\]</span></p>
+<p>Where <span class="math inline">\(\mu\)</span> is the standard
+gravitational parameter (<span class="math inline">\(GM\)</span>) of the
+primary body, and <span class="math inline">\(R\)</span> is its
+equatorial radius. When modeling multi-body systems, this perturbation
+is added to the mutual point-mass Newtonian forces exerted by other
+celestial bodies.</p>
+<h3 id="implementing-the-calculation-in-gpujs">Implementing the
+Calculation in GPU.js</h3>
+<p>GPU.js maps array operations onto GPU threads using WebGL shaders. In
+an orbital simulation containing thousands of non-interacting satellites
+or debris fragments, each thread computes the updated state vector
+(position and velocity) for a single body over a discrete time step
+(<span class="math inline">\(\Delta t\)</span>).</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeOrbitalStep <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> mu<span class="op">,</span> J2<span class="op">,</span> R<span class="op">,</span> dt) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> px <span class="op">=</span> positions[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> py <span class="op">=</span> positions[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pz <span class="op">=</span> positions[i][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vx <span class="op">=</span> velocities[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vy <span class="op">=</span> velocities[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vz <span class="op">=</span> velocities[i][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> r2 <span class="op">=</span> px <span class="op">*</span> px <span class="op">+</span> py <span class="op">*</span> py <span class="op">+</span> pz <span class="op">*</span> pz<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> r <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(r2)<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> r5 <span class="op">=</span> r2 <span class="op">*</span> r2 <span class="op">*</span> r<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> z2_over_r2 <span class="op">=</span> (pz <span class="op">*</span> pz) <span class="op">/</span> r2<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Central Newtonian acceleration</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> a_newton <span class="op">=</span> <span class="op">-</span>mu <span class="op">/</span> (r <span class="op">*</span> r2)<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ax <span class="op">=</span> a_newton <span class="op">*</span> px<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ay <span class="op">=</span> a_newton <span class="op">*</span> py<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> az <span class="op">=</span> a_newton <span class="op">*</span> pz<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="co">// J2 Oblateness acceleration</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> j2_factor <span class="op">=</span> <span class="fl">1.5</span> <span class="op">*</span> J2 <span class="op">*</span> mu <span class="op">*</span> R <span class="op">*</span> R <span class="op">/</span> r5<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    ax <span class="op">+=</span> <span class="op">-</span>j2_factor <span class="op">*</span> px <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> <span class="fl">5.0</span> <span class="op">*</span> z2_over_r2)<span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    ay <span class="op">+=</span> <span class="op">-</span>j2_factor <span class="op">*</span> py <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> <span class="fl">5.0</span> <span class="op">*</span> z2_over_r2)<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    az <span class="op">+=</span> <span class="op">-</span>j2_factor <span class="op">*</span> pz <span class="op">*</span> (<span class="fl">3.0</span> <span class="op">-</span> <span class="fl">5.0</span> <span class="op">*</span> z2_over_r2)<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Symplectic Euler integration step</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> new_vx <span class="op">=</span> vx <span class="op">+</span> ax <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> new_vy <span class="op">=</span> vy <span class="op">+</span> ay <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> new_vz <span class="op">=</span> vz <span class="op">+</span> az <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>        px <span class="op">+</span> new_vx <span class="op">*</span> dt<span class="op">,</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>        py <span class="op">+</span> new_vy <span class="op">*</span> dt<span class="op">,</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>        pz <span class="op">+</span> new_vz <span class="op">*</span> dt<span class="op">,</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>        new_vx<span class="op">,</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>        new_vy<span class="op">,</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>        new_vz</span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>    ]<span class="op">;</span></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([NUM_BODIES])<span class="op">;</span></span></code></pre></div>
+<p>For higher accuracy, higher-order integration schemes such as
+Runge-Kutta 4 (RK4) or Velocity Verlet can be written inside the kernel.
+Velocity Verlet is particularly advantageous because it preserves
+symplectic properties over long simulation timelines while requiring
+fewer force evaluations per step than RK4.</p>
+<h3 id="performance-and-mutual-gravity">Performance and Mutual
+Gravity</h3>
+<p>If the system involves <span class="math inline">\(N\)</span> massive
+bodies where every body exerts gravity on every other body (an all-pairs
+<span class="math inline">\(N\)</span>-body problem), the time
+complexity is <span class="math inline">\(\mathcal{O}(N^2)\)</span>.
+GPU.js handles this by running an inner loop across all bodies within
+each thread:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> totalBodies<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">!==</span> j) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Calculate point-mass gravity from body j to body i</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Because WebGL shaders execute loops efficiently across parallel
+cores, GPU.js delivers substantial speedups over pure JavaScript CPU
+implementations once <span class="math inline">\(N\)</span> exceeds a
+few hundred bodies.</p>
+<h3 id="precision-limitations-and-normalization">Precision Limitations
+and Normalization</h3>
+<p>The primary technical obstacle to computing orbital mechanics in
+GPU.js is floating-point precision. WebGL 1.0 and WebGL 2.0
+predominantly utilize 32-bit single-precision floating-point numbers
+(<code>float32</code>), which provide only 6 to 7 decimal digits of
+precision. Because Earth orbital calculations combine very large
+distances (e.g., <span class="math inline">\(r \approx 7 \times
+10^6\text{ m}\)</span>) with small integration increments, catastrophic
+cancellation and truncation errors will rapidly degrade trajectory
+accuracy in standard SI units.</p>
+<p>To solve this, variables must be normalized into canonical units:</p>
+<ol type="1">
+<li>Define the unit of distance (DU) as the planet's equatorial radius
+(<span class="math inline">\(1\text{ DU} = R\)</span>).</li>
+<li>Define the gravitational parameter <span class="math inline">\(\mu =
+1.0\)</span>, which yields a canonical time unit (TU) where <span
+class="math inline">\(1\text{ TU} = \sqrt{R^3 / \mu}\)</span>.</li>
+<li>Scale velocities by <span class="math inline">\(\text{DU} /
+\text{TU}\)</span>.</li>
+</ol>
+<p>Operating within normalized bounds keeps numeric values close to the
+range <span class="math inline">\([0.1, 10.0]\)</span>, ensuring maximum
+resolution from the 24-bit mantissa of single-precision floats and
+enabling stable, physically representative <span
+class="math inline">\(J_2\)</span> orbital propagation on the GPU.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

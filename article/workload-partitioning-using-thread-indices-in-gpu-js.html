@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workload Partitioning Using Thread Indices in gpu.js - gpu.js</title>
+    <meta name="description" content="Processing massive datasets in gpu.js often exceeds hardware limits or browser execution timeouts if dispatched in a single call. To solve this, developers partition large workloads into smaller chunks and process them iteratively or across multidimensio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/workload-partitioning-using-thread-indices-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Workload Partitioning Using Thread Indices in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/workload-partitioning-using-thread-indices-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Processing massive datasets in gpu.js often exceeds hardware limits or browser execution timeouts if dispatched in a single call. To solve this, developers partition large workloads into smaller chunks and process them iteratively or across multidimensio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="workload-partitioning-using-thread-indices-in-gpujs">Workload
+Partitioning Using Thread Indices in gpu.js</h1>
+<p>Processing massive datasets in gpu.js often exceeds hardware limits
+or browser execution timeouts if dispatched in a single call. To solve
+this, developers partition large workloads into smaller chunks and
+process them iteratively or across multidimensional grids. By leveraging
+built-in thread indices—such as <code>this.thread.x</code> and
+<code>this.thread.y</code>—along with offset parameters, each thread can
+compute its exact location within a target chunk. This guide explains
+how thread indices work in gpu.js, how to map them to partitioned data,
+and how to structure kernels to process data sequentially without
+exhausting GPU resources.</p>
+<h3 id="understanding-thread-indices-in-gpujs">Understanding Thread
+Indices in gpu.js</h3>
+<p>When you define a kernel in gpu.js and assign an execution size using
+<code>.setOutput([width, height, depth])</code>, the library
+instantiates an execution grid. Inside the kernel function, each
+execution unit accesses its assigned coordinates via:</p>
+<ul>
+<li><code>this.thread.x</code>: Column index within the active output
+dimension.</li>
+<li><code>this.thread.y</code>: Row index (used in 2D and 3D
+outputs).</li>
+<li><code>this.thread.z</code>: Depth layer (used in 3D outputs).</li>
+</ul>
+<p>Because these coordinates represent local positions within the
+current kernel execution boundary, partitioning larger datasets requires
+translating these local coordinates into global indices.</p>
+<h3 id="the-chunk-offset-pattern">The Chunk Offset Pattern</h3>
+<p>The most reliable way to partition data in gpu.js is to define a
+static chunk size for the kernel output, then pass a dynamically
+incremented <code>chunkOffset</code> as an argument from the CPU host
+loop.</p>
+<h4 id="1d-data-partitioning">1D Data Partitioning</h4>
+<p>For a flat array of size <span class="math inline">\(N\)</span> that
+exceeds the execution limits of a single pass, choose a manageable chunk
+size <span class="math inline">\(C\)</span> (for example, 65,536
+elements).</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> totalElements <span class="op">=</span> <span class="dv">1000000</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> chunkSize <span class="op">=</span> <span class="dv">65536</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel output matches chunk size, not total data size</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeChunk <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> chunkOffset<span class="op">,</span> totalSize) {</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> globalIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> chunkOffset<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Boundary check for the final, potentially partial chunk</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (globalIndex <span class="op">&gt;=</span> totalSize) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Perform compute operation</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data[globalIndex] <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([chunkSize])<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="co">// Host execution loop</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> fullData <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(totalElements)<span class="op">.</span><span class="fu">fill</span>(<span class="fl">1.5</span>)<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> results <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> offset <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> offset <span class="op">&lt;</span> totalElements<span class="op">;</span> offset <span class="op">+=</span> chunkSize) {</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> chunkResult <span class="op">=</span> <span class="fu">computeChunk</span>(fullData<span class="op">,</span> offset<span class="op">,</span> totalElements)<span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    results<span class="op">.</span><span class="fu">push</span>(chunkResult)<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>In this pattern:</p>
+<ol type="1">
+<li><code>this.thread.x</code> ranges strictly from <code>0</code> to
+<code>chunkSize - 1</code>.</li>
+<li><code>globalIndex</code> correctly locates the target element in the
+global dataset.</li>
+<li>The host loop pushes execution offsets sequentially, avoiding
+browser WebGL watchdog timeouts (TDR).</li>
+</ol>
+<h3 id="2d-workload-partitioning-matrix-tiles">2D Workload Partitioning
+(Matrix Tiles)</h3>
+<p>For matrix operations or image processing, workloads are partitioned
+into 2D tiles. This prevents exceeding the maximum texture dimension
+allowed by the client's WebGL implementation.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tileSize <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> processMatrixTile <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(matrix<span class="op">,</span> offsetX<span class="op">,</span> offsetY<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> globalX <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> offsetX<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> globalY <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">+</span> offsetY<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (globalX <span class="op">&gt;=</span> width <span class="op">||</span> globalY <span class="op">&gt;=</span> height) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> matrix[globalY][globalX] <span class="op">+</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([tileSize<span class="op">,</span> tileSize])<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co">// Process a large matrix in tiles</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixWidth <span class="op">=</span> <span class="dv">2048</span><span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixHeight <span class="op">=</span> <span class="dv">2048</span><span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> matrixHeight<span class="op">;</span> y <span class="op">+=</span> tileSize) {</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> matrixWidth<span class="op">;</span> x <span class="op">+=</span> tileSize) {</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> tileResult <span class="op">=</span> <span class="fu">processMatrixTile</span>(largeMatrix<span class="op">,</span> x<span class="op">,</span> y<span class="op">,</span> matrixWidth<span class="op">,</span> matrixHeight)<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Store or copy tileResult to final buffer</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="stride-based-partitioning-within-a-single-kernel">Stride-Based
+Partitioning Within a Single Kernel</h3>
+<p>If chunking across multiple kernel invocations is not necessary, but
+you need to process large data within a single kernel run using a fixed
+number of threads, use a strided loop.</p>
+<p>Because gpu.js compiles JavaScript into GLSL, loop limits must be
+deterministic and statically bounded. Instead of dynamic while-loops,
+define a fixed maximum iteration count:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> maxIterationsPerThread <span class="op">=</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> threadCount <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> stridedKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> totalSize) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Stride through the data</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">4</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> targetIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> (i <span class="op">*</span> <span class="dv">256</span>)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (targetIndex <span class="op">&lt;</span> totalSize) {</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>            sum <span class="op">+=</span> data[targetIndex]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([threadCount])<span class="op">;</span></span></code></pre></div>
+<h3 id="key-considerations-for-boundary-conditions">Key Considerations
+for Boundary Conditions</h3>
+<ol type="1">
+<li><strong>Non-Divisible Lengths:</strong> Datasets rarely divide
+evenly by the chunk size. Always pass the total data length into the
+kernel and guard operations with a conditional check
+(<code>if (globalIndex &gt;= totalSize)</code>) to avoid accessing
+unallocated memory.</li>
+<li><strong>Memory Transfer Overhead:</strong> In chunked execution
+loops, passing large arrays repeatedly to the kernel can create CPU-GPU
+bus bottlenecks. If memory permits, load data using gpu.js textures or
+keep input buffers resident on the GPU to minimize upload penalties
+across chunks.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

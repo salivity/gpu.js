@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Multi-Channel Texture Unpacking to CPU - gpu.js</title>
+    <meta name="description" content="This article details how GPU.js processes and unpacks multi-channel WebGL texture data during readback operations from the GPU to the CPU. When a kernel executes, results are written into WebGL framebuffers mapped across color channels, requiring GPU.js">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-multi-channel-texture-unpacking-to-cpu">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Multi-Channel Texture Unpacking to CPU - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-multi-channel-texture-unpacking-to-cpu" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article details how GPU.js processes and unpacks multi-channel WebGL texture data during readback operations from the GPU to the CPU. When a kernel executes, results are written into WebGL framebuffers mapped across color channels, requiring GPU.js" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-multi-channel-texture-unpacking-to-cpu">GPU.js
+Multi-Channel Texture Unpacking to CPU</h1>
+<p>This article details how GPU.js processes and unpacks multi-channel
+WebGL texture data during readback operations from the GPU to the CPU.
+When a kernel executes, results are written into WebGL framebuffers
+mapped across color channels, requiring GPU.js to read the underlying
+pixel buffer, decode any channel-encoded floating-point representations,
+and reconstruct the values into structured JavaScript arrays or typed
+arrays.</p>
+<h3 id="framebuffer-rendering-and-multi-channel-storage">Framebuffer
+Rendering and Multi-Channel Storage</h3>
+<p>GPU.js executes kernels by compiling JavaScript into GLSL fragment
+shaders. In WebGL, output targets are textures attached to a Framebuffer
+Object (FBO). Because native GPU textures are formatted with up to four
+color channels (Red, Green, Blue, Alpha), GPU.js structures its output
+across these channels depending on the kernel settings, WebGL
+capability, and data type.</p>
+<p>When returning data to the CPU, GPU.js calls WebGL’s
+<code>gl.readPixels()</code> method. This function reads a specified
+rectangular block of pixels from the bound framebuffer into a contiguous
+CPU-side typed array, typically a <code>Uint8Array</code> or a
+<code>Float32Array</code>.</p>
+<h3 id="ieee-754-float-packing-and-decoding">IEEE 754 Float Packing and
+Decoding</h3>
+<p>When running in environments where floating-point textures or float
+color buffer extensions (such as <code>OES_texture_float</code> or
+<code>EXT_color_buffer_float</code>) are unsupported, GPU.js cannot
+natively render 32-bit floating-point numbers directly to a single
+channel. To bypass this hardware limitation, GPU.js uses a 4-channel
+encoding technique:</p>
+<ol type="1">
+<li><strong>GPU Packing:</strong> Inside the generated GLSL fragment
+shader, a single 32-bit IEEE 754 floating-point result is split across
+four 8-bit color channels (<span class="math inline">\(R, G, B,
+A\)</span>) using bitwise operations and modulo arithmetic.</li>
+<li><strong>CPU Readback:</strong> The CPU retrieves the raw pixel data
+as a contiguous <code>Uint8Array</code> using
+<code>gl.readPixels(..., gl.RGBA, gl.UNSIGNED_BYTE, ...)</code>.</li>
+<li><strong>CPU Unpacking:</strong> GPU.js loops through the
+<code>Uint8Array</code> in 4-byte increments. It reconstructs the
+original 32-bit floating-point values either via bit-shift arithmetic
+reproducing IEEE 754 decoding or by wrapping the underlying
+<code>ArrayBuffer</code> in a <code>Float32Array</code> or
+<code>DataView</code>.</li>
+</ol>
+<h3 id="native-float-reading-and-direct-channel-mapping">Native Float
+Reading and Direct Channel Mapping</h3>
+<p>When native float textures and float render targets are supported and
+enabled, packing is bypassed. The shader writes single or multi-channel
+values directly into the framebuffer texture:</p>
+<ul>
+<li>For standard numeric kernels, the calculated scalar is stored in the
+designated channel (typically the Red channel), and
+<code>gl.readPixels</code> directly populates a
+<code>Float32Array</code>.</li>
+<li>For graphical or multi-channel vector kernels (such as kernels
+configured with graphical output or multiple sub-outputs), all four
+channels (<span class="math inline">\(RGBA\)</span>) store discrete
+values. GPU.js reads these as interleaved sets of four values <span
+class="math inline">\([R_0, G_0, B_0, A_0, R_1, G_1, B_1, A_1,
+\dots]\)</span>.</li>
+</ul>
+<h3 id="reshaping-into-target-dimensions">Reshaping into Target
+Dimensions</h3>
+<p>Once the raw data is read and any channel-level decoding is finished,
+the resulting buffer is a flat, one-dimensional collection of values.
+GPU.js transforms this flat array according to the <code>output</code>
+dimensions defined on the kernel:</p>
+<ul>
+<li><strong>1D Kernels:</strong> The flat array is either returned
+directly as a typed array or sliced into a standard JavaScript
+array.</li>
+<li><strong>2D and 3D Kernels:</strong> GPU.js traverses the flat data
+using nested loops based on the kernel's thread dimensions (<span
+class="math inline">\(x, y, z\)</span>). It extracts rows and planes by
+calculating memory offsets, reshaping the linear pixel sequence back
+into the nested array structure (<span
+class="math inline">\([z][y][x]\)</span>) expected by the user. If the
+kernel is configured to return typed arrays, the reshaping is omitted or
+returned as a flat structure with dimension metadata to avoid CPU
+allocation overhead.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

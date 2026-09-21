@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Scale Laplacian Pyramids with GPU.js - gpu.js</title>
+    <meta name="description" content="Multi-scale Laplacian pyramid decomposition and reconstruction can be successfully implemented using GPU.js. By compiling JavaScript functions into WebGL compute shaders, GPU.js allows developers to execute the highly parallel image processing operations">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/multi-scale-laplacian-pyramids-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Multi-Scale Laplacian Pyramids with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/multi-scale-laplacian-pyramids-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Multi-scale Laplacian pyramid decomposition and reconstruction can be successfully implemented using GPU.js. By compiling JavaScript functions into WebGL compute shaders, GPU.js allows developers to execute the highly parallel image processing operations" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="multi-scale-laplacian-pyramids-with-gpujs">Multi-Scale Laplacian
+Pyramids with GPU.js</h1>
+<p>Multi-scale Laplacian pyramid decomposition and reconstruction can be
+successfully implemented using GPU.js. By compiling JavaScript functions
+into WebGL compute shaders, GPU.js allows developers to execute the
+highly parallel image processing operations—such as Gaussian blurring,
+decimation, interpolation, and pixel-wise arithmetic—directly on the
+graphics hardware within a browser or Node.js environment. This article
+breaks down how to construct the multi-resolution pipeline, perform the
+forward decomposition and backward reconstruction, and optimize memory
+usage using GPU.js features.</p>
+<h3 id="understanding-the-pipeline-requirements">Understanding the
+Pipeline Requirements</h3>
+<p>A multi-scale Laplacian pyramid breaks an image down into
+bandpass-filtered sub-bands at varying resolutions, alongside a
+low-frequency residual. Building and reversing this structure involves
+four fundamental operations:</p>
+<ol type="1">
+<li><strong>Gaussian Filtering:</strong> Convolving the image with a
+smoothing kernel (typically a 5x5 separable binomial filter).</li>
+<li><strong>Downsampling (Reduce):</strong> Subsampling the blurred
+image by a factor of two to create the next Gaussian level.</li>
+<li><strong>Upsampling (Expand):</strong> Interpolating the downsampled
+image back to the previous scale and smoothing it to match
+dimensions.</li>
+<li><strong>Subtraction and Addition:</strong> Computing difference
+images for decomposition and summing them for reconstruction.</li>
+</ol>
+<p>All of these tasks are massively parallel per-pixel calculations,
+making them naturally suited for GPU execution.</p>
+<h3 id="implementing-decomposition-with-gpujs">Implementing
+Decomposition with GPU.js</h3>
+<p>The decomposition process starts with the base image (<span
+class="math inline">\(G_0\)</span>) and iteratively produces Gaussian
+layers (<span class="math inline">\(G_k\)</span>) and Laplacian detail
+layers (<span class="math inline">\(L_k\)</span>).</p>
+<ol type="1">
+<li><p><strong>Blurring and Decimation:</strong> Define a GPU.js kernel
+that combines a 2D convolution with a step factor of two. For each
+target pixel <code>(x, y)</code> in the output, the kernel samples a
+<span class="math inline">\(5 \times 5\)</span> window centered at
+<code>(2x, 2y)</code> in the source texture, multiplying by standard
+Gaussian weights. This produces the downsampled level <span
+class="math inline">\(G_{k+1}\)</span> directly, cutting down redundant
+texture fetches.</p></li>
+<li><p><strong>Upsampling (Expansion):</strong> A separate GPU.js kernel
+takes <span class="math inline">\(G_{k+1}\)</span> and maps each pixel
+<code>(x, y)</code> back to the original resolution. Pixels at even
+coordinates receive values directly from the coarser grid, while odd
+coordinates are interpolated using adjacent values, followed by a
+smoothing pass.</p></li>
+<li><p><strong>Computing the Laplacian Level:</strong> A simple
+subtraction kernel calculates <span class="math inline">\(L_k = G_k -
+\text{Expand}(G_{k+1})\)</span>. This step isolates the high-frequency
+bandpass data for that scale.</p></li>
+</ol>
+<p>Repeat this process for <span class="math inline">\(N\)</span>
+levels. The final representation consists of the Laplacian levels <span
+class="math inline">\(L_0, L_1, \dots, L_{N-1}\)</span> and the coarsest
+Gaussian residual <span class="math inline">\(G_N\)</span>.</p>
+<h3 id="implementing-reconstruction">Implementing Reconstruction</h3>
+<p>Reconstruction restores the original image from the top of the
+pyramid downward without loss of detail:</p>
+<ol type="1">
+<li>Begin with the lowest-resolution Gaussian residual, <span
+class="math inline">\(G_N\)</span>.</li>
+<li>Upsample <span class="math inline">\(G_N\)</span> using the
+expansion kernel to match the dimensions of <span
+class="math inline">\(L_{N-1}\)</span>.</li>
+<li>Run an addition kernel to compute <span
+class="math inline">\(G_{N-1} = L_{N-1} +
+\text{Expand}(G_N)\)</span>.</li>
+<li>Repeat this step recursively until <span
+class="math inline">\(G_0\)</span> is fully restored at the original
+resolution.</li>
+</ol>
+<h3 id="crucial-implementation-considerations-in-gpujs">Crucial
+Implementation Considerations in GPU.js</h3>
+<p>While the mathematics are straightforward, achieving high performance
+in GPU.js requires specific architectural choices:</p>
+<ul>
+<li><strong>Enable Pipeline Mode:</strong> By default, GPU.js reads
+texture data back to the CPU as a typed array after every kernel
+execution. To avoid severe PCIe transfer bottlenecks, set
+<code>pipeline: true</code> on your kernels. This keeps the pyramid
+layers in VRAM as WebGL textures throughout the entire decomposition and
+reconstruction sequence.</li>
+<li><strong>Dynamic Kernel Output Sizes:</strong> Each level of the
+pyramid halves the output dimensions. Because GPU.js kernels have fixed
+output dimensions upon creation, you must either dynamically update
+kernel output bounds using
+<code>.setOutput([newWidth, newHeight])</code> between iterations or
+instantiate dedicated kernels pre-sized for each specific octave.</li>
+<li><strong>Separable Filtering vs. 2D Kernels:</strong> In raw GLSL,
+separable 1D passes (horizontal then vertical) are often preferred for
+efficiency. In GPU.js, chaining two separate 1D kernels introduces
+overhead in kernel invocation. A single <span class="math inline">\(5
+\times 5\)</span> 2D convolution kernel often provides an optimal
+balance between execution speed and code simplicity for pyramids up to 4
+or 5 levels deep.</li>
+<li><strong>Floating-Point Precision:</strong> Laplacian layers contain
+both positive and negative values. Standard 8-bit RGBA representations
+will clamp negative values to zero. Ensure your GPU.js instance uses
+<code>float</code> textures (enabled by default in modern WebGL2
+environments) to preserve high dynamic range and negative detail
+coefficients accurately.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

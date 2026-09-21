@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Loop Unrolling with Compile-Time Constants - gpu.js</title>
+    <meta name="description" content="Compile-time constants in gpu.js play a critical role in accelerating kernel execution by enabling complete loop unrolling during WebGL shader compilation. When numeric boundaries within loops are declared as static constants rather than dynamic variable">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-loop-unrolling-with-compile-time-constants">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Loop Unrolling with Compile-Time Constants - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-loop-unrolling-with-compile-time-constants" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Compile-time constants in gpu.js play a critical role in accelerating kernel execution by enabling complete loop unrolling during WebGL shader compilation. When numeric boundaries within loops are declared as static constants rather than dynamic variable" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-loop-unrolling-with-compile-time-constants">GPU.js Loop
+Unrolling with Compile-Time Constants</h1>
+<p>Compile-time constants in gpu.js play a critical role in accelerating
+kernel execution by enabling complete loop unrolling during WebGL shader
+compilation. When numeric boundaries within loops are declared as static
+constants rather than dynamic variables, the underlying GLSL transpiler
+and GPU driver can replace repetitive branching instructions with flat,
+sequential code. This overview examines how compile-time constants
+trigger this optimization, eliminates thread divergence, and maximizes
+parallel computing throughput on the GPU.</p>
+<h3 id="the-mechanics-of-loop-overhead-on-gpus">The Mechanics of Loop
+Overhead on GPUs</h3>
+<p>Graphics Processing Units rely on Single Instruction, Multiple
+Threads (SIMT) architectures. While GPUs excel at running thousands of
+threads in parallel, they struggle with dynamic control flow.
+Traditional loops introduce jump instructions, condition evaluations,
+and counter increments for every single iteration.</p>
+<p>Worse, when threads within the same warp or wavefront iterate a
+different number of times based on dynamic runtime data, thread
+divergence occurs. The hardware must serialize the execution paths,
+leaving idle execution units waiting for the longest-running loop to
+complete.</p>
+<h3 id="what-is-loop-unrolling">What is Loop Unrolling?</h3>
+<p>Loop unrolling is an optimization technique that expands a loop into
+repeated, sequential blocks of code. For example, instead of executing a
+loop body ten times with counter checks:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">4</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  sum <span class="op">+=</span> data[i]<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>An unrolled version translates directly into linear execution:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>sum <span class="op">+=</span> data[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>sum <span class="op">+=</span> data[<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>sum <span class="op">+=</span> data[<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>sum <span class="op">+=</span> data[<span class="dv">3</span>]<span class="op">;</span></span></code></pre></div>
+<p>Unrolling eliminates the overhead of managing the iterator, checks
+for boundary conditions, and prevents branch mispredictions.</p>
+<h3 id="why-compile-time-constants-are-required">Why Compile-Time
+Constants Are Required</h3>
+<p>GLSL (OpenGL Shading Language), which gpu.js targets in browser
+environments via WebGL, enforces strict rules regarding loop unrolling.
+A shader compiler can only completely unroll a loop if the iteration
+count is invariant and determinable at compile time.</p>
+<p>If loop boundaries depend on standard kernel arguments passed
+dynamically from JavaScript, gpu.js must compile the GLSL loop with
+dynamic termination conditions. The shader compiler cannot predict how
+many times the loop will run, forcing it to keep dynamic branching
+instructions intact.</p>
+<h3 id="how-gpujs-implements-compile-time-constants">How gpu.js
+Implements Compile-Time Constants</h3>
+<p>gpu.js allows developers to inject immutable values directly into the
+shader compilation pipeline using the <code>constants</code>
+configuration option:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">iterations</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    sum <span class="op">+=</span> data[i]<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">constants</span><span class="op">:</span> { <span class="dt">iterations</span><span class="op">:</span> <span class="dv">10</span> }<span class="op">,</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">output</span><span class="op">:</span> [<span class="dv">1024</span>]</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>When gpu.js generates the GLSL source, values in
+<code>this.constants</code> are not treated as uniforms or runtime
+variables. Instead, gpu.js inlines these values directly into the shader
+text as literal values or preprocessor <code>#define</code>
+directives.</p>
+<p>Because the loop boundary <code>this.constants.iterations</code>
+becomes a literal integer in the output GLSL code, it satisfies the
+WebGL compiler's requirements for compile-time determinism.</p>
+<h3 id="performance-benefits">Performance Benefits</h3>
+<ol type="1">
+<li><strong>Elimination of Branch Divergence:</strong> Since every
+thread executes the exact same unrolled sequence of instructions, warps
+remain fully synchronized without divergent branching stalls.</li>
+<li><strong>Aggressive Driver Optimizations:</strong> When loops are
+flattened into sequential instructions, the GPU hardware driver can
+perform instruction scheduling, combine memory fetch operations, and
+optimize register allocation.</li>
+<li><strong>Reduced Instruction Count:</strong> Eliminating loop control
+variables and jump statements frees up GPU compute cycles strictly for
+mathematical computations.</li>
+</ol>
+<p>By hard-coding predictable iterations via compile-time constants,
+gpu.js kernels bypass the architectural weaknesses of GPU branching and
+run at near-native hardware speed.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texture Channel Masking in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how the gpu.js library manages texture channel masking and vector component outputs during kernel execution. While low-level WebGL APIs natively support selective channel writing via color masking, gpu.js abstracts execution into GL">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/texture-channel-masking-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Texture Channel Masking in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/texture-channel-masking-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how the gpu.js library manages texture channel masking and vector component outputs during kernel execution. While low-level WebGL APIs natively support selective channel writing via color masking, gpu.js abstracts execution into GL" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="texture-channel-masking-in-gpujs">Texture Channel Masking in
+GPU.js</h1>
+<p>This article explains how the gpu.js library manages texture channel
+masking and vector component outputs during kernel execution. While
+low-level WebGL APIs natively support selective channel writing via
+color masking, gpu.js abstracts execution into GLSL fragment shaders
+that overwrite entire vector components. Understanding this mechanism is
+essential for developers seeking to optimize memory layout, manipulate
+multidimensional data, and selectively write to specific RGBA channels
+without triggering WebGL feedback loops.</p>
+<h3 id="the-webgl-abstraction-layer">The WebGL Abstraction Layer</h3>
+<p>In native WebGL, texture channel masking is typically achieved on the
+host side using <code>gl.colorMask(red, green, blue, alpha)</code>. This
+call informs the graphics pipeline which specific components of a frame
+buffer can be written to, preserving the unmasked channels of an
+existing texture.</p>
+<p>However, gpu.js operates at a higher level of abstraction. It
+compiles JavaScript functions directly into GLSL fragment shaders. In
+this execution model, each kernel invocation corresponds to a single
+fragment (or pixel) evaluation. Rather than exposing native
+<code>colorMask</code> toggles directly to kernel logic, gpu.js relies
+on the GLSL output pipeline, where every fragment must assign a complete
+four-component vector (<code>vec4</code>) to
+<code>gl_FragColor</code>.</p>
+<h3 id="component-writing-in-kernels">Component Writing in Kernels</h3>
+<p>When configuring a kernel to output graphical data or multi-channel
+vectors, gpu.js expects the kernel to return an array corresponding to
+vector coordinates, such as <code>[r, g, b, a]</code>.</p>
+<p>Because fragment shaders cannot leave components "unassigned" at
+runtime, gpu.js handles vector writes through explicit assignment:</p>
+<ol type="1">
+<li><strong>Full Vector Emission:</strong> Any assignment to a target
+coordinate writes to all four channels simultaneously. If a kernel
+returns fewer than four values, gpu.js automatically pads the remaining
+components (typically with <code>0.0</code> or <code>1.0</code>
+depending on context and output format) to generate a valid
+<code>vec4</code>.</li>
+<li><strong>Read-Modify-Write via Ping-Ponging:</strong> Because WebGL
+prohibits reading from and writing to the same texture within the same
+render pass (which causes an illegal feedback loop), a kernel cannot
+selectively mask a single channel in-place. To modify a single component
+(such as the red channel) while preserving the others (green, blue,
+alpha), the developer must pass the original texture as an input, sample
+all four components, update only the intended component, and emit the
+combined <code>vec4</code> to a secondary output texture.</li>
+</ol>
+<h3 id="float-packing-and-internal-texture-layouts">Float Packing and
+Internal Texture Layouts</h3>
+<p>When dealing with non-graphical numeric computations (such as 2D
+floating-point matrices), gpu.js utilizes texture channel packing under
+the hood if 32-bit floating-point textures are unsupported or
+disabled.</p>
+<p>In packed mode, gpu.js splits a single 32-bit floating-point number
+across the red, green, blue, and alpha channels using bit-shifting
+arithmetic encoded directly into the generated GLSL. In this scenario,
+channel masking is neither permitted nor beneficial; altering an
+individual channel would corrupt the IEEE-754 representation of the
+stored float. The library reserves full control over all four channels
+to guarantee data integrity across encode and decode cycles.</p>
+<h3 id="working-around-channel-masking-limitations">Working Around
+Channel Masking Limitations</h3>
+<p>To emulate selective channel masking in gpu.js without native
+<code>gl.colorMask</code> access:</p>
+<ul>
+<li><strong>Pipeline Mode:</strong> Utilize
+<code>kernel.setPipeline(true)</code> to keep output textures in GPU
+memory. Chain kernels so that one pass reads the existing state, updates
+the relevant vector components, and outputs the updated state to the
+next buffer.</li>
+<li><strong>Sub-kernels:</strong> If multiple distinct values need to be
+written in a single pass, use sub-kernels. Sub-kernels allow multiple
+return values to be mapped to multiple render targets (MRT) when
+supported, rather than attempting to interleave multiple independent
+writes into individual channels of a single texture manually.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

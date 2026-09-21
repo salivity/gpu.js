@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Efficient Matrix Multiplication Using gpu.js Kernels - gpu.js</title>
+    <meta name="description" content="This article provides a comprehensive overview of implementing efficient matrix multiplication using gpu.js parallel kernels. It covers the limitations of standard CPU-based computation, explains how gpu.js translates JavaScript into WebGL shaders, demon">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/efficient-matrix-multiplication-using-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Efficient Matrix Multiplication Using gpu.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/efficient-matrix-multiplication-using-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides a comprehensive overview of implementing efficient matrix multiplication using gpu.js parallel kernels. It covers the limitations of standard CPU-based computation, explains how gpu.js translates JavaScript into WebGL shaders, demon" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="efficient-matrix-multiplication-using-gpujs-kernels">Efficient
+Matrix Multiplication Using gpu.js Kernels</h1>
+<p>This article provides a comprehensive overview of implementing
+efficient matrix multiplication using gpu.js parallel kernels. It covers
+the limitations of standard CPU-based computation, explains how gpu.js
+translates JavaScript into WebGL shaders, demonstrates the precise
+kernel code needed for matrix multiplication, and breaks down the
+architectural reasons why massive thread parallelism yields exponential
+performance gains.</p>
+<h3 id="the-challenge-of-cpu-matrix-multiplication">The Challenge of CPU
+Matrix Multiplication</h3>
+<p>In standard JavaScript running on a CPU, multiplying two <span
+class="math inline">\(N \times N\)</span> matrices requires three nested
+loops: one for the rows, one for the columns, and an inner loop to
+compute the dot product. This sequential approach has a time complexity
+of <span class="math inline">\(O(N^3)\)</span>. As the dimensions of the
+matrices grow into thousands of elements, execution time slows
+dramatically because a single CPU core must compute every individual
+cell in sequence.</p>
+<h3 id="how-gpujs-leverages-parallel-kernels">How gpu.js Leverages
+Parallel Kernels</h3>
+<p><code>gpu.js</code> overcomes this bottleneck by transpiling a subset
+of JavaScript into GLSL (OpenGL Shading Language) and executing it on
+the GPU via WebGL or WebGPU. Instead of processing cells sequentially,
+the GPU utilizes hundreds or thousands of smaller cores to run a
+computational function—known as a kernel—simultaneously.</p>
+<p>When creating a kernel in <code>gpu.js</code>, you specify the output
+dimensions using <code>.setOutput([width, height])</code>. The GPU then
+allocates a separate execution thread for every single element in the
+resulting output matrix.</p>
+<h3 id="implementing-matrix-multiplication-in-gpujs">Implementing Matrix
+Multiplication in gpu.js</h3>
+<p>To calculate the product of matrix <span
+class="math inline">\(A\)</span> and matrix <span
+class="math inline">\(B\)</span>, each thread determines the value of a
+single cell in the resulting matrix <span
+class="math inline">\(C\)</span>. Inside the kernel function,
+<code>this.thread.x</code> corresponds to the column index, and
+<code>this.thread.y</code> corresponds to the row index.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixSize <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiplyMatrix <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b<span class="op">,</span> size) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> size<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> b[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([matrixSize<span class="op">,</span> matrixSize])<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">multiplyMatrix</span>(matrixA<span class="op">,</span> matrixB<span class="op">,</span> matrixSize)<span class="op">;</span></span></code></pre></div>
+<h3 id="architectural-efficiency-factors">Architectural Efficiency
+Factors</h3>
+<ol type="1">
+<li><strong>Dimensional Thread Mapping:</strong> By setting the output
+to <code>[matrixSize, matrixSize]</code>, <code>gpu.js</code> eliminates
+two of the three classical nested loops. The outer row and column
+iterations are replaced by the hardware's thread scheduler, which
+launches all <span class="math inline">\((N \times N)\)</span>
+calculations concurrently.</li>
+<li><strong>Texture-Based Memory:</strong> <code>gpu.js</code> encodes
+multi-dimensional arrays into GPU textures. When the kernel reads
+<code>a[this.thread.y][i]</code> and <code>b[i][this.thread.x]</code>,
+the GPU leverages its high-bandwidth memory subsystem and texture caches
+to fetch data faster than typical system RAM.</li>
+<li><strong>Hardware Vector Optimization:</strong> Modern graphics
+processors are built for Single Instruction, Multiple Threads (SIMT).
+Every thread executes the inner dot-product loop in lockstep, maximizing
+floating-point operations per second (FLOPS) and drastically reducing
+execution time compared to pure CPU execution.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

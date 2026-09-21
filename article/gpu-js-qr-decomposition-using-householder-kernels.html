@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js QR Decomposition Using Householder Kernels - gpu.js</title>
+    <meta name="description" content="This article explains how to implement QR decomposition using Householder reflections within gpu.js by breaking the sequential mathematical process into modular, chained GPU kernels. Because Householder reflections require global reductions and step-depe">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-qr-decomposition-using-householder-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js QR Decomposition Using Householder Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-qr-decomposition-using-householder-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement QR decomposition using Householder reflections within gpu.js by breaking the sequential mathematical process into modular, chained GPU kernels. Because Householder reflections require global reductions and step-depe" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-qr-decomposition-using-householder-kernels">GPU.js QR
+Decomposition Using Householder Kernels</h1>
+<p>This article explains how to implement QR decomposition using
+Householder reflections within gpu.js by breaking the sequential
+mathematical process into modular, chained GPU kernels. Because
+Householder reflections require global reductions and step-dependent
+transformations that cannot run inside a single GPU thread dispatch,
+chaining kernels via texture pipelining allows intermediate matrix
+states to remain entirely in GPU memory. Below is a structured guide to
+organizing the algorithm, defining the kernel stages, and orchestrating
+the execution loop.</p>
+<hr />
+<h3
+id="algorithmic-breakdown-and-gpu-parallelism-challenges">Algorithmic
+Breakdown and GPU Parallelism Challenges</h3>
+<p>QR decomposition factors an <span class="math inline">\(m \times
+n\)</span> matrix <span class="math inline">\(A\)</span> into an
+orthogonal matrix <span class="math inline">\(Q\)</span> and an upper
+triangular matrix <span class="math inline">\(R\)</span>. Householder
+reflections achieve this by zeroing out the subdiagonal entries of each
+column <span class="math inline">\(k\)</span> iteratively from <span
+class="math inline">\(k = 0\)</span> to <span
+class="math inline">\(\min(m-1, n)\)</span>:</p>
+<ol type="1">
+<li><strong>Extract vector:</strong> Isolate the <span
+class="math inline">\(k\)</span>-th column below the diagonal: <span
+class="math inline">\(x = A[k:m, k]\)</span>.</li>
+<li><strong>Compute reflection parameters:</strong> Find the Euclidean
+norm <span class="math inline">\(\|x\|_2\)</span>, compute the scalar
+<span class="math inline">\(\alpha = -\text{sgn}(x_0)\|x\|_2\)</span>,
+construct Householder vector <span class="math inline">\(v = x - \alpha
+e_1\)</span>, and normalize or compute <span class="math inline">\(\tau
+= \frac{2}{v^T v}\)</span>.</li>
+<li><strong>Update <span class="math inline">\(R\)</span> (submatrix of
+<span class="math inline">\(A\)</span>):</strong> Transform trailing
+columns <span class="math inline">\(j \ge k\)</span> via <span
+class="math inline">\(A_{k:m, j} \leftarrow A_{k:m, j} - \tau v (v^T
+A_{k:m, j})\)</span>.</li>
+<li><strong>Accumulate <span class="math inline">\(Q\)</span>:</strong>
+Update <span class="math inline">\(Q \leftarrow Q (I - \tau v
+v^T)\)</span>.</li>
+</ol>
+<p>Because each iteration depends entirely on the completion of the
+previous reflection, the outer loop over columns must run sequentially
+on the CPU. Within each step <span class="math inline">\(k\)</span>,
+calculating the norm requires a parallel reduction, and updating the
+matrix requires parallel element-wise arithmetic. These distinct
+operations cannot synchronize globally within a single kernel dispatch
+in WebGL, necessitating multiple chained kernels.</p>
+<hr />
+<h3 id="designing-the-chained-kernel-pipeline">Designing the Chained
+Kernel Pipeline</h3>
+<p>To avoid costly readbacks from GPU memory to CPU memory
+(<code>Texture.toArray()</code>), you must enable
+<code>pipeline: true</code> on all kernels in gpu.js. This ensures
+output textures are passed directly as input textures to the next
+kernel.</p>
+<p>The computation for each column <span
+class="math inline">\(k\)</span> is structured into three chained
+kernels:</p>
+<h4 id="1-column-norm-and-vector-kernel">1. Column Norm and Vector
+Kernel</h4>
+<p>This kernel takes the current matrix state <span
+class="math inline">\(A^{(k)}\)</span> and computes the Householder
+vector <span class="math inline">\(v\)</span> for column <span
+class="math inline">\(k\)</span>. Because computing <span
+class="math inline">\(\|x\|_2\)</span> requires summing squares along
+column <span class="math inline">\(k\)</span>, it can be split into a
+two-pass reduction if <span class="math inline">\(m\)</span> is large,
+or computed across the 1D slice in a single pass if <span
+class="math inline">\(m\)</span> is moderately sized.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeHouseholderVector <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(A<span class="op">,</span> k<span class="op">,</span> m) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumSq <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> k<span class="op">;</span> i <span class="op">&lt;</span> m<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        sumSq <span class="op">+=</span> A[i][k] <span class="op">*</span> A[i][k]<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> norm <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(sumSq)<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> x0 <span class="op">=</span> A[k][k]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> alpha <span class="op">=</span> (x0 <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">?</span> <span class="op">-</span><span class="dv">1</span> <span class="op">:</span> <span class="dv">1</span>) <span class="op">*</span> norm<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Thread index represents row i</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">&lt;</span> k) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> k) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> x0 <span class="op">-</span> alpha<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">&lt;</span> m) {</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> A[i][k]<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h4 id="2-vector-norm--scaling-factor-kernel">2. Vector Norm / Scaling
+Factor Kernel</h4>
+<p>Computing <span class="math inline">\(\tau = \frac{2}{v^T v}\)</span>
+can be outputted as a <span class="math inline">\(1 \times 1\)</span>
+texture or pre-scaled within the vector representation:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeTau <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(v<span class="op">,</span> k<span class="op">,</span> m) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> dot <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> k<span class="op">;</span> i <span class="op">&lt;</span> m<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        dot <span class="op">+=</span> v[i] <span class="op">*</span> v[i]<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (dot <span class="op">===</span> <span class="dv">0</span>) <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">2.0</span> <span class="op">/</span> dot<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h4 id="3-matrix-reflection-kernel-update-r">3. Matrix Reflection Kernel
+(Update <span class="math inline">\(R\)</span>)</h4>
+<p>This kernel applies the Householder transformation <span
+class="math inline">\(A \leftarrow (I - \tau v v^T)A\)</span> to the
+active matrix block in parallel. Every output cell <span
+class="math inline">\((i, j)\)</span> is computed simultaneously:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> applyHouseholderToR <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(A<span class="op">,</span> v<span class="op">,</span> tau<span class="op">,</span> k<span class="op">,</span> m<span class="op">,</span> n) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (row <span class="op">&lt;</span> k <span class="op">||</span> col <span class="op">&lt;</span> k) {</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> A[row][col]<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute dot product: v^T * A[:, col]</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> vDotA <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> k<span class="op">;</span> i <span class="op">&lt;</span> m<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        vDotA <span class="op">+=</span> v[i] <span class="op">*</span> A[i][col]<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply: A[row, col] - tau * v[row] * (v^T * A[:, col])</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> A[row][col] <span class="op">-</span> tau[<span class="dv">0</span>][<span class="dv">0</span>] <span class="op">*</span> v[row] <span class="op">*</span> vDotA<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h4 id="4-accumulate-matrix-q-kernel">4. Accumulate Matrix <span
+class="math inline">\(Q\)</span> Kernel</h4>
+<p>If the orthogonal matrix <span class="math inline">\(Q\)</span> is
+explicitly required, it is initialized to the identity matrix <span
+class="math inline">\(I_m\)</span> and updated at each step: <span
+class="math inline">\(Q \leftarrow Q (I - \tau v v^T)\)</span>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> applyHouseholderToQ <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(Q<span class="op">,</span> v<span class="op">,</span> tau<span class="op">,</span> k<span class="op">,</span> m) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> qDotV <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> k<span class="op">;</span> j <span class="op">&lt;</span> m<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        qDotV <span class="op">+=</span> Q[row][j] <span class="op">*</span> v[j]<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Q[row][col] <span class="op">-</span> tau[<span class="dv">0</span>][<span class="dv">0</span>] <span class="op">*</span> qDotV <span class="op">*</span> v[col]<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="the-iterative-orchestration-loop">The Iterative Orchestration
+Loop</h3>
+<p>With the kernels compiled and texture output enabled, the CPU loop
+controls the dispatch sequence while the actual matrix data never leaves
+VRAM during decomposition:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">qrDecomposition</span>(matrixA<span class="op">,</span> m<span class="op">,</span> n) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    computeHouseholderVector<span class="op">.</span><span class="fu">setOutput</span>([m])<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    computeTau<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span><span class="op">,</span> <span class="dv">1</span>])<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    applyHouseholderToR<span class="op">.</span><span class="fu">setOutput</span>([n<span class="op">,</span> m])<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    applyHouseholderToQ<span class="op">.</span><span class="fu">setOutput</span>([m<span class="op">,</span> m])<span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> R <span class="op">=</span> matrixA<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Q <span class="op">=</span> <span class="fu">initializeIdentityMatrix</span>(m)<span class="op">;</span> <span class="co">// Uploaded as GPU texture</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> steps <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(m <span class="op">-</span> <span class="dv">1</span><span class="op">,</span> n)<span class="op">;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> steps<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Step 1: Calculate Householder vector</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> v <span class="op">=</span> <span class="fu">computeHouseholderVector</span>(R<span class="op">,</span> k<span class="op">,</span> m)<span class="op">;</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Step 2: Calculate scalar tau</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> tau <span class="op">=</span> <span class="fu">computeTau</span>(v<span class="op">,</span> k<span class="op">,</span> m)<span class="op">;</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Step 3: Update R and Q textures</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>        R <span class="op">=</span> <span class="fu">applyHouseholderToR</span>(R<span class="op">,</span> v<span class="op">,</span> tau<span class="op">,</span> k<span class="op">,</span> m<span class="op">,</span> n)<span class="op">;</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>        Q <span class="op">=</span> <span class="fu">applyHouseholderToQ</span>(Q<span class="op">,</span> v<span class="op">,</span> tau<span class="op">,</span> k<span class="op">,</span> m)<span class="op">;</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Final readback to JavaScript arrays</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> {</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>        <span class="dt">Q</span><span class="op">:</span> Q<span class="op">.</span><span class="fu">toArray</span>()<span class="op">,</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>        <span class="dt">R</span><span class="op">:</span> R<span class="op">.</span><span class="fu">toArray</span>()</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>    }<span class="op">;</span></span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="critical-considerations-for-gpujs">Critical Considerations for
+gpu.js</h3>
+<ol type="1">
+<li><strong>Texture Ping-Ponging:</strong> WebGL does not support
+reading and writing to the same texture simultaneously. Setting
+<code>immutable: true</code> ensures that gpu.js allocates alternating
+framebuffers, avoiding race conditions and pipeline invalidations.</li>
+<li><strong>Loop Bounds Inside Kernels:</strong> Dynamic loops in WebGL
+can face compiler limitations. Keep upper bounds fixed to kernel
+dimensions and use variables to selectively skip computation indices
+inside loops.</li>
+<li><strong>Floating Point Precision:</strong> By default, WebGL targets
+<code>precision mediump</code> or <code>highp</code> single-precision
+(32-bit float). Small errors accumulate faster during Householder
+transformations than in standard CPU 64-bit float math, so normalize
+sub-vectors carefully to prevent catastrophic cancellation.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

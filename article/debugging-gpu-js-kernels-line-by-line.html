@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debugging gpu.js Kernels Line by Line - gpu.js</title>
+    <meta name="description" content="Debugging GPU-accelerated code line by line presents unique challenges due to the massive parallelism of graphics hardware, which lacks traditional interactive step-debugging support in the browser. This article explores the primary tools and strategies">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/debugging-gpu-js-kernels-line-by-line">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Debugging gpu.js Kernels Line by Line - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/debugging-gpu-js-kernels-line-by-line" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Debugging GPU-accelerated code line by line presents unique challenges due to the massive parallelism of graphics hardware, which lacks traditional interactive step-debugging support in the browser. This article explores the primary tools and strategies" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="debugging-gpujs-kernels-line-by-line">Debugging gpu.js Kernels
+Line by Line</h1>
+<p>Debugging GPU-accelerated code line by line presents unique
+challenges due to the massive parallelism of graphics hardware, which
+lacks traditional interactive step-debugging support in the browser.
+This article explores the primary tools and strategies available for
+stepping through and inspecting gpu.js kernel executions line by line,
+focusing on gpu.js's built-in CPU fallback mode, browser developer
+tools, and specialized WebGL inspection utilities.</p>
+<h2 id="the-cpu-fallback-mode-in-gpujs">The CPU Fallback Mode in
+gpu.js</h2>
+<p>Because WebGL shaders execute concurrently across thousands of GPU
+threads, web browsers cannot pause execution at an arbitrary line of
+GLSL shader code using standard JavaScript breakpoints. The most direct
+and reliable tool to step through a gpu.js kernel line by line is the
+library's native CPU execution mode.</p>
+<p>When creating a kernel, you can explicitly force it to compile and
+run on the CPU rather than the GPU by setting the <code>mode</code>
+option:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">debugger</span><span class="op">;</span> <span class="co">// Triggers browser breakpoint</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> result <span class="op">=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [<span class="dv">512</span>]<span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;cpu&#39;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(arrayA<span class="op">,</span> arrayB)<span class="op">;</span></span></code></pre></div>
+<p>In CPU mode, gpu.js transpiles the kernel logic back into standard
+JavaScript loops. This allows developers to use conventional debugging
+tools to step through the execution path of each virtual thread.</p>
+<h2
+id="browser-developer-tools-chrome-devtools-firefox-developer-tools">Browser
+Developer Tools (Chrome DevTools, Firefox Developer Tools)</h2>
+<p>Once a kernel is running in CPU mode, standard browser developer
+tools become fully functional:</p>
+<ul>
+<li><strong>Breakpoints and <code>debugger</code> Statements:</strong>
+Inserting a <code>debugger;</code> statement inside the kernel function
+halts execution immediately when DevTools is open.</li>
+<li><strong>Step-by-Step Execution:</strong> You can use "Step Over"
+(F10), "Step Into" (F11), and "Step Out" (Shift+F10) to inspect local
+variables, intermediate calculations, and control flow line by
+line.</li>
+<li><strong>Thread Context Inspection:</strong> You can inspect
+<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code> directly in the Scope panel or the Console to
+monitor which coordinate is currently being calculated.</li>
+</ul>
+<h2 id="ide-debuggers-vs-code-and-nodejs">IDE Debuggers (VS Code and
+Node.js)</h2>
+<p>If you are running gpu.js in a Node.js environment or using a modern
+IDE like Visual Studio Code, CPU mode enables IDE-level line-by-line
+debugging:</p>
+<ol type="1">
+<li>Launch your script using the Node.js inspector
+(<code>node --inspect index.js</code>) or a VS Code launch
+configuration.</li>
+<li>Place visual breakpoints directly in the margin next to your kernel
+code.</li>
+<li>Step through statements, evaluate watch expressions, and inspect
+call stacks just like any regular asynchronous or synchronous JavaScript
+code.</li>
+</ol>
+<h2 id="webgl-profilers-and-inspection-utilities">WebGL Profilers and
+Inspection Utilities</h2>
+<p>While the CPU mode is required for interactive line-by-line stepping,
+other tools help diagnose issues when running directly on the GPU
+hardware:</p>
+<h3 id="spectorjs">Spector.js</h3>
+<p>Spector.js is a WebGL inspection tool created by the BabylonJS team,
+available as a browser extension. While it does not allow interactive
+line-by-line stepping through shader logic:</p>
+<ul>
+<li>It captures individual WebGL draw calls generated by gpu.js.</li>
+<li>It displays the compiled GLSL fragment and vertex shaders.</li>
+<li>It allows inspection of uniforms, textures, and framebuffers sent to
+the GPU, making it easier to determine if input data is misaligned
+before a kernel runs.</li>
+</ul>
+<h3 id="renderdoc-and-nvidia-nsight">RenderDoc and NVIDIA Nsight</h3>
+<p>For advanced desktop-level debugging, native graphics debuggers such
+as RenderDoc or NVIDIA Nsight Graphics can be hooked into Chromium-based
+browsers via command-line flags (e.g.,
+<code>--enable-gpu-benchmarking --no-sandbox</code>). These tools
+capture WebGL draw calls at the driver level and allow post-execution
+shader debugging, showing intermediate variable states per invocation on
+supported graphics drivers.</p>
+<h2 id="recommended-debugging-workflow">Recommended Debugging
+Workflow</h2>
+<ol type="1">
+<li><strong>Develop and Debug in CPU Mode:</strong> Set
+<code>{ mode: 'cpu' }</code> and use <code>debugger;</code> statements
+to verify mathematical correctness and step through loop
+iterations.</li>
+<li><strong>Switch to Auto/GPU Mode:</strong> Once the logic is
+confirmed, switch the mode back to <code>gpu</code> (or remove the
+option to let gpu.js default to the fastest available backend).</li>
+<li><strong>Compare Numerical Outputs:</strong> Run both modes side by
+side with identical input data to detect precision discrepancies or
+unsupported functions between the JavaScript engine and the target GPU's
+floating-point implementation.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

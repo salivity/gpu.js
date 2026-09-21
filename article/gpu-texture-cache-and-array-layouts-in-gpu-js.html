@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU Texture Cache and Array Layouts in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explores how modern graphics processing unit (GPU) texture caches dictate optimal memory access patterns when traversing multidimensional arrays in gpu.js. Because gpu.js encodes array data as 2D WebGL textures under the hood, hardware-level">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-texture-cache-and-array-layouts-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU Texture Cache and Array Layouts in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-texture-cache-and-array-layouts-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how modern graphics processing unit (GPU) texture caches dictate optimal memory access patterns when traversing multidimensional arrays in gpu.js. Because gpu.js encodes array data as 2D WebGL textures under the hood, hardware-level" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpu-texture-cache-and-array-layouts-in-gpujs">GPU Texture Cache
+and Array Layouts in GPU.js</h1>
+<p>This article explores how modern graphics processing unit (GPU)
+texture caches dictate optimal memory access patterns when traversing
+multidimensional arrays in gpu.js. Because gpu.js encodes array data as
+2D WebGL textures under the hood, hardware-level texture samplers and
+spatial caching architectures heavily influence performance.
+Understanding the relationship between texture memory layout, coordinate
+addressing, and cache line population allows developers to eliminate
+bandwidth bottlenecks and structure kernels for maximum computational
+throughput.</p>
+<h3 id="how-gpujs-represents-arrays">How GPU.js Represents Arrays</h3>
+<p>GPU.js compiles JavaScript functions into WebGL compute shaders.
+Standard WebGL implementations—particularly WebGL 1 and 2—lack
+general-purpose arbitrary read/write memory buffers (SSBOs) across all
+target hardware. To work around this, gpu.js stores input arrays by
+packing their floating-point elements into the color channels (RGBA) of
+2D textures.</p>
+<p>When you pass a 2D or 3D array to a gpu.js kernel, the library
+flattens or tiles that data across a two-dimensional grid of pixels.
+Reading an element from an array inside the kernel function translates
+into a texture fetch using normalized or integer coordinate
+samplers.</p>
+<h3 id="architecture-of-the-gpu-texture-cache">Architecture of the GPU
+Texture Cache</h3>
+<p>Central Processing Units (CPUs) utilize standard L1/L2/L3 caches
+built for linear, one-dimensional spatial locality. When a CPU loads an
+element, it loads an entire contiguous 64-byte cache line, heavily
+favoring flat, row-major iteration.</p>
+<p>In contrast, GPU texture caches are engineered for graphics
+rendering, where adjacent pixels across both the horizontal (<span
+class="math inline">\(X\)</span>) and vertical (<span
+class="math inline">\(Y\)</span>) axes are rendered simultaneously.
+Modern GPUs employ a 2D spatial locality cache structure, often
+organizing internal texture memory using space-filling curves, such as
+Morton order (Z-order curve) or tiled micro-blocks (e.g., <span
+class="math inline">\(4 \times 4\)</span> or <span
+class="math inline">\(8 \times 8\)</span> texels).</p>
+<p>When a thread requests a single texel from a texture, the memory
+controller fetches a small 2D block of surrounding texels into the
+texture cache. This ensures that accessing neighboring points in
+two-dimensional space—whether horizontally or vertically—results in
+low-latency cache hits.</p>
+<h3 id="the-impact-on-reading-order-in-multi-dimensional-arrays">The
+Impact on Reading Order in Multi-Dimensional Arrays</h3>
+<p>The hardware structure of the texture cache directly influences how
+you should structure reading orders in your kernels:</p>
+<h4 id="1-alignment-with-thread-execution-warpwavefront-coalescing">1.
+Alignment with Thread Execution (Warp/Wavefront Coalescing)</h4>
+<p>GPU threads execute in lockstep groups known as warps (NVIDIA) or
+wavefronts (AMD), typically 32 or 64 threads wide. GPU.js maps its
+thread coordinates (<code>this.thread.x</code>,
+<code>this.thread.y</code>, <code>this.thread.z</code>) to these
+hardware lanes:</p>
+<ul>
+<li><code>this.thread.x</code> corresponds to adjacent threads running
+concurrently within the same warp.</li>
+<li>When adjacent threads in a warp access adjacent coordinates along
+the fastest-moving axis of your array, their texture requests merge into
+a minimal number of cache transactions.</li>
+<li>If threads in a warp read with large strides along a secondary
+dimension (such as iterating down columns while executing across rows),
+each thread accesses a different cache block, triggering high cache miss
+rates and pipeline stalls.</li>
+</ul>
+<h4 id="2-flattened-3d-arrays-and-tile-striding">2. Flattened 3D Arrays
+and Tile Striding</h4>
+<p>When handling 3D arrays, gpu.js must fold the third dimension into
+the 2D texture plane by tiling. If your kernel traverses the <span
+class="math inline">\(Z\)</span>-axis (depth) faster than the <span
+class="math inline">\(X\)</span>- and <span
+class="math inline">\(Y\)</span>-axes, reads hop across discontiguous
+tiles in the underlying 2D texture. Because the texture cache favors
+localized 2D footprints, jumping across large vertical or horizontal
+offsets causes constant cache eviction (cache thrashing).</p>
+<h4 id="3-spatial-locality-in-convolution-and-stencil-operations">3.
+Spatial Locality in Convolution and Stencil Operations</h4>
+<p>Algorithms that read neighboring cells—such as image processing
+filters, matrix multiplication, or cellular automata—reap significant
+performance gains from the texture cache. Because reading <span
+class="math inline">\((x+1, y)\)</span>, <span
+class="math inline">\((x-1, y)\)</span>, <span class="math inline">\((x,
+y+1)\)</span>, and <span class="math inline">\((x, y-1)\)</span> falls
+directly within the pre-fetched 2D cache block, structuring reads to
+focus on local 2D neighborhoods significantly outperforms wide 1D
+strided scans.</p>
+<h3 id="best-practices-for-structuring-data-in-gpujs">Best Practices for
+Structuring Data in GPU.js</h3>
+<p>To align kernel performance with the texture cache:</p>
+<ul>
+<li><strong>Keep <code>this.thread.x</code> on the innermost
+dimension:</strong> Ensure that adjacent values of
+<code>this.thread.x</code> read contiguous indices in your source data
+arrays.</li>
+<li><strong>Avoid non-unit strides:</strong> Incrementing indices by
+arbitrary values or transposing reads without reorganizing memory
+layouts disrupts both warp coalescing and 2D spatial cache hits.</li>
+<li><strong>Group 2D operations together:</strong> Design kernel
+pipelines so that algorithms process complete 2D regions before stepping
+into third-dimensional strata, matching the physical 2D layout of WebGL
+textures.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

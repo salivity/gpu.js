@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rendering SDF Fonts Smoothly in GPU.js - gpu.js</title>
+    <meta name="description" content="This guide explains how to render Signed Distance Field (SDF) text glyphs smoothly at arbitrary zoom levels using GPU.js. You will learn the mechanics of SDF textures, how to implement scale-aware smoothing to prevent pixelation and edge degradation, and">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/rendering-sdf-fonts-smoothly-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Rendering SDF Fonts Smoothly in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/rendering-sdf-fonts-smoothly-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide explains how to render Signed Distance Field (SDF) text glyphs smoothly at arbitrary zoom levels using GPU.js. You will learn the mechanics of SDF textures, how to implement scale-aware smoothing to prevent pixelation and edge degradation, and" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="rendering-sdf-fonts-smoothly-in-gpujs">Rendering SDF Fonts
+Smoothly in GPU.js</h1>
+<p>This guide explains how to render Signed Distance Field (SDF) text
+glyphs smoothly at arbitrary zoom levels using GPU.js. You will learn
+the mechanics of SDF textures, how to implement scale-aware smoothing to
+prevent pixelation and edge degradation, and how to write an efficient
+GPU.js kernel that dynamically sharpens or softens text edges across any
+scale factor.</p>
+<h3 id="understanding-signed-distance-fields-for-text">Understanding
+Signed Distance Fields for Text</h3>
+<p>Traditional bitmap fonts store direct pixel opacity, which causes
+text to blur when enlarged and alias (pixelate) when scaled down. A
+Signed Distance Field (SDF) atlas instead encodes the distance from each
+pixel to the nearest glyph edge. By convention:</p>
+<ul>
+<li>Values below <code>0.5</code> represent points outside the
+glyph.</li>
+<li>A value of exactly <code>0.5</code> represents the exact edge
+boundary.</li>
+<li>Values above <code>0.5</code> represent points inside the
+glyph.</li>
+</ul>
+<p>Because distance changes linearly across space, a GPU can
+continuously reconstruct crisp vector edges at any resolution by
+evaluating where this boundary lies.</p>
+<h3 id="step-1-prepare-the-sdf-atlas">Step 1: Prepare the SDF Atlas</h3>
+<p>Before processing in GPU.js, generate an SDF font atlas using a
+generator such as <code>stb_truetype</code> or
+<code>msdf-bmfont-xml</code>. Load this atlas into an HTML Image or
+convert it into a normalized 2D/3D numerical array representing
+grayscale distance values ranging from <code>0.0</code> to
+<code>1.0</code>.</p>
+<h3 id="step-2-formulate-scale-dependent-anti-aliasing">Step 2:
+Formulate Scale-Dependent Anti-Aliasing</h3>
+<p>In standard WebGL shaders, screen-space derivatives like
+<code>fwidth()</code> dynamically calculate edge anti-aliasing. Because
+GPU.js transpiles standard JavaScript math to WebGL, you must explicitly
+pass a zoom or scale parameter to compute the edge smoothing
+transition.</p>
+<p>The transition range (anti-aliasing band) is inversely proportional
+to the zoom factor:</p>
+<p><span class="math display">\[\text{smoothing} =
+\frac{\text{spread}}{\text{fontSize} \times \text{zoom}}\]</span></p>
+<ul>
+<li><strong>Spread:</strong> The distance range in pixels configured
+when generating the SDF atlas (typically 4 to 8 pixels).</li>
+<li><strong>Zoom:</strong> The current rendering scale.</li>
+</ul>
+<p>Using a smoothstep function over the interval
+<code>[0.5 - smoothing, 0.5 + smoothing]</code> provides smooth,
+anti-aliased edges without blur.</p>
+<h3 id="step-3-implement-the-gpujs-kernel">Step 3: Implement the GPU.js
+Kernel</h3>
+<p>Below is a complete GPU.js kernel setup designed to render SDF font
+glyphs to a canvas.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Custom smoothstep implementation compatible with GPU.js transpilation</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">smoothstep</span>(edge0<span class="op">,</span> edge1<span class="op">,</span> x) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> t <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">1</span><span class="op">,</span> (x <span class="op">-</span> edge0) <span class="op">/</span> (edge1 <span class="op">-</span> edge0)))<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> t <span class="op">*</span> t <span class="op">*</span> (<span class="dv">3</span> <span class="op">-</span> <span class="dv">2</span> <span class="op">*</span> t)<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(smoothstep)<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderSDFGlyph <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(sdfAtlas<span class="op">,</span> glyphUvBounds<span class="op">,</span> zoom<span class="op">,</span> textColor) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Map thread coordinates to screen space</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Calculate normalized UV coordinates within the SDF atlas for this pixel</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> uMin <span class="op">=</span> glyphUvBounds[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> vMin <span class="op">=</span> glyphUvBounds[<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> uMax <span class="op">=</span> glyphUvBounds[<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> vMax <span class="op">=</span> glyphUvBounds[<span class="dv">3</span>]<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> u <span class="op">=</span> uMin <span class="op">+</span> (x <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span>) <span class="op">*</span> (uMax <span class="op">-</span> uMin)<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> v <span class="op">=</span> vMin <span class="op">+</span> (y <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span>) <span class="op">*</span> (vMax <span class="op">-</span> vMin)<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Sample distance from the atlas (atlas texture dimensions mapped)</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> atlasX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(u <span class="op">*</span> <span class="dv">512</span>)<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> atlasY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(v <span class="op">*</span> <span class="dv">512</span>)<span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> distance <span class="op">=</span> sdfAtlas[atlasY][atlasX]<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Dynamic anti-aliasing threshold derived from zoom level</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> baseSpread <span class="op">=</span> <span class="fl">8.0</span><span class="op">;</span> </span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> smoothing <span class="op">=</span> baseSpread <span class="op">/</span> (<span class="fl">32.0</span> <span class="op">*</span> zoom)<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compute final edge alpha</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> alpha <span class="op">=</span> <span class="fu">smoothstep</span>(<span class="fl">0.5</span> <span class="op">-</span> smoothing<span class="op">,</span> <span class="fl">0.5</span> <span class="op">+</span> smoothing<span class="op">,</span> distance)<span class="op">;</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Set the output pixel (RGBA)</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>  <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(textColor[<span class="dv">0</span>]<span class="op">,</span> textColor[<span class="dv">1</span>]<span class="op">,</span> textColor[<span class="dv">2</span>]<span class="op">,</span> alpha <span class="op">*</span> textColor[<span class="dv">3</span>])<span class="op">;</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">256</span><span class="op">,</span> <span class="dv">256</span>])</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="step-4-manage-scaling-and-edge-sharpness">Step 4: Manage Scaling
+and Edge Sharpness</h3>
+<p>To maintain consistent visual clarity across extreme magnification
+ranges:</p>
+<ol type="1">
+<li><strong>High Zoom (Close-Up):</strong> The smoothing width
+decreases, ensuring that high-resolution magnification does not produce
+fuzzy contours.</li>
+<li><strong>Low Zoom (Far-Out):</strong> The smoothing width expands
+across the distance field, suppressing subpixel aliasing and
+jitter.</li>
+<li><strong>Atlas Precision:</strong> If rendering glyphs at very small
+sizes (under 12px), single-channel SDF can exhibit rounded corners. To
+correct this, implement Multi-channel Signed Distance Fields (MSDF),
+where the kernel checks the median of three color channels (RGB) rather
+than a single scalar distance:</li>
+</ol>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">median</span>(r<span class="op">,</span> g<span class="op">,</span> b) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(r<span class="op">,</span> g)<span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(r<span class="op">,</span> g)<span class="op">,</span> b))<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>By computing the coverage value dynamically through
+<code>smoothstep</code> scaled to the current transformation matrix,
+GPU.js renders vector-quality text at any camera distance with minimal
+memory overhead.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

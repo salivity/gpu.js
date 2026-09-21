@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spectral Normalization with Power Iteration in GPU.js - gpu.js</title>
+    <meta name="description" content="Spectral normalization of convolutional weight matrices can be effectively approximated using the power iteration method within GPU.js. This article provides a direct examination of how 4D convolutional kernels are flattened into 2D operators, how the po">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/spectral-normalization-with-power-iteration-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Spectral Normalization with Power Iteration in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/spectral-normalization-with-power-iteration-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Spectral normalization of convolutional weight matrices can be effectively approximated using the power iteration method within GPU.js. This article provides a direct examination of how 4D convolutional kernels are flattened into 2D operators, how the po" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="spectral-normalization-with-power-iteration-in-gpujs">Spectral
+Normalization with Power Iteration in GPU.js</h1>
+<p>Spectral normalization of convolutional weight matrices can be
+effectively approximated using the power iteration method within GPU.js.
+This article provides a direct examination of how 4D convolutional
+kernels are flattened into 2D operators, how the power iteration
+algorithm calculates the dominant singular value through GPU-accelerated
+matrix-vector operations, and the practical implementation steps and
+performance considerations when utilizing WebGL via GPU.js.</p>
+<h2 id="the-mathematical-principle">The Mathematical Principle</h2>
+<p>Spectral normalization stabilizes neural network training by dividing
+the weight matrix <span class="math inline">\(W\)</span> by its spectral
+norm (the largest singular value, <span
+class="math inline">\(\sigma(W)\)</span>). Calculating the exact
+singular value decomposition (SVD) at every training step is
+computationally prohibitive, making the power iteration method the
+standard approximation technique.</p>
+<p>For a 2D matrix, power iteration estimates the first left and right
+singular vectors (<span class="math inline">\(u\)</span> and <span
+class="math inline">\(v\)</span>) through iterative updates:</p>
+<ol type="1">
+<li><span class="math inline">\(v \leftarrow \frac{W^T u}{\|W^T
+u\|_2}\)</span></li>
+<li><span class="math inline">\(u \leftarrow \frac{W v}{\|W
+v\|_2}\)</span></li>
+<li><span class="math inline">\(\sigma(W) \approx u^T W v\)</span></li>
+</ol>
+<p>In convolutional layers, the weight tensor typically has four
+dimensions:
+<code>[out_channels, in_channels, kernel_height, kernel_width]</code>.
+To apply standard power iteration, this 4D tensor is reshaped into a 2D
+matrix of shape
+<code>[out_channels, in_channels * kernel_height * kernel_width]</code>.</p>
+<h2 id="implementation-in-gpujs">Implementation in GPU.js</h2>
+<p>GPU.js compiles standard JavaScript functions into WebGL shaders,
+running parallel computations directly on the graphics hardware.
+Approximating the spectral norm of a reshaped convolutional weight
+involves three core computational steps that map efficiently to GPU.js
+kernels.</p>
+<h3 id="1-reshaping-and-transposition">1. Reshaping and
+Transposition</h3>
+<p>Before performing vector multiplication, the flattened 2D matrix or
+its virtual indexing must be handled. GPU.js handles 2D arrays natively.
+Transposing the operations for <span class="math inline">\(W^T
+u\)</span> can be implemented either by transposing the memory layout or
+by swapping index lookups (<code>W[col][row]</code>) directly inside the
+GPU kernel.</p>
+<h3 id="2-matrix-vector-multiplication-kernels">2. Matrix-Vector
+Multiplication Kernels</h3>
+<p>The primary bottleneck of power iteration is the matrix-vector
+multiplication. In GPU.js, this is separated into two parallel
+kernels:</p>
+<ul>
+<li><strong>Forward Kernel (<span class="math inline">\(W
+v\)</span>):</strong> Computes a vector of length
+<code>out_channels</code>. Each GPU thread calculates the dot product
+between one row of the flattened weight matrix and the current vector
+<span class="math inline">\(v\)</span>.</li>
+<li><strong>Adjoint Kernel (<span class="math inline">\(W^T
+u\)</span>):</strong> Computes a vector of length
+<code>in_channels * kernel_height * kernel_width</code>. Each GPU thread
+calculates the dot product between one column of <span
+class="math inline">\(W\)</span> and the current vector <span
+class="math inline">\(u\)</span>.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Forward multiplication: W * v</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> forwardKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(W<span class="op">,</span> v<span class="op">,</span> width) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> width<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> W[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][i] <span class="op">*</span> v[i]<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([outChannels])<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Adjoint multiplication: W^T * u</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> adjointKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(W<span class="op">,</span> u<span class="op">,</span> height) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> height<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> W[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> u[i]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([inChannels <span class="op">*</span> kernelHeight <span class="op">*</span> kernelWidth])<span class="op">;</span></span></code></pre></div>
+<h3 id="3-l2-normalization">3. L2 Normalization</h3>
+<p>After obtaining the resulting vector from each multiplication, the
+vector must be divided by its <span class="math inline">\(L_2\)</span>
+norm to prevent overflow or underflow. While sum reductions can be
+performed across multiple passes in GPU.js, vectors representing channel
+dimensions are typically small enough (e.g., 64 to 512 elements) that
+reading the vector back to the CPU for the norm computation and scaling
+does not create an extreme performance bottleneck. Alternatively, a
+parallel reduction kernel can compute the sum of squares directly on the
+GPU.</p>
+<h2 id="technical-constraints-and-considerations">Technical Constraints
+and Considerations</h2>
+<p>While the implementation is straightforward, several practical
+constraints exist when using GPU.js for this task:</p>
+<ul>
+<li><strong>Memory Transfer Overhead:</strong> Passing matrices between
+CPU and GPU memory repeatedly degrades throughput. To maintain optimal
+speed, weight matrices and intermediate vectors should remain as
+textures on the GPU between iterations using the
+<code>pipeline: true</code> mode in GPU.js.</li>
+<li><strong>Precision:</strong> Standard WebGL implementations often
+default to 16-bit or 32-bit floating-point precision depending on device
+support. For power iteration, standard 32-bit float support
+(<code>gl.FLOAT</code>) is required to ensure numerical stability and
+prevent vector collapse.</li>
+<li><strong>Iteration Count:</strong> In practice, training deep
+networks requires only 1 to 3 power iterations per batch update, because
+the singular vectors <span class="math inline">\(u\)</span> and <span
+class="math inline">\(v\)</span> carry over from previous iterations and
+converge quickly.</li>
+</ul>
+<p>Approximating the spectral norm of convolutional weight matrices via
+power iteration in GPU.js is fully viable, providing significant
+acceleration over pure JavaScript loops by utilizing parallel WebGL
+shader pipelines for matrix-vector products.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

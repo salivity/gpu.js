@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boussinesq Thermal Convection in GPU.js - gpu.js</title>
+    <meta name="description" content="This article provides a guide to implementing a real-time thermal fluid convection simulation in the browser using GPU.js and the Boussinesq approximation. You will learn the underlying mathematical formulation of buoyancy-driven flows, the split-operato">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/boussinesq-thermal-convection-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Boussinesq Thermal Convection in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/boussinesq-thermal-convection-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides a guide to implementing a real-time thermal fluid convection simulation in the browser using GPU.js and the Boussinesq approximation. You will learn the underlying mathematical formulation of buoyancy-driven flows, the split-operato" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="boussinesq-thermal-convection-in-gpujs">Boussinesq Thermal
+Convection in GPU.js</h1>
+<p>This article provides a guide to implementing a real-time thermal
+fluid convection simulation in the browser using GPU.js and the
+Boussinesq approximation. You will learn the underlying mathematical
+formulation of buoyancy-driven flows, the split-operator numerical
+method on an Eulerian grid, and how to structure parallel WebGL compute
+kernels to solve for advection, thermal buoyancy, viscous diffusion, and
+incompressibility.</p>
+<h2 id="the-boussinesq-governing-equations">The Boussinesq Governing
+Equations</h2>
+<p>Thermal convection occurs when temperature variations create density
+differences, producing buoyant forces. The Boussinesq approximation
+assumes density variations are negligible except where they generate
+gravitational body forces.</p>
+<p>For an incompressible fluid, the dynamics are governed by:</p>
+<ol type="1">
+<li><p><strong>Mass Conservation (Incompressibility):</strong> <span
+class="math display">\[\nabla \cdot \mathbf{u} = 0\]</span></p></li>
+<li><p><strong>Momentum Conservation (Navier-Stokes with
+Buoyancy):</strong> <span class="math display">\[\frac{\partial
+\mathbf{u}}{\partial t} + (\mathbf{u} \cdot \nabla)\mathbf{u} =
+-\frac{1}{\rho_0}\nabla p + \nu \nabla^2 \mathbf{u} + g \beta (T -
+T_0)\hat{\mathbf{j}}\]</span></p></li>
+<li><p><strong>Thermal Energy Conservation:</strong> <span
+class="math display">\[\frac{\partial T}{\partial t} + (\mathbf{u} \cdot
+\nabla)T = \alpha \nabla^2 T\]</span></p></li>
+</ol>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(\mathbf{u} = (u, v)\)</span> is the
+velocity vector.</li>
+<li><span class="math inline">\(p\)</span> is pressure, and <span
+class="math inline">\(\rho_0\)</span> is the reference density.</li>
+<li><span class="math inline">\(\nu\)</span> is the kinematic
+viscosity.</li>
+<li><span class="math inline">\(\alpha\)</span> is thermal
+diffusivity.</li>
+<li><span class="math inline">\(g\)</span> is gravitational
+acceleration.</li>
+<li><span class="math inline">\(\beta\)</span> is the thermal expansion
+coefficient.</li>
+<li><span class="math inline">\(T\)</span> is temperature, and <span
+class="math inline">\(T_0\)</span> is the reference temperature.</li>
+<li><span class="math inline">\(\hat{\mathbf{j}}\)</span> is the unit
+vector pointing in the vertical direction.</li>
+</ul>
+<h2 id="simulation-pipeline">Simulation Pipeline</h2>
+<p>Using an operator splitting approach on a staggered or collocated 2D
+grid, each time step <span class="math inline">\(\Delta t\)</span>
+progresses through five distinct stages:</p>
+<ol type="1">
+<li><strong>Advection:</strong> Advect velocity <span
+class="math inline">\(\mathbf{u}\)</span> and temperature <span
+class="math inline">\(T\)</span> using the current velocity field
+(Semi-Lagrangian advection).</li>
+<li><strong>Buoyancy Forcing:</strong> Add vertical acceleration
+proportional to <span class="math inline">\((T - T_0)\)</span> to the
+vertical velocity <span class="math inline">\(v\)</span>.</li>
+<li><strong>Diffusion:</strong> Disperse momentum and temperature using
+explicit finite differences or Jacobi relaxation.</li>
+<li><strong>Pressure Solve:</strong> Compute the velocity field's
+divergence and solve the Poisson equation <span
+class="math inline">\(\nabla^2 p = \frac{\rho_0}{\Delta t} \nabla \cdot
+\mathbf{u}^*\)</span> using an iterative Jacobi solver.</li>
+<li><strong>Projection:</strong> Subtract the pressure gradient <span
+class="math inline">\(\nabla p\)</span> from the intermediate velocity
+field to enforce mass conservation (<span class="math inline">\(\nabla
+\cdot \mathbf{u} = 0\)</span>).</li>
+</ol>
+<h2 id="implementing-the-gpu-kernels">Implementing the GPU Kernels</h2>
+<p>GPU.js compiles JavaScript functions into WebGL fragment shaders,
+operating over 2D textures representing grid data. Textures are
+ping-ponged (read from one, written to another) between update
+steps.</p>
+<h3 id="1-initialization">1. Initialization</h3>
+<p>Initialize the GPU context and configure float-precision
+rendering:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;webgl2&#39;</span> })<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> WIDTH <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> HEIGHT <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> DT <span class="op">=</span> <span class="fl">0.01</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> DX <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> BUOYANCY <span class="op">=</span> <span class="fl">5.0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> T_BASE <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Textures storing values as [u, v] or scalar T</span></span></code></pre></div>
+<h3 id="2-advection-kernel">2. Advection Kernel</h3>
+<p>The Semi-Lagrangian scheme traces particles backward in time to
+sample the advected quantity with bilinear interpolation:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> advectField <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(field<span class="op">,</span> velocity<span class="op">,</span> dt<span class="op">,</span> dx<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Sample current velocity</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> u <span class="op">=</span> velocity[y][x][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> v <span class="op">=</span> velocity[y][x][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Trace back coordinate</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> prevX <span class="op">=</span> x <span class="op">-</span> u <span class="op">*</span> (dt <span class="op">/</span> dx)<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> prevY <span class="op">=</span> y <span class="op">-</span> v <span class="op">*</span> (dt <span class="op">/</span> dx)<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Clamp to boundary</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    prevX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="fl">0.5</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width <span class="op">-</span> <span class="fl">1.5</span><span class="op">,</span> prevX))<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    prevY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="fl">0.5</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(height <span class="op">-</span> <span class="fl">1.5</span><span class="op">,</span> prevY))<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Bilinear interpolation indices</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i0 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(prevX)<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i1 <span class="op">=</span> i0 <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> j0 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(prevY)<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> j1 <span class="op">=</span> j0 <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> s1 <span class="op">=</span> prevX <span class="op">-</span> i0<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> s0 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> s1<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t1 <span class="op">=</span> prevY <span class="op">-</span> j0<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t0 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> t1<span class="op">;</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> s0 <span class="op">*</span> (t0 <span class="op">*</span> field[j0][i0] <span class="op">+</span> t1 <span class="op">*</span> field[j1][i0]) <span class="op">+</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>           s1 <span class="op">*</span> (t0 <span class="op">*</span> field[j0][i1] <span class="op">+</span> t1 <span class="op">*</span> field[j1][i1])<span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="3-buoyancy-kernel">3. Buoyancy Kernel</h3>
+<p>Add the Boussinesq buoyant term to the vertical velocity channel
+based on the current temperature field:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> applyBuoyancy <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(velocity<span class="op">,</span> temperature<span class="op">,</span> dt<span class="op">,</span> buoyancyCoeff<span class="op">,</span> t0) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> u <span class="op">=</span> velocity[y][x][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> v <span class="op">=</span> velocity[y][x][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t <span class="op">=</span> temperature[y][x]<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Boussinesq upward acceleration: dv/dt += beta * g * (T - T0)</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    v <span class="op">+=</span> (t <span class="op">-</span> t0) <span class="op">*</span> buoyancyCoeff <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [u<span class="op">,</span> v]<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="4-divergence-kernel">4. Divergence Kernel</h3>
+<p>Calculate the divergence of the intermediate velocity field:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDivergence <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(velocity<span class="op">,</span> dx<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Zero divergence at borders</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> x <span class="op">===</span> width <span class="op">-</span> <span class="dv">1</span> <span class="op">||</span> y <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> y <span class="op">===</span> height <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> uRight <span class="op">=</span> velocity[y][x <span class="op">+</span> <span class="dv">1</span>][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> uLeft  <span class="op">=</span> velocity[y][x <span class="op">-</span> <span class="dv">1</span>][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vTop   <span class="op">=</span> velocity[y <span class="op">+</span> <span class="dv">1</span>][x][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vBot   <span class="op">=</span> velocity[y <span class="op">-</span> <span class="dv">1</span>][x][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.5</span> <span class="op">*</span> ((uRight <span class="op">-</span> uLeft) <span class="op">+</span> (vTop <span class="op">-</span> vBot)) <span class="op">/</span> dx<span class="op">;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="5-pressure-poisson-solver-jacobi-iterations">5. Pressure Poisson
+Solver (Jacobi Iterations)</h3>
+<p>Iterate over the pressure grid to satisfy <span
+class="math inline">\(\nabla^2 p = \frac{1}{\Delta t} \nabla \cdot
+\mathbf{u}\)</span>:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> jacobiPressure <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(pressure<span class="op">,</span> divergence<span class="op">,</span> dx<span class="op">,</span> dt<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Neumann boundary conditions (zero pressure gradient)</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pLeft  <span class="op">=</span> (x <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> pressure[y][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pRight <span class="op">=</span> (x <span class="op">&lt;</span> width <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> pressure[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pBot   <span class="op">=</span> (y <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> pressure[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pTop   <span class="op">=</span> (y <span class="op">&lt;</span> height <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> pressure[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> div <span class="op">=</span> divergence[y][x]<span class="op">;</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.25</span> <span class="op">*</span> (pLeft <span class="op">+</span> pRight <span class="op">+</span> pBot <span class="op">+</span> pTop <span class="op">-</span> (dx <span class="op">*</span> dx <span class="op">*</span> div <span class="op">/</span> dt))<span class="op">;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>Run this kernel sequentially 20 to 40 times per frame, alternating
+input and output textures to ensure proper convergence.</p>
+<h3 id="6-velocity-projection-kernel">6. Velocity Projection Kernel</h3>
+<p>Enforce incompressibility by subtracting the computed pressure
+gradient from the intermediate velocity:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> projectVelocity <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(velocity<span class="op">,</span> pressure<span class="op">,</span> dx<span class="op">,</span> dt<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> x <span class="op">===</span> width <span class="op">-</span> <span class="dv">1</span> <span class="op">||</span> y <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> y <span class="op">===</span> height <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [<span class="fl">0.0</span><span class="op">,</span> <span class="fl">0.0</span>]<span class="op">;</span> <span class="co">// No-slip boundary</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pLeft  <span class="op">=</span> pressure[y][x <span class="op">-</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pRight <span class="op">=</span> pressure[y][x <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pBot   <span class="op">=</span> pressure[y <span class="op">-</span> <span class="dv">1</span>][x]<span class="op">;</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pTop   <span class="op">=</span> pressure[y <span class="op">+</span> <span class="dv">1</span>][x]<span class="op">;</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gradPx <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (pRight <span class="op">-</span> pLeft) <span class="op">/</span> dx<span class="op">;</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gradPy <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (pTop <span class="op">-</span> pBot) <span class="op">/</span> dx<span class="op">;</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> u <span class="op">=</span> velocity[y][x][<span class="dv">0</span>] <span class="op">-</span> dt <span class="op">*</span> gradPx<span class="op">;</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> v <span class="op">=</span> velocity[y][x][<span class="dv">1</span>] <span class="op">-</span> dt <span class="op">*</span> gradPy<span class="op">;</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [u<span class="op">,</span> v]<span class="op">;</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h2
+id="thermal-boundary-conditions-and-rayleigh-bénard-convection">Thermal
+Boundary Conditions and Rayleigh-Bénard Convection</h2>
+<p>To establish classic Rayleigh-Bénard thermal convection cells, apply
+fixed-temperature Dirichlet boundary conditions to the temperature
+field:</p>
+<ul>
+<li><strong>Bottom boundary (<span class="math inline">\(y =
+0\)</span>):</strong> Set to a constant hot temperature (<span
+class="math inline">\(T_{\text{hot}} = 1.0\)</span>).</li>
+<li><strong>Top boundary (<span class="math inline">\(y =
+H\)</span>):</strong> Set to a constant cold temperature (<span
+class="math inline">\(T_{\text{cold}} = 0.0\)</span>).</li>
+<li><strong>Left and right boundaries:</strong> Set to insulated Neumann
+conditions (<span class="math inline">\(\frac{\partial T}{\partial x} =
+0\)</span>).</li>
+</ul>
+<p>Add small, randomized temperature perturbations across the domain
+during setup. Without perturbations, a pure conduction state will
+persist until numerical noise breaks the symmetry. Once perturbed, the
+buoyant force amplifies vertical fluid movement, forming
+counter-rotating convection rolls.</p>
+<h2 id="stability-considerations">Stability Considerations</h2>
+<ul>
+<li><strong>Courant-Friedrichs-Lewy (CFL) Condition:</strong> While
+Semi-Lagrangian advection is unconditionally stable, high velocities
+with large <span class="math inline">\(\Delta t\)</span> lead to severe
+numerical dissipation. Maintain <span class="math inline">\(\Delta t \le
+\frac{\Delta x}{||\mathbf{u}||_{\max}}\)</span> for sharp convective
+structures.</li>
+<li><strong>Floating-Point Precision:</strong> GPU.js requires WebGL
+float textures to avoid clamping intermediate pressure values. Ensure
+that <code>gpu.setPipeline(true)</code> is enabled to keep computations
+stored on the GPU without costly roundtrips to the CPU.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

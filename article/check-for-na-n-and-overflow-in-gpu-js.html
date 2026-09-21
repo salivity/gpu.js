@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check for NaN and Overflow in GPU.js - gpu.js</title>
+    <meta name="description" content="Verifying whether a mathematical calculation in gpu.js has produced NaN (Not-a-Number) or resulted in an overflow requires combining GPU-side constraints with CPU-side array validation. Because gpu.js translates JavaScript into WebGL shaders, traditional">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/check-for-na-n-and-overflow-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Check for NaN and Overflow in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/check-for-na-n-and-overflow-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Verifying whether a mathematical calculation in gpu.js has produced NaN (Not-a-Number) or resulted in an overflow requires combining GPU-side constraints with CPU-side array validation. Because gpu.js translates JavaScript into WebGL shaders, traditional" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="check-for-nan-and-overflow-in-gpujs">Check for NaN and Overflow
+in GPU.js</h1>
+<p>Verifying whether a mathematical calculation in gpu.js has produced
+<code>NaN</code> (Not-a-Number) or resulted in an overflow requires
+combining GPU-side constraints with CPU-side array validation. Because
+gpu.js translates JavaScript into WebGL shaders, traditional JavaScript
+runtime exceptions do not occur during execution. Instead, operations
+that exceed 32-bit floating-point limits result in <code>Infinity</code>
+or clamp to maximum float thresholds, while invalid operations yield
+<code>NaN</code>. You can detect these conditions either by using
+specific shader logic inside the kernel or by inspecting the output
+buffer in JavaScript after execution.</p>
+<h2 id="1-post-execution-buffer-inspection-on-the-cpu">1. Post-Execution
+Buffer Inspection on the CPU</h2>
+<p>The simplest and most reliable method to verify calculation integrity
+is inspecting the output data on the CPU after the kernel finishes
+running.</p>
+<p>When gpu.js returns a calculation, the result is typically a
+multidimensional array or a typed array (<code>Float32Array</code>). You
+can scan the output using native JavaScript methods:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> myKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">0.0</span><span class="op">;</span> <span class="co">// Produces Infinity</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">myKernel</span>()<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Check for NaN or Infinite values</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> hasError <span class="op">=</span> <span class="kw">false</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> result<span class="op">.</span><span class="at">length</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> value <span class="op">=</span> result[i]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="bu">Number</span><span class="op">.</span><span class="fu">isNaN</span>(value)) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">error</span>(<span class="vs">`NaN detected at index </span><span class="sc">${</span>i<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    hasError <span class="op">=</span> <span class="kw">true</span><span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="op">!</span><span class="bu">Number</span><span class="op">.</span><span class="fu">isFinite</span>(value)) {</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">error</span>(<span class="vs">`Overflow/Infinity detected at index </span><span class="sc">${</span>i<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    hasError <span class="op">=</span> <span class="kw">true</span><span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>If you set the kernel mode to
+<code>{ output: [n], pipeline: false }</code>, gpu.js will automatically
+return CPU-readable arrays, making this check straightforward.</p>
+<h2 id="2-in-kernel-sentinel-value-tagging">2. In-Kernel Sentinel Value
+Tagging</h2>
+<p>If your architecture uses pipeline mode (where textures stay in GPU
+memory) or you want immediate tagging inside the kernel, you can encode
+overflow and <code>NaN</code> states into sentinel values.</p>
+<p>WebGL 1.0 (GLSL ES 1.0) lacks built-in <code>isnan()</code> or
+<code>isinf()</code> functions, but WebGL 2.0 provides them. To maintain
+compatibility across hardware, use mathematical properties:</p>
+<ul>
+<li><strong>NaN Check:</strong> In IEEE 754 arithmetic, <code>NaN</code>
+is the only value that is never equal to itself
+(<code>x != x</code>).</li>
+<li><strong>Overflow/Infinity Check:</strong> If a number exceeds
+standard single-precision float bounds (<span
+class="math inline">\(\approx 3.402823 \times 10^{38}\)</span>),
+multiplying it by <code>0.0</code> will result in <code>NaN</code>
+rather than <code>0.0</code>.</li>
+</ul>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> val <span class="op">=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// NaN Detection: A NaN value is not equal to itself</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (val <span class="op">!=</span> val) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="op">-</span><span class="fl">999999.0</span><span class="op">;</span> <span class="co">// Custom NaN sentinel</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Overflow Detection: Check against safe 32-bit float limits</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// or test if multiplication by zero fails</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (val <span class="op">&gt;</span> <span class="fl">3.4e38</span> <span class="op">||</span> val <span class="op">&lt;</span> <span class="op">-</span><span class="fl">3.4e38</span> <span class="op">||</span> (val <span class="op">*</span> <span class="fl">0.0</span> <span class="op">!=</span> <span class="fl">0.0</span>)) {</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="op">-</span><span class="fl">888888.0</span><span class="op">;</span> <span class="co">// Custom Overflow sentinel</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> val<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span>])<span class="op">;</span></span></code></pre></div>
+<p><em>Note: Some aggressive GPU driver optimizations may optimize away
+<code>val != val</code>. If you encounter this, verify using the
+CPU-side method.</em></p>
+<h2 id="3-webgl2-built-in-functions">3. WebGL2 Built-In Functions</h2>
+<p>If your target environment supports WebGL 2, gpu.js allows direct
+mathematical operations that comply with GLSL ES 3.0. You can enforce
+WebGL2 when instantiating gpu.js:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;webgl2&#39;</span> })<span class="op">;</span></span></code></pre></div>
+<p>Under WebGL2, standard math checks become more resilient:</p>
+<ul>
+<li>Compare against extremely high thresholds to catch overflows before
+standard hardware clamping converts them into unrecoverable values.</li>
+<li>Use explicit threshold branches to reset, flag, or handle values
+that exceed standard float capacity.</li>
+</ul>
+<h2 id="4-multi-channel-status-flags">4. Multi-Channel Status Flags</h2>
+<p>For complex pipelines where calculation output must not be replaced
+with sentinel numbers, configure the kernel to return an extra channel
+(e.g., using <code>setOutput([width, 2])</code> or 4-channel vector
+mode).</p>
+<ul>
+<li><strong>Channel 0:</strong> The actual calculated value.</li>
+<li><strong>Channel 1:</strong> Status code (<code>0.0</code> for
+Normal, <code>1.0</code> for Overflow, <code>2.0</code> for NaN).</li>
+</ul>
+<p>This separates numeric evaluation from calculation results, allowing
+downstream kernels or CPU processes to skip or correct faulty threads
+without losing the raw float state.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

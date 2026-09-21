@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js WebGL Float Texture Internal Format - gpu.js</title>
+    <meta name="description" content="This article examines the internal WebGL pixel formats selected by gpu.js when rendering and outputting 2D floating-point textures. It details the underlying texture allocation mechanisms across both WebGL 1 and WebGL 2 environments, explaining how preci">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-web-gl-float-texture-internal-format">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js WebGL Float Texture Internal Format - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-web-gl-float-texture-internal-format" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines the internal WebGL pixel formats selected by gpu.js when rendering and outputting 2D floating-point textures. It details the underlying texture allocation mechanisms across both WebGL 1 and WebGL 2 environments, explaining how preci" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-webgl-float-texture-internal-format">GPU.js WebGL Float
+Texture Internal Format</h1>
+<p>This article examines the internal WebGL pixel formats selected by
+gpu.js when rendering and outputting 2D floating-point textures. It
+details the underlying texture allocation mechanisms across both WebGL 1
+and WebGL 2 environments, explaining how precision settings dictate the
+exact OpenGL texture targets, formats, and channel layouts used during
+GPU execution.</p>
+<h3 id="webgl-2-context-sized-internal-formats">WebGL 2 Context: Sized
+Internal Formats</h3>
+<p>In a modern WebGL 2 context, gpu.js utilizes sized internal formats
+to allocate high-precision floating-point textures. When running a
+kernel configured with <code>precision: 'single'</code> that outputs 2D
+float data, gpu.js selects:</p>
+<ul>
+<li><strong>Internal Format:</strong> <code>gl.RGBA32F</code></li>
+<li><strong>Format:</strong> <code>gl.RGBA</code></li>
+<li><strong>Type:</strong> <code>gl.FLOAT</code></li>
+</ul>
+<p>WebGL 2 natively supports sized internal formats, and gpu.js relies
+on four-channel allocations (<code>RGBA32F</code>) for its primary
+compute pipeline rather than single-channel formats like
+<code>R32F</code>. This design decision maintains unified texture memory
+management across multi-value returns, matrices, and internal pipelines
+where 32-bit floats are stored in each color component.</p>
+<h3 id="webgl-1-context-unsized-internal-formats">WebGL 1 Context:
+Unsized Internal Formats</h3>
+<p>In environments limited to WebGL 1, sized formats such as
+<code>gl.RGBA32F</code> are unavailable in the core specification. To
+achieve floating-point output, gpu.js requires the
+<code>OES_texture_float</code> (and often
+<code>WEBGL_color_buffer_float</code>) extension. Under this backend,
+gpu.js specifies:</p>
+<ul>
+<li><strong>Internal Format:</strong> <code>gl.RGBA</code></li>
+<li><strong>Format:</strong> <code>gl.RGBA</code></li>
+<li><strong>Type:</strong> <code>gl.FLOAT</code></li>
+</ul>
+<p>In WebGL 1, the <code>internalFormat</code> argument in
+<code>gl.texImage2D</code> must match the <code>format</code> parameter.
+As a result, the internal format remains unsized (<code>gl.RGBA</code>),
+but the GPU assigns 32-bit floating-point precision per channel because
+the data type parameter is explicitly set to <code>gl.FLOAT</code>.</p>
+<h3 id="fallback-behavior-unsigned-byte-encoding">Fallback Behavior:
+Unsigned Byte Encoding</h3>
+<p>If a hardware device or browser environment does not support
+floating-point render targets, or if <code>precision: 'unsigned'</code>
+is configured, gpu.js alters its texture output strategy. Instead of
+relying on raw floating-point textures, it uses:</p>
+<ul>
+<li><strong>Internal Format:</strong> <code>gl.RGBA</code></li>
+<li><strong>Format:</strong> <code>gl.RGBA</code></li>
+<li><strong>Type:</strong> <code>gl.UNSIGNED_BYTE</code></li>
+</ul>
+<p>Under this fallback mechanism, 32-bit floating-point numbers are
+mathematically encoded (packed) across the four 8-bit channels (<span
+class="math inline">\(R, G, B, A\)</span>) inside the fragment shader
+and decoded upon CPU retrieval or subsequent kernel reads.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

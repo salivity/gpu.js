@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark Memory Transfer vs Calculation in GPU.js - gpu.js</title>
+    <meta name="description" content="Benchmarking memory transfer bandwidth separately from kernel calculation time in gpu.js requires isolating CPU-to-GPU data uploads, GPU-to-CPU data readbacks, and raw shader execution. By leveraging texture inputs, gpu.js’s pipelining mode (pipeline:">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/benchmark-memory-transfer-vs-calculation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Benchmark Memory Transfer vs Calculation in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/benchmark-memory-transfer-vs-calculation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Benchmarking memory transfer bandwidth separately from kernel calculation time in gpu.js requires isolating CPU-to-GPU data uploads, GPU-to-CPU data readbacks, and raw shader execution. By leveraging texture inputs, gpu.js’s pipelining mode (pipeline:" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="benchmark-memory-transfer-vs-calculation-in-gpujs">Benchmark
+Memory Transfer vs Calculation in GPU.js</h1>
+<p>Benchmarking memory transfer bandwidth separately from kernel
+calculation time in gpu.js requires isolating CPU-to-GPU data uploads,
+GPU-to-CPU data readbacks, and raw shader execution. By leveraging
+texture inputs, gpu.js’s pipelining mode (<code>pipeline: true</code>),
+and explicit array readbacks via <code>.toArray()</code>, you can
+eliminate overhead overlap and calculate accurate throughput metrics
+(GB/s) for memory transfers versus compute operations.</p>
+<h2 id="the-challenge-of-gpujs-timing">The Challenge of GPU.js
+Timing</h2>
+<p>When you execute a standard gpu.js kernel passing native JavaScript
+arrays, three sequential stages occur:</p>
+<ol type="1">
+<li><strong>Host-to-Device (Upload):</strong> JavaScript arrays are
+converted into WebGL textures and bound to the GPU.</li>
+<li><strong>Execution (Compute):</strong> The fragment shader executes
+across the specified output dimensions.</li>
+<li><strong>Device-to-Host (Download):</strong> WebGL reads pixels back
+from the GPU memory and serializes them into typed arrays or JavaScript
+arrays.</li>
+</ol>
+<p>Because WebGL executes commands asynchronously, calling standard
+JavaScript timers like <code>performance.now()</code> across a standard
+kernel call measures all three stages combined.</p>
+<h2 id="step-1-isolating-host-to-device-transfer-upload">Step 1:
+Isolating Host-to-Device Transfer (Upload)</h2>
+<p>To measure the time it takes to push data from system RAM to GPU
+memory, create an ingestion kernel that does virtually no math, but
+takes the large dataset as an argument and outputs a texture using
+<code>pipeline: true</code>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dataSize <span class="op">=</span> <span class="dv">1024</span> <span class="op">*</span> <span class="dv">1024</span> <span class="op">*</span> <span class="dv">4</span><span class="op">;</span> <span class="co">// 4 million 32-bit floats (16 MB)</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> inputData <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(dataSize)<span class="op">.</span><span class="fu">fill</span>(<span class="fl">1.5</span>)<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Ingestion kernel: keeps data on GPU as a texture</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> uploadKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([dataSize])</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">// Benchmark Upload</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> uploadStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpuTexture <span class="op">=</span> <span class="fu">uploadKernel</span>(inputData)<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co">// gpuTexture is now stored in VRAM</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> uploadTimeMs <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>() <span class="op">-</span> uploadStart<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> bytesTransferred <span class="op">=</span> dataSize <span class="op">*</span> <span class="dv">4</span><span class="op">;</span> <span class="co">// Float32 = 4 bytes</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> uploadBandwidthGBs <span class="op">=</span> (bytesTransferred <span class="op">/</span> (uploadTimeMs <span class="op">/</span> <span class="dv">1000</span>)) <span class="op">/</span> <span class="fl">1e9</span><span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Upload Time: </span><span class="sc">${</span>uploadTimeMs<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs"> ms`</span>)<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Upload Bandwidth: </span><span class="sc">${</span>uploadBandwidthGBs<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs"> GB/s`</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="step-2-isolating-pure-calculation-time">Step 2: Isolating Pure
+Calculation Time</h2>
+<p>To measure computation without transfer interference, both the input
+and output must remain entirely on the GPU. Pass the texture generated
+in Step 1 to your compute kernel, and configure the compute kernel with
+<code>pipeline: true</code> so it outputs another texture instead of
+transferring data back to the CPU.</p>
+<p>To ensure proper synchronization, run a loop of iterations to account
+for WebGL warm-up.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(tex) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> val <span class="op">=</span> tex[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Complex math computation</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">100</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    val <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(val <span class="op">*</span> <span class="fl">1.01</span> <span class="op">+</span> <span class="fl">0.05</span>)<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> val<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([dataSize])</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="co">// Warm-up pass</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> computeResultTexture <span class="op">=</span> <span class="fu">computeKernel</span>(gpuTexture)<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="co">// Benchmark Calculation</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> iterations <span class="op">=</span> <span class="dv">50</span><span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> iterations<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  computeResultTexture <span class="op">=</span> <span class="fu">computeKernel</span>(gpuTexture)<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeTimeMs <span class="op">=</span> (<span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>() <span class="op">-</span> computeStart) <span class="op">/</span> iterations<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Pure Kernel Execution Time: </span><span class="sc">${</span>computeTimeMs<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs"> ms`</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="step-3-isolating-device-to-host-transfer-download">Step 3:
+Isolating Device-to-Host Transfer (Download)</h2>
+<p>The output from the computation step is currently a GPU texture
+reference. The transfer back to the CPU only occurs when you invoke
+<code>.toArray()</code> on the pipelined texture. This method forces a
+GPU flush and synchronizes the memory back to the host, allowing you to
+time readback latency directly.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Benchmark Download (Readback)</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> downloadStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cpuArray <span class="op">=</span> computeResultTexture<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> downloadTimeMs <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>() <span class="op">-</span> downloadStart<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> downloadBandwidthGBs <span class="op">=</span> (bytesTransferred <span class="op">/</span> (downloadTimeMs <span class="op">/</span> <span class="dv">1000</span>)) <span class="op">/</span> <span class="fl">1e9</span><span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Download Time: </span><span class="sc">${</span>downloadTimeMs<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs"> ms`</span>)<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Download Bandwidth: </span><span class="sc">${</span>downloadBandwidthGBs<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs"> GB/s`</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="cleanup-and-accuracy-guidelines">Cleanup and Accuracy
+Guidelines</h2>
+<ul>
+<li><strong>Memory Garbage Collection:</strong> Call
+<code>.delete()</code> on intermediate textures (e.g.,
+<code>gpuTexture.delete()</code>) when tests finish to avoid VRAM
+exhaustion.</li>
+<li><strong>Warm-up Cycles:</strong> WebGL compiles shaders on first
+invocation. Always discard the first kernel run when calculating
+execution benchmarks.</li>
+<li><strong>Data Sizing:</strong> Memory transfer overhead dominates
+small array sizes. Use payloads of at least 16 MB to 64 MB to accurately
+measure saturated PCI-e bandwidth.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

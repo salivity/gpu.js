@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Variable Hoisting in gpu.js vs Standard V8 - gpu.js</title>
+    <meta name="description" content="Variable hoisting does not behave identically in a gpu.js kernel compared to standard V8 execution. While the V8 engine strictly adheres to the ECMAScript specification by hoisting variable declarations to the top of their functional or block scopes, gpu">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/variable-hoisting-in-gpu-js-vs-standard-v-8">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Variable Hoisting in gpu.js vs Standard V8 - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/variable-hoisting-in-gpu-js-vs-standard-v-8" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Variable hoisting does not behave identically in a gpu.js kernel compared to standard V8 execution. While the V8 engine strictly adheres to the ECMAScript specification by hoisting variable declarations to the top of their functional or block scopes, gpu" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="variable-hoisting-in-gpujs-vs-standard-v8">Variable Hoisting in
+gpu.js vs Standard V8</h1>
+<p>Variable hoisting does not behave identically in a gpu.js kernel
+compared to standard V8 execution. While the V8 engine strictly adheres
+to the ECMAScript specification by hoisting variable declarations to the
+top of their functional or block scopes, gpu.js parses a restricted
+subset of JavaScript into an Abstract Syntax Tree (AST) to transpile it
+into WebGL GLSL (OpenGL Shading Language). Because GLSL requires all
+identifiers to be declared and typed before they are referenced,
+attempting to rely on JavaScript-style variable hoisting inside a gpu.js
+kernel leads to transpilation errors or shader compilation failures
+rather than standard V8 runtime behavior.</p>
+<h3 id="how-v8-handles-variable-hoisting">How V8 Handles Variable
+Hoisting</h3>
+<p>In standard V8 execution, JavaScript engines separate variable
+declaration from initialization during the compilation phase:</p>
+<ul>
+<li><strong><code>var</code> Declarations:</strong> V8 hoists the
+declaration to the top of the enclosing function scope and initializes
+it to <code>undefined</code>. Accessing a <code>var</code> variable
+before its lexical declaration produces <code>undefined</code> rather
+than an error.</li>
+<li><strong><code>let</code> and <code>const</code>
+Declarations:</strong> V8 hoists these declarations to the top of their
+block scope but does not initialize them. Accessing them before their
+lexical declaration triggers a <code>ReferenceError</code> due to the
+Temporal Dead Zone (TDZ).</li>
+<li><strong>Function Declarations:</strong> Entire function bodies are
+hoisted to the top of the scope, allowing them to be called before they
+are declared in the source code.</li>
+</ul>
+<h3 id="how-gpujs-transpiles-kernel-functions">How gpu.js Transpiles
+Kernel Functions</h3>
+<p>A gpu.js kernel is not executed directly by V8 at runtime. Instead,
+gpu.js reads the function string, parses it using an internal AST
+parser, and translates the JavaScript syntax into static C-style shader
+code (GLSL).</p>
+<p>GLSL does not support runtime hoisting, dynamic type resolution, or
+undefined initial states. In GLSL, every variable must have an explicit
+type and must be declared in the source flow before any statement
+attempts to read or write to it.</p>
+<h3 id="the-differences-in-behavior">The Differences in Behavior</h3>
+<p>The differences between V8 and gpu.js execution environments manifest
+in several distinct ways:</p>
+<ol type="1">
+<li><strong>Premature Access of <code>var</code>:</strong> In V8,
+reading a <code>var</code> before its assignment returns
+<code>undefined</code>. In gpu.js, the AST-to-GLSL transpiler walks the
+syntax tree sequentially. If it encounters a variable read before its
+declaration statement, it cannot infer the type or find a corresponding
+GLSL symbol, causing the kernel compilation to fail immediately.</li>
+<li><strong>Temporal Dead Zone (TDZ):</strong> V8 handles TDZ violations
+at runtime by throwing a <code>ReferenceError</code>. In gpu.js, code
+that would trigger a TDZ fails at transpile time during kernel
+initialization, preventing the GPU program from ever building.</li>
+<li><strong>Scope Flattening:</strong> In GLSL output, nested scopes and
+closures do not map directly to JavaScript lexical environments. gpu.js
+flattens many operations, making lexical hoisting logic entirely
+unsupported across scope blocks.</li>
+</ol>
+<h3 id="best-practices-for-gpujs-kernel-variables">Best Practices for
+gpu.js Kernel Variables</h3>
+<p>To ensure predictable compilation and avoid transpilation errors when
+writing gpu.js kernels:</p>
+<ul>
+<li><strong>Declare Before Use:</strong> Always declare and initialize
+variables at the top of the kernel function or directly at the start of
+the block where they are needed.</li>
+<li><strong>Avoid <code>undefined</code> Logic:</strong> Never rely on a
+variable evaluating to <code>undefined</code> before assignment, as GPU
+hardware operates exclusively on concrete numerical types (e.g.,
+<code>float</code>, <code>int</code>, vectors).</li>
+<li><strong>Use Clean Variable Scoping:</strong> Keep declarations
+strictly local to the expressions they serve to ensure the AST compiler
+can accurately deduce types and generate valid shader declarations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

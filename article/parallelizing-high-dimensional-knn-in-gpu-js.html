@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelizing High-Dimensional KNN in GPU.js - gpu.js</title>
+    <meta name="description" content="Parallelizing K-Nearest Neighbors (KNN) classification in high-dimensional feature spaces requires offloading compute-intensive distance metrics from the CPU to the GPU. This article demonstrates how to leverage GPU.js to execute multi-dimensional vector">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelizing-high-dimensional-knn-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelizing High-Dimensional KNN in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelizing-high-dimensional-knn-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Parallelizing K-Nearest Neighbors (KNN) classification in high-dimensional feature spaces requires offloading compute-intensive distance metrics from the CPU to the GPU. This article demonstrates how to leverage GPU.js to execute multi-dimensional vector" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelizing-high-dimensional-knn-in-gpujs">Parallelizing
+High-Dimensional KNN in GPU.js</h1>
+<p>Parallelizing K-Nearest Neighbors (KNN) classification in
+high-dimensional feature spaces requires offloading compute-intensive
+distance metrics from the CPU to the GPU. This article demonstrates how
+to leverage GPU.js to execute multi-dimensional vector comparisons
+concurrently, structure input data for fast GPU memory access, and
+efficiently extract the top-k labels to achieve high-throughput
+classification directly in JavaScript.</p>
+<h3 id="understanding-the-computational-bottleneck">Understanding the
+Computational Bottleneck</h3>
+<p>The standard KNN algorithm computes the distance between an
+unclassified query point <span class="math inline">\(Q\)</span> and
+every reference point <span class="math inline">\(R_i\)</span> in a
+dataset of size <span class="math inline">\(N\)</span>, where each point
+contains <span class="math inline">\(D\)</span> dimensions. In
+high-dimensional spaces (e.g., <span class="math inline">\(D &gt;
+128\)</span>), the distance computation cost scales as <span
+class="math inline">\(O(N \cdot D)\)</span> per query. On a single CPU
+thread, computing Euclidean distances across thousands of
+high-dimensional vectors causes latency spikes.</p>
+<p>GPU.js accelerates this process by mapping each reference point
+calculation to an independent GPU thread, computing the element-wise
+differences across all <span class="math inline">\(D\)</span> dimensions
+concurrently.</p>
+<h3 id="1-formatting-data-for-gpu-memory">1. Formatting Data for GPU
+Memory</h3>
+<p>JavaScript arrays of objects are inefficient for GPU processing. To
+minimize data transfer bottlenecks, convert your training points and
+query vectors into flattened or two-dimensional
+<code>Float32Array</code> buffers.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Example: N reference samples, each with D dimensions</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> N <span class="op">=</span> <span class="dv">10000</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> D <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> referenceData <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(N <span class="op">*</span> D)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> queryPoint <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(D)<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Populate referenceData and queryPoint with your normalized features</span></span></code></pre></div>
+<h3 id="2-implementing-the-parallel-distance-kernel">2. Implementing the
+Parallel Distance Kernel</h3>
+<p>Create a GPU.js compute kernel that calculates the squared Euclidean
+distance between the target query vector and all reference points
+simultaneously.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDistances <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(references<span class="op">,</span> query<span class="op">,</span> dimensions) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> d <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> d <span class="op">&lt;</span> dimensions<span class="op">;</span> d<span class="op">++</span>) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> diff <span class="op">=</span> references[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][d] <span class="op">-</span> query[d]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> diff <span class="op">*</span> diff<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(sum)<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">;</span> <span class="co">// One thread per reference point</span></span></code></pre></div>
+<p>In this kernel:</p>
+<ul>
+<li><code>this.thread.x</code> corresponds to the index of a reference
+point in the dataset.</li>
+<li>The inner loop iterates through the high-dimensional feature space
+(<span class="math inline">\(D\)</span>), running sequentially within
+the thread while thousands of threads run in parallel.</li>
+<li>Returning squared Euclidean distance (omitting
+<code>Math.sqrt</code>) is mathematically equivalent for neighbor
+ranking and saves additional clock cycles.</li>
+</ul>
+<h3 id="3-multi-query-batching">3. Multi-Query Batching</h3>
+<p>To classify multiple query points simultaneously, extend the kernel
+to a 2D output grid where the X-axis represents reference samples and
+the Y-axis represents query samples.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> batchComputeDistances <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(references<span class="op">,</span> queries<span class="op">,</span> dimensions) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> refIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> queryIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> d <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> d <span class="op">&lt;</span> dimensions<span class="op">;</span> d<span class="op">++</span>) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> diff <span class="op">=</span> references[refIdx][d] <span class="op">-</span> queries[queryIdx][d]<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> diff <span class="op">*</span> diff<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> M])<span class="op">;</span> <span class="co">// N reference points by M query points</span></span></code></pre></div>
+<h3 id="4-extracting-the-nearest-neighbors">4. Extracting the Nearest
+Neighbors</h3>
+<p>While GPUs excel at calculating millions of distances, finding the
+top <span class="math inline">\(K\)</span> smallest values is often
+faster on the CPU when <span class="math inline">\(K \ll N\)</span>.</p>
+<ol type="1">
+<li><strong>Read Distances:</strong> Execute the kernel and retrieve the
+output distance array.</li>
+<li><strong>Index Mapping:</strong> Pair each computed distance with its
+corresponding class label or index.</li>
+<li><strong>Partial Sort:</strong> Instead of performing a full <span
+class="math inline">\(O(N \log N)\)</span> sort, use a min-heap or a
+quickselect algorithm to identify the smallest <span
+class="math inline">\(K\)</span> elements in <span
+class="math inline">\(O(N + K \log K)\)</span> time.</li>
+</ol>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getKNearest</span>(distances<span class="op">,</span> labels<span class="op">,</span> k) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> indexed <span class="op">=</span> <span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>(distances)<span class="op">.</span><span class="fu">map</span>((dist<span class="op">,</span> idx) <span class="kw">=&gt;</span> ({</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>        dist<span class="op">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        <span class="dt">label</span><span class="op">:</span> labels[idx]</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    }))<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    indexed<span class="op">.</span><span class="fu">sort</span>((a<span class="op">,</span> b) <span class="kw">=&gt;</span> a<span class="op">.</span><span class="at">dist</span> <span class="op">-</span> b<span class="op">.</span><span class="at">dist</span>)<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> indexed<span class="op">.</span><span class="fu">slice</span>(<span class="dv">0</span><span class="op">,</span> k)<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="5-optimizations-for-high-dimensional-spaces">5. Optimizations
+for High-Dimensional Spaces</h3>
+<ul>
+<li><strong>Texture Pipelining:</strong> If using computed distances in
+subsequent GPU operations, set <code>{ pipeline: true }</code> in the
+kernel options to keep data inside GPU VRAM, bypassing CPU-GPU transfer
+overhead.</li>
+<li><strong>Dimensionality Truncation:</strong> For extremely high
+dimensions (<span class="math inline">\(D &gt; 1000\)</span>), apply
+dimensionality reduction such as Principal Component Analysis (PCA) or
+random projections before feeding arrays into GPU.js to avoid thread
+timeout limits imposed by WebGL contexts.</li>
+<li><strong>Memory Coalescing:</strong> Pack multi-dimensional vectors
+into 2D textures to ensure that threads access continuous memory blocks,
+which maximizes memory bandwidth utilization during feature
+iteration.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

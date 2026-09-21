@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Compiles For-Loop Update Clauses - gpu.js</title>
+    <meta name="description" content="This article examines how the GPU.js compiler processes and translates compound expressions within JavaScript for-loop update clauses into performant OpenGL Shading Language (GLSL). It covers the internal Abstract Syntax Tree (AST) parsing, the translati">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-for-loop-update-clauses">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Compiles For-Loop Update Clauses - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-for-loop-update-clauses" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the GPU.js compiler processes and translates compound expressions within JavaScript for-loop update clauses into performant OpenGL Shading Language (GLSL). It covers the internal Abstract Syntax Tree (AST) parsing, the translati" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-compiles-for-loop-update-clauses">How GPU.js Compiles
+For-Loop Update Clauses</h1>
+<p>This article examines how the GPU.js compiler processes and
+translates compound expressions within JavaScript <code>for</code>-loop
+update clauses into performant OpenGL Shading Language (GLSL). It covers
+the internal Abstract Syntax Tree (AST) parsing, the translation of
+compound assignment operators, the handling of sequence expressions, and
+the strict type enforcement required by the WebGL shader target.</p>
+<h3 id="abstract-syntax-tree-parsing">Abstract Syntax Tree Parsing</h3>
+<p>GPU.js relies on an internal parser (historically Acorn) to convert
+JavaScript function source code into an Abstract Syntax Tree (AST). When
+encountering a standard <code>for</code> loop, the compiler isolates the
+<code>ForStatement</code> node, which consists of three distinct parts:
+<code>init</code>, <code>test</code>, and <code>update</code>.</p>
+<p>The <code>update</code> clause is represented as an expression node.
+Depending on the syntax used in the JavaScript source, this node is
+typically classified as:</p>
+<ul>
+<li>An <code>UpdateExpression</code> (e.g., <code>i++</code>,
+<code>--i</code>)</li>
+<li>An <code>AssignmentExpression</code> with a compound operator (e.g.,
+<code>i += 2</code>, <code>i *= 1.5</code>)</li>
+<li>A <code>SequenceExpression</code> containing multiple
+comma-separated expressions (e.g., <code>i++, step *= 2</code>)</li>
+</ul>
+<h3 id="operator-translation-to-glsl">Operator Translation to GLSL</h3>
+<p>Because GLSL is derived from C, its syntax for basic arithmetic and
+compound assignment largely matches JavaScript. The GPU.js code
+generation layer traverses the AST node of the <code>update</code>
+clause and maps JavaScript operators directly to their corresponding
+GLSL tokens.</p>
+<p>When an <code>AssignmentExpression</code> contains compound
+assignment operators such as <code>+=</code>, <code>-=</code>,
+<code>*=</code>, or <code>/=</code>, GPU.js emits them directly into the
+generated loop header:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// JavaScript source</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">100</span><span class="op">;</span> i <span class="op">+=</span> <span class="dv">4</span>) { <span class="op">...</span> }</span></code></pre></div>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Generated GLSL</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">for</span> <span class="op">(</span><span class="dt">int</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">100</span><span class="op">;</span> i <span class="op">+=</span> <span class="dv">4</span><span class="op">)</span> <span class="op">{</span> <span class="op">...</span> <span class="op">}</span></span></code></pre></div>
+<p>The compiler preserves the compound structure rather than expanding
+it into an explicit binary reassignment (such as
+<code>i = i + 4</code>), ensuring clean and compliant GLSL loop
+statements.</p>
+<h3 id="strict-type-enforcement-and-numeric-literals">Strict Type
+Enforcement and Numeric Literals</h3>
+<p>The primary challenge GPU.js faces when compiling compound update
+clauses is GLSL's strict typing system. Unlike JavaScript, GLSL does not
+allow implicit type coercion between integers and floating-point
+numbers.</p>
+<p>During semantic analysis, GPU.js tracks the type signature of the
+loop iterator:</p>
+<ol type="1">
+<li><strong>Integer Iterators:</strong> If the loop counter is inferred
+as an integer (<code>int</code>), the right-hand operand of the compound
+expression must evaluate to an integer. If a programmer writes
+<code>i += 1</code>, GPU.js ensures the numeric literal translates to
+<code>1</code> (an integer token in GLSL). If the user writes
+<code>i += 1.0</code>, the compiler will either cast the float to an
+integer or throw a compilation error, depending on mode and target
+precision.</li>
+<li><strong>Float Iterators:</strong> If the loop variable is defined as
+a <code>float</code>, any update expression must use float values. An
+update such as <code>i += 1</code> will be transpiled to
+<code>i += 1.0</code> to prevent shader compilation failure.</li>
+</ol>
+<h3 id="sequence-expressions-multiple-update-clauses">Sequence
+Expressions (Multiple Update Clauses)</h3>
+<p>In cases where a compound expression involves comma-separated
+updates, the AST produces a <code>SequenceExpression</code>. GLSL
+natively supports comma-separated expressions in the iteration clause of
+a <code>for</code> loop:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// JavaScript source</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">,</span> j <span class="op">=</span> <span class="dv">10</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> i<span class="op">++,</span> j <span class="op">-=</span> <span class="dv">2</span>) { <span class="op">...</span> }</span></code></pre></div>
+<p>GPU.js processes the <code>expressions</code> array within the
+<code>SequenceExpression</code> node sequentially. It compiles each
+sub-expression independently using its respective update or assignment
+rule and joins them using commas. The resulting string is placed
+directly into the third slot of the GLSL <code>for</code> loop
+construct:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Generated GLSL</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">for</span> <span class="op">(</span><span class="dt">int</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">,</span> <span class="dt">int</span> j <span class="op">=</span> <span class="dv">10</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> i<span class="op">++,</span> j <span class="op">-=</span> <span class="dv">2</span><span class="op">)</span> <span class="op">{</span> <span class="op">...</span> <span class="op">}</span></span></code></pre></div>
+<p>Through direct operator mapping, strict literal typing, and sequence
+preservation, GPU.js ensures that compound loop updates match the
+execution semantics of native JavaScript while strictly adhering to
+WebGL GLSL requirements.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running AES Encryption and Key Expansion in gpu.js - gpu.js</title>
+    <meta name="description" content="This article examines whether the Advanced Encryption Standard (AES), specifically key expansion and round transformations, can be executed using the gpu.js library. It breaks down the mathematical and architectural requirements of AES, maps them to the">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/running-aes-encryption-and-key-expansion-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Running AES Encryption and Key Expansion in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/running-aes-encryption-and-key-expansion-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether the Advanced Encryption Standard (AES), specifically key expansion and round transformations, can be executed using the gpu.js library. It breaks down the mathematical and architectural requirements of AES, maps them to the" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="running-aes-encryption-and-key-expansion-in-gpujs">Running AES
+Encryption and Key Expansion in gpu.js</h1>
+<p>This article examines whether the Advanced Encryption Standard (AES),
+specifically key expansion and round transformations, can be executed
+using the gpu.js library. It breaks down the mathematical and
+architectural requirements of AES, maps them to the capabilities and
+limitations of gpu.js, and evaluates the practicality of performing
+hardware-accelerated symmetric cryptography inside a browser or Node.js
+environment.</p>
+<h3 id="feasibility-overview">Feasibility Overview</h3>
+<p>AES key expansion and round transformations can both be executed
+using gpu.js. Because gpu.js transpiles a constrained subset of
+JavaScript into WebGL or WebGPU compute shaders, it can execute the
+matrix operations, substitutions, and bitwise arithmetic required by
+AES. However, the architectural fit differs significantly between key
+expansion and round transformations due to how data parallelism operates
+on graphics hardware.</p>
+<h3 id="executing-aes-key-expansion-in-gpujs">Executing AES Key
+Expansion in gpu.js</h3>
+<p>Key expansion transforms a 128-, 192-, or 256-bit cipher key into a
+series of round keys using rotational shifts, S-box byte substitutions
+(<code>SubWord</code>), and XOR operations with round constants
+(<code>Rcon</code>).</p>
+<ul>
+<li><strong>Single-Key Scenarios:</strong> For standard single-message
+encryption, computing key expansion on the GPU is inefficient. Key
+expansion is inherently sequential; round key <span
+class="math inline">\(i\)</span> directly depends on round key <span
+class="math inline">\(i-1\)</span>. GPUs excel at data parallelism
+(SIMD), not recursive, single-thread sequential tasks. The overhead of
+compiling the kernel and transferring data between CPU and GPU memory
+outweighs any computational benefit. In standard implementations, key
+expansion should be handled on the CPU before passing the generated
+round keys to the GPU.</li>
+<li><strong>Multi-Key Scenarios:</strong> If you are performing parallel
+operations across millions of distinct keys (such as in cryptanalysis,
+brute-force testing, or high-throughput batch generation), key expansion
+maps exceptionally well to gpu.js. Each GPU thread can independently
+expand a distinct key in parallel.</li>
+</ul>
+<h3 id="executing-aes-round-transformations-in-gpujs">Executing AES
+Round Transformations in gpu.js</h3>
+<p>AES round transformations process a 4x4 array of bytes (the State)
+through four primary operations: <code>SubBytes</code>,
+<code>ShiftRows</code>, <code>MixColumns</code>, and
+<code>AddRoundKey</code>. These operations map cleanly to gpu.js
+kernels:</p>
+<ol type="1">
+<li><strong>SubBytes:</strong> Implemented either as a lookup table
+(LUT) stored in a texture array or calculated dynamically via Galois
+Field <span class="math inline">\(\text{GF}(2^8)\)</span> inversion. A
+static 256-byte substitution array passed into the kernel provides
+constant-time lookup performance.</li>
+<li><strong>ShiftRows:</strong> A cyclical byte permutation that
+requires simple array indexing offsets, easily resolved in parallel
+across all blocks.</li>
+<li><strong>MixColumns:</strong> A matrix multiplication over <span
+class="math inline">\(\text{GF}(2^8)\)</span> where each column of four
+bytes is transformed. This can be implemented in gpu.js using
+conditional bit-shifts (<code>xtimes</code> multiplication) or
+precomputed multiplication tables.</li>
+<li><strong>AddRoundKey:</strong> A standard bitwise XOR operation
+between the state matrix and the corresponding round key.</li>
+</ol>
+<p>Because round transformations operate independently on individual
+16-byte blocks, parallel modes of operation such as CTR (Counter) or ECB
+(Electronic Codebook) achieve massive throughput on the GPU. Modes with
+serial dependencies, such as CBC (Cipher Block Chaining) during
+encryption, cannot be parallelized across blocks.</p>
+<h3 id="technical-limitations-in-gpujs">Technical Limitations in
+gpu.js</h3>
+<p>While functional, implementing AES in gpu.js requires managing
+several library-specific constraints:</p>
+<ul>
+<li><strong>Bitwise Operator Requirements:</strong> AES relies heavily
+on bitwise operations (<code>^</code>, <code>&amp;</code>,
+<code>&lt;&lt;</code>, <code>&gt;&gt;</code>). WebGL 1 does not natively
+support integer bitwise operations, forcing them to be emulated
+mathematically with floating-point calculations, which introduces severe
+performance penalties. To run AES efficiently, gpu.js must operate in
+WebGL 2 mode, which natively supports 32-bit signed and unsigned
+integers and bitwise operators.</li>
+<li><strong>Data Representation:</strong> gpu.js processes outputs as
+textures (usually floating-point or integer vectors). Bytes must be
+packed into 32-bit integers or mapped across RGBA channels to maximize
+memory bandwidth and avoid excessive memory overhead.</li>
+<li><strong>Data Transfer Bottlenecks:</strong> Passing small payloads
+to the GPU creates PCIe bus bottlenecks. gpu.js only delivers a
+performance advantage over native CPU implementations (like Web Crypto
+API or Node.js <code>crypto</code>) when encrypting very large
+contiguous datasets or processing thousands of independent blocks
+concurrently.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

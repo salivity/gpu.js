@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Genetic Variant Frequency Matrices Using GPU.js - gpu.js</title>
+    <meta name="description" content="Processing population-scale genomic datasets requires calculating allele and genotype frequencies across millions of variants and hundreds of thousands of individuals. This guide explains how to accelerate the generation of genetic variant frequency matr">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/genetic-variant-frequency-matrices-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Genetic Variant Frequency Matrices Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/genetic-variant-frequency-matrices-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Processing population-scale genomic datasets requires calculating allele and genotype frequencies across millions of variants and hundreds of thousands of individuals. This guide explains how to accelerate the generation of genetic variant frequency matr" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="genetic-variant-frequency-matrices-using-gpujs">Genetic Variant
+Frequency Matrices Using GPU.js</h1>
+<p>Processing population-scale genomic datasets requires calculating
+allele and genotype frequencies across millions of variants and hundreds
+of thousands of individuals. This guide explains how to accelerate the
+generation of genetic variant frequency matrices across stratified
+population cohorts using GPU.js, compiling JavaScript functions into
+WebGL/WebGPU compute shaders for massively parallel calculations.</p>
+<hr />
+<h3 id="conceptual-architecture-and-data-layout">Conceptual Architecture
+and Data Layout</h3>
+<p>A population-scale variant dataset typically consists of:</p>
+<ol type="1">
+<li><strong>Genotype Matrix (<span class="math inline">\(M \times
+N\)</span>):</strong> <span class="math inline">\(M\)</span> variants
+across <span class="math inline">\(N\)</span> individual samples.</li>
+<li><strong>Cohort Annotation Vector (<span
+class="math inline">\(N\)</span>):</strong> A population identifier for
+each individual (e.g., EUR=0, AFR=1, EAS=2, SAS=3, AMR=4).</li>
+</ol>
+<p>Genotype calls from VCF files are encoded numerically:</p>
+<ul>
+<li><code>0</code>: Homozygous reference (<code>0/0</code>)</li>
+<li><code>1</code>: Heterozygous (<code>0/1</code> or
+<code>1/0</code>)</li>
+<li><code>2</code>: Homozygous alternate (<code>1/1</code>)</li>
+<li><code>-1</code>: Missing call (<code>./.</code>)</li>
+</ul>
+<p>The objective is to compute an output matrix of dimensions
+<code>[M, K, 2]</code>, where <span class="math inline">\(M\)</span> is
+the number of variants, <span class="math inline">\(K\)</span> is the
+number of distinct populations, and the third dimension tracks total
+alternate allele count (<span class="math inline">\(AC\)</span>) and
+total non-missing allele count (<span
+class="math inline">\(AN\)</span>). The Alternate Allele Frequency
+is:</p>
+<p><span class="math display">\[AF = \frac{AC}{AN}\]</span></p>
+<hr />
+<h3 id="prerequisites-and-setup">Prerequisites and Setup</h3>
+<p>Install <code>gpu.js</code> in your Node.js environment or include it
+in a browser context:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<hr />
+<h3 id="step-1-prepare-the-input-buffers">Step 1: Prepare the Input
+Buffers</h3>
+<p>GPU shaders execute most efficiently on flattened, typed 1D or
+structured 2D arrays. Ensure genotype matrices are numeric arrays or
+flat typed arrays before transferring them to GPU memory.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Configuration</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numVariants <span class="op">=</span> <span class="dv">10000</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numSamples <span class="op">=</span> <span class="dv">2500</span><span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numPopulations <span class="op">=</span> <span class="dv">5</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Mock data generation: Flat/2D genotype array [variants][samples]</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> genotypeData <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> v <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> v <span class="op">&lt;</span> numVariants<span class="op">;</span> v<span class="op">++</span>) {</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> s <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> s <span class="op">&lt;</span> numSamples<span class="op">;</span> s<span class="op">++</span>) {</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Random genotype: 0, 1, 2, or -1 (missing)</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> rand <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>()<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    row<span class="op">.</span><span class="fu">push</span>(rand <span class="op">&gt;</span> <span class="fl">0.05</span> <span class="op">?</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">3</span>) <span class="op">:</span> <span class="op">-</span><span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  genotypeData<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="co">// Sample population mappings: [sampleIndex] -&gt; populationId (0 to numPopulations - 1)</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> samplePopulations <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> s <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> s <span class="op">&lt;</span> numSamples<span class="op">;</span> s<span class="op">++</span>) {</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  samplePopulations<span class="op">.</span><span class="fu">push</span>(s <span class="op">%</span> numPopulations)<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="step-2-implement-the-gpujs-kernel">Step 2: Implement the GPU.js
+Kernel</h3>
+<p>To calculate counts across both variants and populations, create a 3D
+kernel that outputs:</p>
+<ul>
+<li>Index <code>0</code>: Alternate Allele Count (<span
+class="math inline">\(AC\)</span>)</li>
+<li>Index <code>1</code>: Total Chromosome Count (<span
+class="math inline">\(AN\)</span>)</li>
+</ul>
+<p>The kernel threads are mapped across
+<code>[2, numPopulations, numVariants]</code>.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateAlleleFrequencies <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(genotypes<span class="op">,</span> populations<span class="op">,</span> numSamples) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> variantIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> targetPop <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> metricType <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// 0 for AC (alternate alleles), 1 for AN (total alleles)</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> altCount <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> totalAlleles <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> s <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> s <span class="op">&lt;</span> numSamples<span class="op">;</span> s<span class="op">++</span>) {</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (populations[s] <span class="op">===</span> targetPop) {</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> gt <span class="op">=</span> genotypes[variantIdx][s]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (gt <span class="op">&gt;=</span> <span class="dv">0</span>) {</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>        totalAlleles <span class="op">+=</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (gt <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>          altCount <span class="op">+=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        } <span class="cf">else</span> <span class="cf">if</span> (gt <span class="op">===</span> <span class="dv">2</span>) {</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>          altCount <span class="op">+=</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (metricType <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> altCount<span class="op">;</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> totalAlleles<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">2</span><span class="op">,</span> numPopulations<span class="op">,</span> numVariants])</span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">false</span>)<span class="op">;</span> <span class="co">// Set to true if chaining kernels</span></span></code></pre></div>
+<hr />
+<h3 id="step-3-run-the-kernel-and-extract-allele-frequencies">Step 3:
+Run the Kernel and Extract Allele Frequencies</h3>
+<p>Execute the kernel by passing the input matrices. Compute the final
+Allele Frequency (<span class="math inline">\(AF =
+\frac{AC}{AN}\)</span>) either directly on the CPU or via a secondary
+normalization kernel.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">time</span>(<span class="st">&#39;GPU Matrix Computation&#39;</span>)<span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> frequencyMatrix <span class="op">=</span> <span class="fu">calculateAlleleFrequencies</span>(genotypeData<span class="op">,</span> samplePopulations<span class="op">,</span> numSamples)<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">timeEnd</span>(<span class="st">&#39;GPU Matrix Computation&#39;</span>)<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Function to safely extract AF for Variant v in Population p</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getAlleleFrequency</span>(matrix<span class="op">,</span> variantIdx<span class="op">,</span> popIdx) {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ac <span class="op">=</span> matrix[variantIdx][popIdx][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> an <span class="op">=</span> matrix[variantIdx][popIdx][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> an <span class="op">===</span> <span class="dv">0</span> <span class="op">?</span> <span class="fl">0.0</span> <span class="op">:</span> ac <span class="op">/</span> an<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="co">// Example: Retrieve AF of Variant 0 for Population 0</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> afVar0Pop0 <span class="op">=</span> <span class="fu">getAlleleFrequency</span>(frequencyMatrix<span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Variant 0, Population 0 - AF: </span><span class="sc">${</span>afVar0Pop0<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">4</span>)<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="performance-optimization-guidelines">Performance Optimization
+Guidelines</h3>
+<ol type="1">
+<li><strong>Chunking Large Datasets:</strong> WebGL texture dimensions
+often cap at <span class="math inline">\(4096 \times 4096\)</span> or
+<span class="math inline">\(16384 \times 16384\)</span> pixels depending
+on hardware. For millions of variants, slice the input array into
+variant chunks (e.g., 5,000 variants per dispatch) to avoid hardware
+texture limit allocation errors.</li>
+<li><strong>Bit-Packing Genotypes:</strong> Genotypes (<code>-1</code>,
+<code>0</code>, <code>1</code>, <code>2</code>) fit in a 2-bit integer
+representation. Packing 16 genotypes into a single 32-bit unsigned
+integer reduces memory transfer overhead across the PCI bus to the GPU
+by 93.75%.</li>
+<li><strong>Pipeline Mode:</strong> When chaining steps (such as
+calculating Hardy-Weinberg equilibrium or linkage disequilibrium
+directly after frequency matrix construction), set
+<code>.setPipeline(true)</code> to keep texture allocations in GPU VRAM
+without reading back to host memory.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

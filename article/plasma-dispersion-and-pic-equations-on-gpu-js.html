@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plasma Dispersion and PIC Equations on gpu.js - gpu.js</title>
+    <meta name="description" content="Plasma dispersion relations and Particle-in-Cell (PIC) electromagnetic simulations can run on gpu.js, but their performance and feasibility depend heavily on the underlying computational architecture. While plasma dispersion equations and field updates m">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/plasma-dispersion-and-pic-equations-on-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Plasma Dispersion and PIC Equations on gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/plasma-dispersion-and-pic-equations-on-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Plasma dispersion relations and Particle-in-Cell (PIC) electromagnetic simulations can run on gpu.js, but their performance and feasibility depend heavily on the underlying computational architecture. While plasma dispersion equations and field updates m" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="plasma-dispersion-and-pic-equations-on-gpujs">Plasma Dispersion
+and PIC Equations on gpu.js</h1>
+<p>Plasma dispersion relations and Particle-in-Cell (PIC)
+electromagnetic simulations can run on gpu.js, but their performance and
+feasibility depend heavily on the underlying computational architecture.
+While plasma dispersion equations and field updates map naturally to
+gpu.js, standard PIC algorithms face substantial bottlenecks due to the
+limitations of WebGL-based computing. Understanding how each component
+behaves under gpu.js clarifies what is achievable in browser-based or
+lightweight Node.js plasma simulations.</p>
+<h2 id="plasma-dispersion-equations-on-gpujs">Plasma Dispersion
+Equations on gpu.js</h2>
+<p>Plasma dispersion relations describe how waves propagate through a
+plasma by relating frequency (<span
+class="math inline">\(\omega\)</span>) to the wavenumber (<span
+class="math inline">\(k\)</span>). Solving these equations typically
+requires:</p>
+<ul>
+<li>Evaluating transcendental equations (such as those involving the
+Plasma Dispersion Function, <span
+class="math inline">\(Z(\zeta)\)</span>).</li>
+<li>Root-finding algorithms (e.g., Newton-Raphson or contour integration
+in the complex plane).</li>
+<li>Eigenvalue calculations for magnetized, multi-species dielectric
+tensors.</li>
+</ul>
+<p>Because these calculations represent "embarrassingly parallel"
+workloads where each grid point in <span class="math inline">\((k,
+\omega)\)</span> space is independent, gpu.js handles them efficiently.
+By compiling JavaScript functions into WebGL fragment shaders, gpu.js
+can evaluate thousands of wave modes simultaneously across a discretized
+grid, enabling real-time visualization of kinetic and fluid dispersion
+curves.</p>
+<h2 id="particle-in-cell-pic-electromagnetic-equations">Particle-in-Cell
+(PIC) Electromagnetic Equations</h2>
+<p>A standard electromagnetic PIC cycle consists of four distinct
+stages:</p>
+<ol type="1">
+<li><strong>Field Solver (Maxwell's Equations):</strong> Solves
+Faraday’s Law and Ampère’s Law using Finite-Difference Time-Domain
+(FDTD) or spectral methods.</li>
+<li><strong>Field Interpolation (Gather):</strong> Interpolates
+grid-based electric and magnetic fields to particle positions.</li>
+<li><strong>Particle Pusher (Newton-Lorentz Force):</strong> Updates
+particle velocities and positions using integration schemes like the
+Boris algorithm.</li>
+<li><strong>Current and Charge Deposition (Scatter):</strong>
+Interpolates moving charges onto the spatial grid to generate charge
+density (<span class="math inline">\(\rho\)</span>) and current density
+(<span class="math inline">\(\mathbf{J}\)</span>).</li>
+</ol>
+<h3 id="what-works-well-in-gpujs">What Works Well in gpu.js</h3>
+<ul>
+<li><strong>Field Solvers:</strong> FDTD stencils read from neighboring
+grid cells and write to a fixed target. This gather-based pattern
+matches the native WebGL fragment shader model used by gpu.js.</li>
+<li><strong>Particle Pusher:</strong> The Boris pusher computes forces
+and updates coordinates independently for every particle. It maps
+directly to a 1D or 2D gpu.js kernel, yielding high execution
+speeds.</li>
+<li><strong>Field Interpolation:</strong> Particles read field data from
+a texture or grid array via texture lookups, which is a standard
+operation in WebGL shaders.</li>
+</ul>
+<h3 id="the-major-bottleneck-charge-and-current-deposition">The Major
+Bottleneck: Charge and Current Deposition</h3>
+<p>The primary obstacle to running a full electromagnetic PIC code on
+gpu.js is the deposition step. PIC deposition is an irregular
+<strong>scatter</strong> operation: multiple particles write their
+fractional charges into the same grid cell simultaneously.</p>
+<p>Because gpu.js relies on WebGL fragment shaders, it lacks native
+support for atomic memory additions (<code>atomicAdd</code>) available
+in compute-oriented frameworks like CUDA, OpenCL, or WebGPU. Attempting
+to write multiple particle contributions to a single grid cell causes
+race conditions and data overwrites.</p>
+<h3 id="workarounds-for-deposition-in-gpujs">Workarounds for Deposition
+in gpu.js</h3>
+<p>To run a functional PIC code on gpu.js, developers must use
+architectural workarounds:</p>
+<ul>
+<li><strong>Scatter-to-Gather Inversion:</strong> Instead of particles
+writing to the grid, grid cells query all particles within their
+interaction radius. While correct, this increases computational
+complexity from <span class="math inline">\(\mathcal{O}(N)\)</span> to
+<span class="math inline">\(\mathcal{O}(M \times N_{local})\)</span>,
+where <span class="math inline">\(M\)</span> is grid size and <span
+class="math inline">\(N_{local}\)</span> is the local particle
+density.</li>
+<li><strong>CPU-GPU Hybrid Approach:</strong> The computationally heavy
+particle push and field solves remain on the GPU via gpu.js, while
+position data is read back to the CPU to perform deposition. Memory
+transfer overhead between CPU and GPU limits this approach to small
+particle counts.</li>
+<li><strong>Sorting and Reduction Passes:</strong> Sorting particles by
+cell index and using parallel reduction passes avoids race conditions,
+but implementing multi-pass reductions in gpu.js introduces considerable
+overhead.</li>
+</ul>
+<h2 id="practical-assessment">Practical Assessment</h2>
+<p>Running plasma calculations on gpu.js is practical for:</p>
+<ul>
+<li>1D and 2D kinetic dispersion solvers.</li>
+<li>Educational, small-scale electrostatic or electromagnetic 1D-3V PIC
+simulations.</li>
+<li>Real-time browser demonstrations with fewer than <span
+class="math inline">\(10^5\)</span> particles.</li>
+</ul>
+<p>For production-scale, 2D/3D electromagnetic PIC codes requiring
+millions to billions of particles, gpu.js is constrained by WebGL's
+execution model and lack of atomics. For modern, in-browser simulations
+requiring high performance, WebGPU compute shaders provide the atomic
+operations and memory control needed for efficient charge
+deposition.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

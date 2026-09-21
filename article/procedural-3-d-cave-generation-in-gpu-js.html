@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural 3D Cave Generation in GPU.js - gpu.js</title>
+    <meta name="description" content="Procedural cave generation using 3D cellular automata can be executed seamlessly in gpu.js, provided the system is designed to leverage GPU-native pipelines and avoid CPU-GPU memory bottlenecks. By converting 3D grid state evaluations into parallel compu">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/procedural-3-d-cave-generation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Procedural 3D Cave Generation in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/procedural-3-d-cave-generation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Procedural cave generation using 3D cellular automata can be executed seamlessly in gpu.js, provided the system is designed to leverage GPU-native pipelines and avoid CPU-GPU memory bottlenecks. By converting 3D grid state evaluations into parallel compu" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="procedural-3d-cave-generation-in-gpujs">Procedural 3D Cave
+Generation in GPU.js</h1>
+<p>Procedural cave generation using 3D cellular automata can be executed
+seamlessly in gpu.js, provided the system is designed to leverage
+GPU-native pipelines and avoid CPU-GPU memory bottlenecks. By converting
+3D grid state evaluations into parallel compute shaders via WebGL,
+gpu.js accelerates neighborhood calculations across millions of voxels.
+However, maintaining high frame rates requires careful management of
+texture-based ping-pong buffers, memory limits, and the subsequent mesh
+extraction step.</p>
+<h3 id="how-3d-cellular-automata-maps-to-gpujs">How 3D Cellular Automata
+Maps to GPU.js</h3>
+<p>Cellular automata algorithms generate cave systems by initializing a
+3D grid with random binary states (rock versus air) and iteratively
+updating each cell based on the state of its surrounding neighbors
+(typically the 26 adjacent cells in a 3D Moore neighborhood).</p>
+<p>Because the state of every voxel in iteration <span
+class="math inline">\(N+1\)</span> depends strictly on the static state
+of the grid at iteration <span class="math inline">\(N\)</span>, the
+algorithm is embarrassingly parallel. GPU.js compiles written JavaScript
+into GLSL fragment shaders, allowing developers to define a 3D execution
+kernel:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> caveKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> neighbors <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Iterate through the 26 neighbors in 3D space</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> z <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> z <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> z<span class="op">++</span>) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> y <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> x <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> (x <span class="op">!==</span> <span class="dv">0</span> <span class="op">||</span> y <span class="op">!==</span> <span class="dv">0</span> <span class="op">||</span> z <span class="op">!==</span> <span class="dv">0</span>) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>                    neighbors <span class="op">+=</span> grid[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span> <span class="op">+</span> z][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">+</span> y][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> x]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>                }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply cave generation rules</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> neighbors <span class="op">&gt;=</span> <span class="dv">14</span> <span class="op">?</span> <span class="dv">1</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height<span class="op">,</span> depth])</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="achieving-seamless-computation">Achieving Seamless
+Computation</h3>
+<p>The compute phase itself runs well within the threshold required for
+real-time applications (typically 16ms or faster for mid-sized grids)
+when following specific practices:</p>
+<ol type="1">
+<li><strong>Pipeline Mode (Ping-Pong Buffering):</strong> Enabling
+<code>.setPipeline(true)</code> is vital. Instead of serializing the 3D
+array back to CPU memory after every iteration, gpu.js outputs a WebGL
+texture that stays in video memory. This texture can be fed directly
+back into the next iteration as an input, executing multiple smoothing
+passes virtually instantly.</li>
+<li><strong>Dimension Constraints:</strong> A grid size of <span
+class="math inline">\(128 \times 128 \times 128\)</span> consists of
+roughly 2.1 million voxels, which modern GPUs evaluate in a few
+milliseconds. Scaling up to <span class="math inline">\(256 \times 256
+\times 256\)</span> (16.7 million cells) approaches texture dimension
+and VRAM limits in browser environments, leading to frame drops if not
+handled in chunks.</li>
+</ol>
+<h3 id="primary-bottlenecks">Primary Bottlenecks</h3>
+<p>While the automata computation itself is seamless, two downstream
+bottlenecks often break real-time performance:</p>
+<ul>
+<li><strong>Data Readback Overhead:</strong> If the simulation must
+return data to the CPU to construct geometry or handle physics, calling
+<code>.toArray()</code> forces the GPU to synchronize with the CPU via
+<code>gl.readPixels()</code>. This stalls the main browser thread.</li>
+<li><strong>Surface Reconstruction (Meshing):</strong> A voxel field
+generated by cellular automata must be converted into visible geometry,
+commonly using Marching Cubes, Dual Contouring, or blocky meshing. If
+this step is performed on the CPU in pure JavaScript, it quickly becomes
+the primary bottleneck, offsetting the performance gained from
+GPU-accelerated generation.</li>
+</ul>
+<h3 id="practical-verdict">Practical Verdict</h3>
+<p>Procedural 3D cave generation via cellular automata runs smoothly in
+gpu.js if the world is divided into manageable chunks (e.g., <span
+class="math inline">\(32^3\)</span> or <span
+class="math inline">\(64^3\)</span> volumes) and computation loops
+remain on the GPU using pipelined textures. To maintain end-to-end
+seamless performance, the generated data should either be rendered
+directly using volumetric raymarching inside a WebGL shader or processed
+into polygonal meshes asynchronously via Web Workers to avoid
+main-thread stutter.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Map Hexagonal Grids to GPU.js Thread Lattices - gpu.js</title>
+    <meta name="description" content="Mapping hexagonal grid coordinate systems onto rectangular thread lattices in gpu.js bridges the gap between non-Cartesian spatial layouts and standard GPU compute pipelines. This guide explains how to convert gpu.js 2D thread indices into axial and cube">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/map-hexagonal-grids-to-gpu-js-thread-lattices">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Map Hexagonal Grids to GPU.js Thread Lattices - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/map-hexagonal-grids-to-gpu-js-thread-lattices" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Mapping hexagonal grid coordinate systems onto rectangular thread lattices in gpu.js bridges the gap between non-Cartesian spatial layouts and standard GPU compute pipelines. This guide explains how to convert gpu.js 2D thread indices into axial and cube" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="map-hexagonal-grids-to-gpujs-thread-lattices">Map Hexagonal
+Grids to GPU.js Thread Lattices</h1>
+<p>Mapping hexagonal grid coordinate systems onto rectangular thread
+lattices in gpu.js bridges the gap between non-Cartesian spatial layouts
+and standard GPU compute pipelines. This guide explains how to convert
+gpu.js 2D thread indices into axial and cube hexagonal coordinate
+systems, calculate accurate spatial positions, access hexagonal
+neighbors in parallel, and execute hex-based simulations directly on the
+GPU.</p>
+<hr />
+<h3 id="the-challenge-of-hexagonal-thread-mapping">The Challenge of
+Hexagonal Thread Mapping</h3>
+<p>GPU hardware processes execution units (threads) arranged in linear,
+2D, or 3D Cartesian grids. In gpu.js, kernels define output dimensions
+via <code>setOutput([width, height])</code>, exposing thread locations
+via <code>this.thread.x</code> and <code>this.thread.y</code>.</p>
+<p>Hexagonal layouts do not share direct orthogonal symmetry with
+rectangular lattices. To process a hex grid on the GPU, you must map the
+rectangular <code>(x, y)</code> thread coordinates to a discrete
+hexagonal coordinate system—most notably <strong>Offset</strong>,
+<strong>Axial</strong>, or <strong>Cube</strong> coordinates.</p>
+<hr />
+<h3 id="coordinate-systems-selection-and-conversion">Coordinate Systems:
+Selection and Conversion</h3>
+<p>The standard mapping models are:</p>
+<ol type="1">
+<li><strong>Offset Coordinates:</strong> Easiest for storage allocation
+because an <span class="math inline">\(M \times N\)</span> hex grid maps
+directly to an <span class="math inline">\(M \times N\)</span> 2D
+array.</li>
+<li><strong>Axial Coordinates (<span class="math inline">\(q,
+r\)</span>):</strong> The most mathematically efficient for vector
+distance, rotation, and line-drawing calculations.</li>
+<li><strong>Cube Coordinates (<span class="math inline">\(x, y,
+z\)</span>):</strong> A 3D projection where <span
+class="math inline">\(x + y + z = 0\)</span>, ideal for complex
+geometric operations.</li>
+</ol>
+<h4 id="1-odd-r-horizontal-layout-pointy-topped-hexagons">1. "Odd-r"
+Horizontal Layout (Pointy-Topped Hexagons)</h4>
+<p>In an odd-r layout, rows are staggered horizontally. Threads directly
+correspond to the row and column:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert Offset to Axial (q, r)</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> r <span class="op">=</span> row<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> q <span class="op">=</span> col <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(row <span class="op">/</span> <span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert Axial to Cube (x, y, z)</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cubeX <span class="op">=</span> q<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cubeZ <span class="op">=</span> r<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cubeY <span class="op">=</span> <span class="op">-</span>cubeX <span class="op">-</span> cubeZ<span class="op">;</span></span></code></pre></div>
+<h4 id="2-odd-q-vertical-layout-flat-topped-hexagons">2. "Odd-q"
+Vertical Layout (Flat-Topped Hexagons)</h4>
+<p>In an odd-q layout, columns are staggered vertically:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert Offset to Axial (q, r)</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> q <span class="op">=</span> col<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> r <span class="op">=</span> row <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(col <span class="op">/</span> <span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert Axial to Cube (x, y, z)</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cubeX <span class="op">=</span> q<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cubeZ <span class="op">=</span> r<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cubeY <span class="op">=</span> <span class="op">-</span>cubeX <span class="op">-</span> cubeZ<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="calculating-world-coordinates-inside-the-kernel">Calculating
+World Coordinates Inside the Kernel</h3>
+<p>To map discrete threads to world-space coordinates (e.g., rendering
+or distance fields), compute the continuous Cartesian position based on
+hexagon radius <span class="math inline">\(R\)</span>.</p>
+<p>For a <strong>pointy-topped</strong> grid:</p>
+<ul>
+<li>Hex Width = <span class="math inline">\(\sqrt{3} \times
+R\)</span></li>
+<li>Hex Height = <span class="math inline">\(2 \times R\)</span></li>
+<li>Horizontal Spacing = <span class="math inline">\(\sqrt{3} \times
+R\)</span></li>
+<li>Vertical Spacing = <span class="math inline">\(\frac{3}{2} \times
+R\)</span></li>
+</ul>
+<p>GPU.js implementation:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> R <span class="op">=</span> <span class="fl">10.0</span><span class="op">;</span> <span class="co">// Hex outer radius</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sqrt3 <span class="op">=</span> <span class="fl">1.7320508</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Offset row calculation</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> xOffset <span class="op">=</span> (row <span class="op">%</span> <span class="dv">2</span> <span class="op">===</span> <span class="dv">1</span>) <span class="op">?</span> (sqrt3 <span class="op">*</span> R) <span class="op">/</span> <span class="dv">2</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> worldX <span class="op">=</span> col <span class="op">*</span> sqrt3 <span class="op">*</span> R <span class="op">+</span> xOffset<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> worldY <span class="op">=</span> row <span class="op">*</span> <span class="fl">1.5</span> <span class="op">*</span> R<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="neighbor-traversal-in-gpujs-kernels">Neighbor Traversal in
+gpu.js Kernels</h3>
+<p>Simulations such as cellular automata require sampling the six
+adjacent neighbors of each hexagon. Because GPU threads read from
+rectangular memory buffers, neighbors must be sampled using either axial
+math or direct offset lookups.</p>
+<p>Using <strong>odd-r</strong> offset coordinates, the parity of the
+current row determines neighbor locations:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Predefined neighbor offsets for odd-r hex grids</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co">// Even rows: [dx, dy]</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Odd rows:  [dx, dy]</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getNeighborValue</span>(grid<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> col<span class="op">,</span> row<span class="op">,</span> direction) {</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> isOdd <span class="op">=</span> row <span class="op">%</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> nCol <span class="op">=</span> col<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> nRow <span class="op">=</span> row<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (direction <span class="op">===</span> <span class="dv">0</span>) { nCol <span class="op">+=</span> <span class="dv">1</span><span class="op">;</span> }                          <span class="co">// East</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="cf">if</span> (direction <span class="op">===</span> <span class="dv">1</span>) { nCol <span class="op">+=</span> isOdd <span class="op">?</span> <span class="dv">1</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span> nRow <span class="op">-=</span> <span class="dv">1</span><span class="op">;</span> } <span class="co">// North-East</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="cf">if</span> (direction <span class="op">===</span> <span class="dv">2</span>) { nCol <span class="op">+=</span> isOdd <span class="op">?</span> <span class="dv">0</span> <span class="op">:</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> nRow <span class="op">-=</span> <span class="dv">1</span><span class="op">;</span> } <span class="co">// North-West</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="cf">if</span> (direction <span class="op">===</span> <span class="dv">3</span>) { nCol <span class="op">-=</span> <span class="dv">1</span><span class="op">;</span> }                          <span class="co">// West</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="cf">if</span> (direction <span class="op">===</span> <span class="dv">4</span>) { nCol <span class="op">+=</span> isOdd <span class="op">?</span> <span class="dv">0</span> <span class="op">:</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> nRow <span class="op">+=</span> <span class="dv">1</span><span class="op">;</span> } <span class="co">// South-West</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="cf">else</span> <span class="cf">if</span> (direction <span class="op">===</span> <span class="dv">5</span>) { nCol <span class="op">+=</span> isOdd <span class="op">?</span> <span class="dv">1</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span> nRow <span class="op">+=</span> <span class="dv">1</span><span class="op">;</span> } <span class="co">// South-East</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Boundary check</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (nCol <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nCol <span class="op">&lt;</span> width <span class="op">&amp;&amp;</span> nRow <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nRow <span class="op">&lt;</span> height) {</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> grid[nRow][nCol]<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="complete-gpujs-kernel-example">Complete gpu.js Kernel
+Example</h3>
+<p>The following script sets up a basic GPU kernel that computes
+continuous world coordinates and neighbor averages across a hexagonal
+grid:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> WIDTH <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> HEIGHT <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> hexSimulationKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid) {</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> isOdd <span class="op">=</span> row <span class="op">%</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Directions: E, NE, NW, W, SW, SE</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> dColsOdd <span class="op">=</span> [<span class="dv">1</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> dColsEven <span class="op">=</span> [<span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> dRows <span class="op">=</span> [<span class="dv">0</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">6</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dc <span class="op">=</span> (isOdd <span class="op">===</span> <span class="dv">1</span>) <span class="op">?</span> dColsOdd[i] <span class="op">:</span> dColsEven[i]<span class="op">;</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dr <span class="op">=</span> dRows[i]<span class="op">;</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> nc <span class="op">=</span> col <span class="op">+</span> dc<span class="op">;</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> nr <span class="op">=</span> row <span class="op">+</span> dr<span class="op">;</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (nc <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nc <span class="op">&lt;</span> <span class="dv">512</span> <span class="op">&amp;&amp;</span> nr <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nr <span class="op">&lt;</span> <span class="dv">512</span>) {</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>      sum <span class="op">+=</span> grid[nr][nc]<span class="op">;</span></span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> sum <span class="op">/</span> <span class="fl">6.0</span><span class="op">;</span></span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">;</span></span></code></pre></div>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li><strong>Branching Minimization:</strong> Using conditional ternary
+checks based on <code>row % 2</code> can cause branch divergence across
+warp execution. Flatten logic using bitwise operations
+(<code>row &amp; 1</code>) or precomputed parity coefficients when
+optimizing hot loops.</li>
+<li><strong>Texture Storage:</strong> Store hex attributes in 2D RGBA
+textures where each texel maps directly to <code>(col, row)</code>. This
+ensures contiguous memory reads when fetching adjacent horizontal
+neighbors.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

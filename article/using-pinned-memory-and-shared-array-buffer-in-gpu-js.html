@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using Pinned Memory and SharedArrayBuffer in gpu.js - gpu.js</title>
+    <meta name="description" content="This article examines whether low-level memory optimizations—specifically pinned host memory and SharedArrayBuffer—can be integrated into data transfers using gpu.js. Because gpu.js relies on WebGL abstractions to execute general-purpose compute kern">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-pinned-memory-and-shared-array-buffer-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using Pinned Memory and SharedArrayBuffer in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-pinned-memory-and-shared-array-buffer-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether low-level memory optimizations—specifically pinned host memory and SharedArrayBuffer—can be integrated into data transfers using gpu.js. Because gpu.js relies on WebGL abstractions to execute general-purpose compute kern" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-pinned-memory-and-sharedarraybuffer-in-gpujs">Using Pinned
+Memory and SharedArrayBuffer in gpu.js</h1>
+<p>This article examines whether low-level memory
+optimizations—specifically pinned host memory and
+<code>SharedArrayBuffer</code>—can be integrated into data transfers
+using gpu.js. Because gpu.js relies on WebGL abstractions to execute
+general-purpose compute kernels, native hardware concepts like
+page-locked host memory cannot be directly controlled. While
+<code>SharedArrayBuffer</code> can assist with multi-threaded CPU-side
+preparation, neither technology enables true zero-copy, direct memory
+access (DMA) transfers to the GPU within the library.</p>
+<h3 id="understanding-the-abstraction-layer-of-gpujs">Understanding the
+Abstraction Layer of gpu.js</h3>
+<p>gpu.js accelerates JavaScript calculations by compiling specialized
+functions into GLSL shaders and executing them on the graphics hardware
+via WebGL. Because WebGL is a sandboxed, browser-level graphics API, it
+intentionally abstracts away direct physical memory addresses,
+hardware-specific DMA engines, and kernel-level memory management. All
+data transfers to the GPU are handled through standard WebGL texture
+allocation and buffer binding mechanisms.</p>
+<h3 id="pinned-host-memory-not-supported">Pinned Host Memory: Not
+Supported</h3>
+<p>In native compute frameworks like CUDA or OpenCL, pinned
+(page-locked) host memory prevents the operating system from paging
+memory out to disk. This allows the GPU’s DMA controller to read host
+memory directly without CPU intervention, significantly speeding up
+host-to-device transfers.</p>
+<p>In gpu.js, pinned host memory is impossible to implement because:</p>
+<ol type="1">
+<li><strong>JavaScript Memory Management:</strong> The JavaScript engine
+(V8, SpiderMonkey, etc.) manages heap allocations automatically via
+garbage collection, abstracting away low-level virtual memory
+mapping.</li>
+<li><strong>WebGL Limitations:</strong> WebGL provides no API endpoints
+for page-locking memory. Host-to-device transfers occur when data is
+uploaded to textures via calls like <code>texImage2D</code> or
+<code>texSubImage2D</code>, which copy memory through driver-managed
+staging buffers.</li>
+</ol>
+<p>Consequently, native-style pinned memory transfers cannot be
+integrated into gpu.js pipelines.</p>
+<h3 id="sharedarraybuffer-integration-and-limitations">SharedArrayBuffer
+Integration and Limitations</h3>
+<p><code>SharedArrayBuffer</code> allows multiple web workers to read
+and write to the same shared memory space concurrently. While this is a
+powerful feature for CPU-side parallelism, its integration with data
+transfers in gpu.js faces strict constraints.</p>
+<h4 id="zero-copy-transfers-are-unavailable">Zero-Copy Transfers Are
+Unavailable</h4>
+<p>Even when a TypedArray is backed by a <code>SharedArrayBuffer</code>,
+passing that data to gpu.js does not grant the GPU direct access to that
+shared memory. gpu.js must still serialize or upload the array into
+WebGL texture memory. The transfer remains a synchronous or asynchronous
+copy operation, not a zero-copy mapping.</p>
+<h4 id="webgl-specification-restrictions">WebGL Specification
+Restrictions</h4>
+<p>Browsers enforce strict security policies regarding
+<code>SharedArrayBuffer</code> due to side-channel attacks like Spectre.
+WebGL specifications generally mandate that data passed to texture
+upload functions must be backed by an unshared
+<code>ArrayBufferView</code>. Passing a TypedArray backed by a
+<code>SharedArrayBuffer</code> directly into texture upload functions
+can throw a <code>TypeError</code> in many browser implementations
+unless the data is first cloned into a standard, non-shared
+<code>ArrayBuffer</code>.</p>
+<h3 id="practical-alternatives-for-optimizing-gpujs-transfers">Practical
+Alternatives for Optimizing gpu.js Transfers</h3>
+<p>Since pinned memory and zero-copy shared buffers cannot bypass the
+WebGL upload bottleneck, maximizing transfer performance in gpu.js
+relies on optimizing how data enters and stays within the GPU
+context:</p>
+<ul>
+<li><strong>Use TypedArrays Directly:</strong> Pass contiguous
+<code>Float32Array</code> or <code>Int32Array</code> instances rather
+than standard nested JavaScript arrays. This eliminates the CPU overhead
+of flattening nested arrays before upload.</li>
+<li><strong>Pipeline Mode (Keep Data on the Device):</strong> The most
+effective way to avoid transfer latency is to prevent data from
+returning to the CPU. Set <code>pipeline: true</code> on your gpu.js
+kernels to output results directly as textures, which can be fed
+immediately into subsequent kernels without round-trip host
+transfers.</li>
+<li><strong>Worker-Based Preprocessing:</strong> You can use
+<code>SharedArrayBuffer</code> across a pool of Web Workers to handle
+heavy CPU preprocessing. Once processing is complete, copy the required
+slice into a standard TypedArray to dispatch it to gpu.js.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

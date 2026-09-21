@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pairwise Minkowski Distance Matrix Using GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to compute pairwise Minkowski distance matrices for arbitrary $p$-norms using GPU.js to accelerate calculations directly on the GPU. Computing pairwise distances between large collections of multidimensional vectors is computati">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/pairwise-minkowski-distance-matrix-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Pairwise Minkowski Distance Matrix Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/pairwise-minkowski-distance-matrix-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to compute pairwise Minkowski distance matrices for arbitrary $p$-norms using GPU.js to accelerate calculations directly on the GPU. Computing pairwise distances between large collections of multidimensional vectors is computati" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="pairwise-minkowski-distance-matrix-using-gpujs">Pairwise
+Minkowski Distance Matrix Using GPU.js</h1>
+<p>This article explains how to compute pairwise Minkowski distance
+matrices for arbitrary <span class="math inline">\(p\)</span>-norms
+using GPU.js to accelerate calculations directly on the GPU. Computing
+pairwise distances between large collections of multidimensional vectors
+is computationally expensive on the CPU (<span
+class="math inline">\(O(N^2 \cdot D)\)</span> time complexity). By
+configuring a custom GPU.js kernel, you can parallelize these operations
+across thousands of GPU cores, enabling efficient calculation of
+Manhattan (<span class="math inline">\(p=1\)</span>), Euclidean (<span
+class="math inline">\(p=2\)</span>), and arbitrary fractional or
+higher-order <span class="math inline">\(p\)</span>-norm distance
+matrices in JavaScript.</p>
+<h3 id="the-minkowski-distance-formulation">The Minkowski Distance
+Formulation</h3>
+<p>The Minkowski distance of order <span
+class="math inline">\(p\)</span> between two points <span
+class="math inline">\(X = (x_1, x_2, \dots, x_d)\)</span> and <span
+class="math inline">\(Y = (y_1, y_2, \dots, y_d)\)</span> in <span
+class="math inline">\(d\)</span>-dimensional space is defined as:</p>
+<p><span class="math display">\[D(X, Y) = \left( \sum_{k=1}^{d} |x_k -
+y_k|^p \right)^{1/p}\]</span></p>
+<p>When computing a pairwise distance matrix for a dataset containing
+<span class="math inline">\(N\)</span> samples, the resulting matrix has
+dimensions <span class="math inline">\(N \times N\)</span>, where the
+element at row <span class="math inline">\(i\)</span> and column <span
+class="math inline">\(j\)</span> corresponds to <span
+class="math inline">\(D(X_i, X_j)\)</span>.</p>
+<h3 id="implementing-the-kernel-with-gpujs">Implementing the Kernel with
+GPU.js</h3>
+<p>In GPU.js, output dimensions are defined via
+<code>setOutput([width, height])</code>. For an <span
+class="math inline">\(N \times N\)</span> matrix, the output is
+<code>[N, N]</code>. Inside the kernel function,
+<code>this.thread.x</code> indexes the column (point <span
+class="math inline">\(j\)</span>) and <code>this.thread.y</code> indexes
+the row (point <span class="math inline">\(i\)</span>).</p>
+<p>Below is the complete implementation for building and executing the
+kernel:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"> * Creates a GPU kernel to compute an N x N Minkowski distance matrix.</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{number}</span><span class="co"> numPoints - The number of data points (N).</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{number}</span><span class="co"> dimensions - The dimensionality of each point (d).</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@returns</span><span class="co"> {Function} Callable GPU kernel.</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createMinkowskiKernel</span>(numPoints<span class="op">,</span> dimensions) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">function</span> (data<span class="op">,</span> p<span class="op">,</span> dim) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>      <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> dim<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Compute absolute difference raised to power p</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][k] <span class="op">-</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][k])<span class="op">,</span> p)<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Return the (1/p)-th root</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(sum<span class="op">,</span> <span class="dv">1</span> <span class="op">/</span> p)<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    {</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>      <span class="dt">output</span><span class="op">:</span> [numPoints<span class="op">,</span> numPoints]<span class="op">,</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>      <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">false</span> <span class="co">// Set to true if chaining kernels</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="co">// Example Usage:</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> data <span class="op">=</span> [</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">1.0</span><span class="op">,</span> <span class="fl">2.0</span><span class="op">,</span> <span class="fl">3.0</span>]<span class="op">,</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">4.0</span><span class="op">,</span> <span class="fl">5.0</span><span class="op">,</span> <span class="fl">6.0</span>]<span class="op">,</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">7.0</span><span class="op">,</span> <span class="fl">8.0</span><span class="op">,</span> <span class="fl">9.0</span>]<span class="op">,</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">2.0</span><span class="op">,</span> <span class="fl">1.0</span><span class="op">,</span> <span class="fl">0.0</span>]</span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>]<span class="op">;</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numPoints <span class="op">=</span> data<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dimensions <span class="op">=</span> data[<span class="dv">0</span>]<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> pNorm <span class="op">=</span> <span class="fl">3.0</span><span class="op">;</span> <span class="co">// Arbitrary p-norm</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeMinkowski <span class="op">=</span> <span class="fu">createMinkowskiKernel</span>(numPoints<span class="op">,</span> dimensions)<span class="op">;</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> distanceMatrix <span class="op">=</span> <span class="fu">computeMinkowski</span>(data<span class="op">,</span> pNorm<span class="op">,</span> dimensions)<span class="op">;</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(distanceMatrix)<span class="op">;</span></span></code></pre></div>
+<h3 id="execution-details-and-technical-considerations">Execution
+Details and Technical Considerations</h3>
+<ol type="1">
+<li><strong>Static Loop Bounds:</strong> WebGL shaders require bounded
+loops. Passing the dimension <code>dim</code> as a constant or argument
+within the loop ensures the kernel executes correctly across different
+vector dimensions.</li>
+<li><strong>Handling <span class="math inline">\(p &lt; 1\)</span> vs
+<span class="math inline">\(p \ge 1\)</span>:</strong> The Minkowski
+distance strictly satisfies metric properties only when <span
+class="math inline">\(p \ge 1\)</span>. While the GPU.js code will
+execute mathematically for <span class="math inline">\(0 &lt; p &lt;
+1\)</span>, the resulting values represent a semi-metric and violate the
+triangle inequality.</li>
+<li><strong>Float Precision Limits:</strong> GPUs running WebGL
+typically perform operations in single-precision 32-bit floating points
+(<code>float32</code>). For large values of <span
+class="math inline">\(p\)</span> combined with large coordinate
+differences, <code>Math.pow(diff, p)</code> can overflow to infinity,
+causing numerical instability. Normalize your data before passing it
+into the kernel if you are using high <span
+class="math inline">\(p\)</span> values.</li>
+<li><strong>Memory Transfers:</strong> When processing tens of thousands
+of points, formatting the input data as flat typed arrays (such as
+<code>Float32Array</code>) and avoiding redundant CPU-to-GPU data
+transfers will yield optimal throughput.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

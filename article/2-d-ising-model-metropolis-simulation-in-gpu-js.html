@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Ising Model Metropolis Simulation in GPU.js - gpu.js</title>
+    <meta name="description" content="Simulating the 2D Ising model of ferromagnetism using Metropolis Monte Carlo steps is fully achievable in gpu.js, though it requires specific algorithmic adaptations to run correctly on parallel hardware. Because the standard Metropolis algorithm evaluat">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/2-d-ising-model-metropolis-simulation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="2D Ising Model Metropolis Simulation in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/2-d-ising-model-metropolis-simulation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating the 2D Ising model of ferromagnetism using Metropolis Monte Carlo steps is fully achievable in gpu.js, though it requires specific algorithmic adaptations to run correctly on parallel hardware. Because the standard Metropolis algorithm evaluat" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="2d-ising-model-metropolis-simulation-in-gpujs">2D Ising Model
+Metropolis Simulation in GPU.js</h1>
+<p>Simulating the 2D Ising model of ferromagnetism using Metropolis
+Monte Carlo steps is fully achievable in gpu.js, though it requires
+specific algorithmic adaptations to run correctly on parallel hardware.
+Because the standard Metropolis algorithm evaluates updates
+sequentially, direct parallelization causes race conditions and breaks
+thermodynamic equilibrium. By combining gpu.js kernels with a
+checkerboard (red-black) update scheme and pseudorandom number
+generation, developers can harness browser-based GPU acceleration to
+simulate large spin lattices at high frame rates.</p>
+<h3 id="the-parallelization-challenge">The Parallelization
+Challenge</h3>
+<p>The standard Metropolis algorithm chooses a single spin, calculates
+the energy difference <span class="math inline">\(\Delta E\)</span> that
+would result from flipping it, and accepts the flip with probability
+<span class="math inline">\(P = \min(1, e^{-\Delta E / k_B T})\)</span>.
+In a ferromagnet with nearest-neighbor interactions, the state of a spin
+depends directly on its four immediate neighbors (up, down, left,
+right).</p>
+<p>If every thread on the GPU attempts to evaluate and flip its spin
+simultaneously, neighboring spins may flip at the same time based on
+outdated energy calculations. This violates detailed balance,
+invalidates the Boltzmann distribution, and yields unphysical artifacts
+such as checkerboard oscillations.</p>
+<h3 id="the-solution-checkerboard-decomposition">The Solution:
+Checkerboard Decomposition</h3>
+<p>To resolve race conditions, the 2D square lattice must be split into
+two independent sublattices, identical to the red and black squares on a
+chessboard:</p>
+<ol type="1">
+<li><strong>Sublattice A (Even parity):</strong> Sites where
+<code>(x + y) % 2 == 0</code></li>
+<li><strong>Sublattice B (Odd parity):</strong> Sites where
+<code>(x + y) % 2 == 1</code></li>
+</ol>
+<p>Because nearest-neighbor interactions only couple Sublattice A sites
+to Sublattice B sites, no two sites within the same sublattice interact
+with each other. Consequently, all sites in Sublattice A can be updated
+simultaneously in parallel without race conditions, followed by an
+update of all sites in Sublattice B.</p>
+<h3 id="implementing-in-gpujs">Implementing in gpu.js</h3>
+<p>In gpu.js, a complete Monte Carlo step (sweeping the entire lattice)
+is executed using two sequential kernel passes:</p>
+<ol type="1">
+<li><strong>Pass 1 (Update Sublattice A):</strong> A gpu.js kernel runs
+across the entire grid. Inside the kernel, a condition checks if
+<code>(this.thread.x + this.thread.y) % 2 == 0</code>. If true, the
+thread calculates the local interaction energy from its four neighbors,
+computes <span class="math inline">\(\Delta E\)</span>, evaluates the
+Metropolis acceptance criterion, and writes the new spin (+1 or -1). If
+false, it returns the current spin unchanged.</li>
+<li><strong>Pass 2 (Update Sublattice B):</strong> The kernel runs
+again, this time only evaluating sites where
+<code>(this.thread.x + this.thread.y) % 2 == 1</code>, using the newly
+updated values of Sublattice A.</li>
+</ol>
+<p>To maintain optimal performance and avoid the expensive overhead of
+transferring arrays between CPU and GPU memory every step, the
+simulation should use gpu.js texture outputs
+(<code>pipeline: true</code>), allowing the lattice state to remain in
+GPU memory between updates.</p>
+<h3 id="pseudorandom-number-generation-on-the-gpu">Pseudorandom Number
+Generation on the GPU</h3>
+<p>The Metropolis algorithm requires uniform random numbers to evaluate
+the condition <span class="math inline">\(r &lt; e^{-\Delta E / k_B
+T}\)</span>. Because standard JavaScript functions like
+<code>Math.random()</code> cannot be executed inside a GPU kernel, you
+must implement a deterministic hash-based pseudorandom number generator
+(PRNG) directly inside the kernel function. Fast PRNG algorithms like
+PCG, Xorshift, or integer hash functions (such as the Wang Hash) can
+take <code>this.thread.x</code>, <code>this.thread.y</code>, and an
+iteration step counter passed as a uniform to generate high-quality
+pseudorandom numbers per site per step.</p>
+<h3 id="conclusion">Conclusion</h3>
+<p>Simulating the 2D Ising model via Metropolis Monte Carlo in gpu.js is
+both possible and efficient when using checkerboard decomposition and
+GPU-native PRNGs. This approach preserves the rigorous physics of the
+Metropolis criterion while leveraging WebGL to simulate lattice sizes
+far larger than what single-threaded CPU JavaScript can handle in real
+time.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

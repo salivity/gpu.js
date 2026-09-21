@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Compound Assignment Operators - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js translates compound assignment operators—such as +=, -=, =, and /=—from JavaScript kernel functions into executable GLSL shader code. It covers the abstract syntax tree (AST) parsing process, GLSL compatibility, autom">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-compound-assignment-operators">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Compound Assignment Operators - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-compound-assignment-operators" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js translates compound assignment operators—such as +=, -=, =, and /=—from JavaScript kernel functions into executable GLSL shader code. It covers the abstract syntax tree (AST) parsing process, GLSL compatibility, autom" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-compound-assignment-operators">How GPU.js
+Handles Compound Assignment Operators</h1>
+<p>This article explains how GPU.js translates compound assignment
+operators—such as <code>+=</code>, <code>-=</code>, <code>*=</code>, and
+<code>/=</code>—from JavaScript kernel functions into executable GLSL
+shader code. It covers the abstract syntax tree (AST) parsing process,
+GLSL compatibility, automatic type coercion, and specific limitations
+encountered when running accelerated calculations across different WebGL
+contexts.</p>
+<h2 id="abstract-syntax-tree-parsing">Abstract Syntax Tree Parsing</h2>
+<p>GPU.js converts JavaScript functions into WebGL shader code at
+runtime. It starts by taking the kernel function's string representation
+and parsing it into an Abstract Syntax Tree (AST) using an internal
+JavaScript parser.</p>
+<p>Within the AST, an expression like <code>total += value</code> is
+categorized as an <code>AssignmentExpression</code>. This node contains
+three primary components:</p>
+<ul>
+<li><strong><code>operator</code></strong>: The operator string (e.g.,
+<code>"+="</code>, <code>"-="</code>, <code>"*="</code>,
+<code>"/="</code>).</li>
+<li><strong><code>left</code></strong>: The target being assigned (an
+<code>Identifier</code> representing a variable, or a
+<code>MemberExpression</code> representing an array index).</li>
+<li><strong><code>right</code></strong>: The evaluated expression or
+value added, subtracted, or multiplied.</li>
+</ul>
+<p>The GPU.js code generator traverses these nodes to reconstruct
+equivalent GLSL (OpenGL Shading Language) statements.</p>
+<h2 id="native-glsl-mapping">Native GLSL Mapping</h2>
+<p>GLSL natively supports the standard arithmetic compound assignment
+operators: <code>+=</code>, <code>-=</code>, <code>*=</code>, and
+<code>/=</code>. Because of this native support, GPU.js does not need to
+expand an expression like <code>x += y</code> into
+<code>x = x + y</code> for standard scalar operations.</p>
+<p>During transpilation, the generator identifies the operator and
+outputs it directly into the shader string. For example:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// JavaScript Kernel Code</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>sum <span class="op">+=</span> values[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span></code></pre></div>
+<p>Translates directly in the resulting fragment shader to:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Generated GLSL</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> user_sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>user_sum <span class="op">+=</span> user_values<span class="op">[</span><span class="dt">index</span><span class="op">];</span></span></code></pre></div>
+<h2 id="type-coercion-and-strict-typing">Type Coercion and Strict
+Typing</h2>
+<p>JavaScript allows dynamic typing and implicit coercion, whereas GLSL
+requires strict static typing. GPU.js tracks the inferred types of
+kernel variables (such as <code>Integer</code>, <code>Float</code>, or
+<code>Array</code>) to ensure type matching across compound
+assignments.</p>
+<p>If an integer literal is used with a floating-point variable in a
+compound assignment, GPU.js automatically casts the operand to prevent
+GLSL compilation errors:</p>
+<ul>
+<li><strong>JavaScript input:</strong> <code>val += 1;</code> (where
+<code>val</code> is a float)</li>
+<li><strong>GLSL output:</strong> <code>user_val += 1.0;</code></li>
+</ul>
+<p>If an unsupported type mixture occurs (such as attempting compound
+assignments with unsupported object types or arrays that cannot be
+resolved to vector math), the transpiler throws a compilation error
+during the kernel build phase before the shader is dispatched to the
+GPU.</p>
+<h2 id="scope-and-reassignment-rules">Scope and Reassignment Rules</h2>
+<p>Compound operators can only be used on mutable local variables or
+writable temporary structures inside the kernel body.</p>
+<ul>
+<li><strong>Local Variables:</strong> Any local variable declared with
+<code>let</code> or <code>var</code> within the kernel function can
+freely use <code>+=</code>, <code>-=</code>, and <code>*=</code>
+throughout loops or branching logic.</li>
+<li><strong>Output Restrictions:</strong> In GPU.js, kernel results are
+traditionally returned at the end of the function using a
+<code>return</code> statement rather than assigned directly to an output
+buffer via <code>+=</code>. The output buffer is populated by the return
+value of each thread coordinate (<code>this.thread.x</code>,
+<code>this.thread.y</code>, etc.).</li>
+</ul>
+<h2 id="bitwise-compound-operators">Bitwise Compound Operators</h2>
+<p>For bitwise compound operators such as <code>&amp;=</code>,
+<code>|=</code>, <code>^=</code>, <code>&lt;&lt;=</code>, and
+<code>&gt;&gt;=</code>, support depends entirely on the WebGL backend
+being targeted:</p>
+<ul>
+<li><strong>WebGL 2.0:</strong> Supports integer types and bitwise
+operations natively. GPU.js can transpile these operations directly when
+the kernel is initialized with WebGL 2 mode.</li>
+<li><strong>WebGL 1.0:</strong> Lacks native bitwise operator support.
+Attempting to use bitwise compound operators on WebGL 1.0 contexts will
+result in a transpile-time error, as the operations cannot be mapped
+directly to WebGL 1.0 GLSL specifications.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

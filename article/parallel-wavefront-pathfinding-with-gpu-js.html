@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Wavefront Pathfinding with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement parallel wavefront pathfinding and Dijkstra-style distance expansion maps using gpu.js. Sequential pathfinding algorithms rely on priority queues that are inefficient on graphics hardware; by reformulating the probl">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-wavefront-pathfinding-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel Wavefront Pathfinding with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-wavefront-pathfinding-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement parallel wavefront pathfinding and Dijkstra-style distance expansion maps using gpu.js. Sequential pathfinding algorithms rely on priority queues that are inefficient on graphics hardware; by reformulating the probl" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-wavefront-pathfinding-with-gpujs">Parallel Wavefront
+Pathfinding with GPU.js</h1>
+<p>This article explains how to implement parallel wavefront pathfinding
+and Dijkstra-style distance expansion maps using gpu.js. Sequential
+pathfinding algorithms rely on priority queues that are inefficient on
+graphics hardware; by reformulating the problem into an iterative
+relaxation process similar to the Bellman-Ford algorithm or cellular
+automata, thousands of grid cells can be evaluated simultaneously on the
+GPU. You will learn the mechanics of parallel relaxation, how to
+configure a gpu.js kernel for texture-based compute operations, and how
+to read back paths efficiently.</p>
+<h2
+id="the-algorithmic-shift-priority-queue-vs-iterative-relaxation">The
+Algorithmic Shift: Priority Queue vs. Iterative Relaxation</h2>
+<p>Standard Dijkstra's algorithm uses a min-priority queue to expand
+nodes sequentially from the lowest cost outward. This sequential
+dependency creates a bottleneck on GPUs, which excel at Single
+Instruction, Multiple Data (SIMD) workloads.</p>
+<p>To parallelize wavefront expansion, you must treat the grid as a
+cellular automaton. At each step:</p>
+<ol type="1">
+<li>Every cell concurrently checks its own value and the values of its
+orthogonal (or diagonal) neighbors.</li>
+<li>If a neighbor’s distance plus the transition cost is lower than the
+cell's current distance, the cell updates its value to that lower
+sum.</li>
+<li>This process repeats across the entire grid until no cell distances
+change (convergence) or until the target coordinate is reached.</li>
+</ol>
+<p>This approach is equivalent to a parallel Bellman-Ford expansion or
+an expanding wavefront.</p>
+<h2 id="1-grid-representation-and-initialization">1. Grid Representation
+and Initialization</h2>
+<p>Represent your environment as two-dimensional arrays (matrices):</p>
+<ul>
+<li><strong>Obstacle Map</strong>: Values where <code>0</code>
+represents passable terrain and <code>1</code> represents an impassable
+barrier.</li>
+<li><strong>Distance Map</strong>: Floating-point values where the
+starting cell is initialized to <code>0.0</code>, and all other
+reachable cells are set to a very large number (representing infinity,
+such as <code>999999.0</code>). Obstacles can also be marked with
+infinity.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> INF <span class="op">=</span> <span class="fl">999999.0</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize obstacle map and distance map</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> obstacles <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> distanceMap <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> obsRow <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> distRow <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    obsRow<span class="op">.</span><span class="fu">push</span>(<span class="dv">0</span>)<span class="op">;</span> <span class="co">// 0 = free, 1 = obstacle</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    distRow<span class="op">.</span><span class="fu">push</span>(INF)<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  obstacles<span class="op">.</span><span class="fu">push</span>(obsRow)<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  distanceMap<span class="op">.</span><span class="fu">push</span>(distRow)<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="co">// Set start node</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> startX <span class="op">=</span> <span class="dv">10</span><span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> startY <span class="op">=</span> <span class="dv">10</span><span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>distanceMap[startY][startX] <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span></code></pre></div>
+<h2 id="2-implementing-the-gpujs-kernel">2. Implementing the gpu.js
+Kernel</h2>
+<p>The kernel computes one wave expansion step. Because WebGL kernels
+cannot read from and write to the same buffer concurrently, you must use
+<strong>ping-pong buffering</strong>: one texture acts as the read
+buffer while the other acts as the write buffer, alternating roles on
+each iteration.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span> <span class="co">// or window.GPU in the browser</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> wavefrontStep <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(currentDistances<span class="op">,</span> obstacles<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="co">// If this cell is an obstacle, keep it impassable</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (obstacles[y][x] <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">999999.0</span><span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> minDistance <span class="op">=</span> currentDistances[y][x]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Up</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (y <span class="op">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> up <span class="op">=</span> currentDistances[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">+</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (up <span class="op">&lt;</span> minDistance) minDistance <span class="op">=</span> up<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Down</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (y <span class="op">&lt;</span> height <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> down <span class="op">=</span> currentDistances[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">+</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (down <span class="op">&lt;</span> minDistance) minDistance <span class="op">=</span> down<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Left</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (x <span class="op">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> left <span class="op">=</span> currentDistances[y][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (left <span class="op">&lt;</span> minDistance) minDistance <span class="op">=</span> left<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Right</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (x <span class="op">&lt;</span> width <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> right <span class="op">=</span> currentDistances[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (right <span class="op">&lt;</span> minDistance) minDistance <span class="op">=</span> right<span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> minDistance<span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Keeps output in GPU memory as a texture</span></span></code></pre></div>
+<p><code>setPipeline(true)</code> is essential. It prevents the GPU from
+transferring the grid array back to the CPU after every iteration,
+avoiding substantial PCI-e bus bottlenecks.</p>
+<h2 id="3-running-the-expansion-loop">3. Running the Expansion Loop</h2>
+<p>Execute the kernel iteratively to propagate the wavefront across the
+grid.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> current <span class="op">=</span> distanceMap<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> iterations <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(width<span class="op">,</span> height) <span class="op">*</span> <span class="dv">2</span><span class="op">;</span> <span class="co">// Upper bound for worst-case path</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> iterations<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Current serves as the input texture, output stays on GPU</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  current <span class="op">=</span> <span class="fu">wavefrontStep</span>(current<span class="op">,</span> obstacles<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert the final GPU texture back to a standard JavaScript array</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalDistanceMap <span class="op">=</span> current<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span></code></pre></div>
+<h2 id="4-extracting-the-optimal-path">4. Extracting the Optimal
+Path</h2>
+<p>Once the wavefront map is generated, backtracking from the target
+coordinate to the start node can be done on the CPU in <span
+class="math inline">\(O(N)\)</span> time (where <span
+class="math inline">\(N\)</span> is the number of steps in the path).
+Starting from the goal, inspect adjacent cells and continuously step to
+the neighbor with the minimum value until reaching the cell with value
+<code>0.0</code>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">extractPath</span>(distanceMap<span class="op">,</span> goalX<span class="op">,</span> goalY) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> path <span class="op">=</span> [[goalX<span class="op">,</span> goalY]]<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> currX <span class="op">=</span> goalX<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> currY <span class="op">=</span> goalY<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">while</span> (distanceMap[currY][currX] <span class="op">!==</span> <span class="dv">0</span>) {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> lowestVal <span class="op">=</span> distanceMap[currY][currX]<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nextX <span class="op">=</span> currX<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nextY <span class="op">=</span> currY<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> neighbors <span class="op">=</span> [</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>      [currX<span class="op">,</span> currY <span class="op">-</span> <span class="dv">1</span>]<span class="op">,</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>      [currX<span class="op">,</span> currY <span class="op">+</span> <span class="dv">1</span>]<span class="op">,</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>      [currX <span class="op">-</span> <span class="dv">1</span><span class="op">,</span> currY]<span class="op">,</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>      [currX <span class="op">+</span> <span class="dv">1</span><span class="op">,</span> currY]</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    ]<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">const</span> [nx<span class="op">,</span> ny] <span class="kw">of</span> neighbors) {</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (nx <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nx <span class="op">&lt;</span> width <span class="op">&amp;&amp;</span> ny <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> ny <span class="op">&lt;</span> height) {</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (distanceMap[ny][nx] <span class="op">&lt;</span> lowestVal) {</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>          lowestVal <span class="op">=</span> distanceMap[ny][nx]<span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>          nextX <span class="op">=</span> nx<span class="op">;</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>          nextY <span class="op">=</span> ny<span class="op">;</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Dead end or disconnected path check</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (nextX <span class="op">===</span> currX <span class="op">&amp;&amp;</span> nextY <span class="op">===</span> currY) {</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> <span class="kw">null</span><span class="op">;</span> <span class="co">// Unreachable</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>    currX <span class="op">=</span> nextX<span class="op">;</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>    currY <span class="op">=</span> nextY<span class="op">;</span></span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>    path<span class="op">.</span><span class="fu">push</span>([currX<span class="op">,</span> currY])<span class="op">;</span></span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> path<span class="op">.</span><span class="fu">reverse</span>()<span class="op">;</span></span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Grid Size:</strong> The GPU approach outperforms standard
+CPU algorithms like <span class="math inline">\(A^*\)</span> or
+sequential Dijkstra on very large maps (e.g., <span
+class="math inline">\(1024 \times 1024\)</span> and above) or in
+situations where multiple target points share the same destination
+(all-pairs or multi-agent routing).</li>
+<li><strong>Early Termination:</strong> By reading a single pixel at the
+target location or using a sub-kernel reduction to detect convergence,
+you can break the loop early once the path reaches the goal.</li>
+<li><strong>Diagonal Movement:</strong> To add 8-directional movement,
+expand the neighbor checks in the kernel to include diagonals, adding
+<span class="math inline">\(\sqrt{2} \approx 1.414\)</span> to diagonal
+neighbor costs instead of <span class="math inline">\(1.0\)</span>.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

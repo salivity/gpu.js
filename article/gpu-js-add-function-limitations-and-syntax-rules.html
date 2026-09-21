@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js addFunction Limitations and Syntax Rules - gpu.js</title>
+    <meta name="description" content="When writing high-performance WebGL kernels using GPU.js, developers can modularize their code by registering external functions via gpu.addFunction. However, because GPU.js transpiles JavaScript directly into shader code (GLSL) to execute on the GPU, th">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-add-function-limitations-and-syntax-rules">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js addFunction Limitations and Syntax Rules - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-add-function-limitations-and-syntax-rules" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When writing high-performance WebGL kernels using GPU.js, developers can modularize their code by registering external functions via gpu.addFunction. However, because GPU.js transpiles JavaScript directly into shader code (GLSL) to execute on the GPU, th" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-addfunction-limitations-and-syntax-rules">GPU.js
+addFunction Limitations and Syntax Rules</h1>
+<p>When writing high-performance WebGL kernels using GPU.js, developers
+can modularize their code by registering external functions via
+<code>gpu.addFunction</code>. However, because GPU.js transpiles
+JavaScript directly into shader code (GLSL) to execute on the GPU, these
+functions are subject to severe syntax, type, and runtime constraints
+compared to standard JavaScript. This article outlines the key
+limitations and syntax restrictions you must adhere to when registering
+functions with <code>gpu.addFunction</code>.</p>
+<h3 id="strict-type-signatures-and-primitive-data-types">Strict Type
+Signatures and Primitive Data Types</h3>
+<p>Unlike standard JavaScript, which is dynamically typed, the
+underlying GPU architecture requires strict static typing. Functions
+registered via <code>gpu.addFunction</code> must operate on primitive
+types supported by GLSL:</p>
+<ul>
+<li><strong>Allowed Types:</strong> Float, Integer, Boolean, and
+fixed-length vector arrays (e.g., <code>Array(2)</code>,
+<code>Array(3)</code>, <code>Array(4)</code>).</li>
+<li><strong>Unsupported Types:</strong> Complex JavaScript objects,
+classes, strings, dynamic arrays, and symbols cannot be parsed or used
+as arguments or return values.</li>
+<li><strong>Typing Definitions:</strong> If GPU.js cannot automatically
+infer the types of the function’s arguments and return value, you must
+explicitly declare them in the function configuration using
+<code>argumentTypes</code> and <code>returnType</code>. A mismatch
+between specified types and actual inputs causes compilation
+errors.</li>
+</ul>
+<h3 id="complete-lack-of-closures-and-scope-access">Complete Lack of
+Closures and Scope Access</h3>
+<p>Functions registered with <code>gpu.addFunction</code> must be pure
+and self-contained:</p>
+<ul>
+<li><strong>No Outer Scope Access:</strong> The function cannot read
+from or write to outer closures, global variables (<code>window</code>,
+<code>globalThis</code>), or module-level constants.</li>
+<li><strong>Data Flow:</strong> All input data must strictly be passed
+into the function as arguments.</li>
+<li><strong>No <code>this</code> Context:</strong> The <code>this</code>
+keyword is undefined and cannot be referenced within the registered
+function.</li>
+</ul>
+<h3 id="prohibition-of-recursion">Prohibition of Recursion</h3>
+<p>GPU hardware and shader languages like GLSL do not utilize a
+traditional call stack in the way CPUs do. Consequently, GPU.js does not
+allow recursion. A registered function cannot call itself, nor can it be
+part of a mutual recursion loop. Any recursive syntax will cause the
+kernel compilation step to fail.</p>
+<h3 id="exclusion-of-standard-javascript-apis">Exclusion of Standard
+JavaScript APIs</h3>
+<p>You cannot use the majority of standard JavaScript runtime functions
+or ES6+ array methods inside an added function:</p>
+<ul>
+<li><strong>No Native JS Built-ins:</strong> Objects like
+<code>JSON</code>, <code>Date</code>, <code>RegExp</code>, and
+<code>Promise</code> do not exist in the GPU pipeline.</li>
+<li><strong>No Array Methods:</strong> Methods such as
+<code>.push()</code>, <code>.pop()</code>, <code>.map()</code>,
+<code>.filter()</code>, and <code>.slice()</code> are entirely
+unavailable.</li>
+<li><strong>No Debugging Utilities:</strong> Functions such as
+<code>console.log()</code> cannot execute inside a shader.</li>
+<li><strong>Restricted Math Object:</strong> Only basic mathematical
+functions with direct GLSL equivalents (such as <code>Math.sin</code>,
+<code>Math.cos</code>, <code>Math.floor</code>, <code>Math.sqrt</code>,
+<code>Math.min</code>, and <code>Math.max</code>) are supported.
+Arbitrary standard library operations will produce transpilation
+errors.</li>
+</ul>
+<h3 id="control-flow-and-loop-restrictions">Control Flow and Loop
+Restrictions</h3>
+<p>While basic <code>if/else</code> statements and standard
+<code>for</code> loops are permitted, control flow must remain
+predictable:</p>
+<ul>
+<li>Loops should generally have fixed or determinable bounds. Dynamic
+loop conditions that cannot be evaluated at shader execution time may
+cause compilation failures or performance penalties.</li>
+<li>Infinite loops or constructs like <code>while(true)</code> are
+prohibited, as they trigger GPU driver timeouts and browser context
+loss.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel CSR Matrix Multiplication in gpu.js - gpu.js</title>
+    <meta name="description" content="Parallelizing sparse matrix-matrix multiplication (SpGEMM) using the Compressed Sparse Row (CSR) format in gpu.js is technically feasible, but it presents significant architectural challenges and performance trade-offs. While gpu.js allows developers to">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-csr-matrix-multiplication-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel CSR Matrix Multiplication in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-csr-matrix-multiplication-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Parallelizing sparse matrix-matrix multiplication (SpGEMM) using the Compressed Sparse Row (CSR) format in gpu.js is technically feasible, but it presents significant architectural challenges and performance trade-offs. While gpu.js allows developers to" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-csr-matrix-multiplication-in-gpujs">Parallel CSR Matrix
+Multiplication in gpu.js</h1>
+<p>Parallelizing sparse matrix-matrix multiplication (SpGEMM) using the
+Compressed Sparse Row (CSR) format in gpu.js is technically feasible,
+but it presents significant architectural challenges and performance
+trade-offs. While gpu.js allows developers to execute parallel
+JavaScript code on the GPU via WebGL, standard SpGEMM algorithms rely on
+dynamic memory allocation and irregular memory access patterns that do
+not map naturally to WebGL's execution model. Consequently, achieving
+efficient parallelization requires specific algorithmic adaptations,
+such as multi-pass execution or outputting to dense structures.</p>
+<h3 id="the-challenge-of-csr-spgemm-on-the-gpu">The Challenge of CSR
+SpGEMM on the GPU</h3>
+<p>The CSR format represents a sparse matrix using three one-dimensional
+arrays: <code>values</code>, <code>col_indices</code>, and
+<code>row_ptr</code>. Computing the product of two CSR matrices (<span
+class="math inline">\(C = A \times B\)</span>) requires traversing the
+non-zero elements of row <span class="math inline">\(i\)</span> in
+matrix <span class="math inline">\(A\)</span> and matching them with the
+corresponding rows in matrix <span class="math inline">\(B\)</span>.</p>
+<p>In native GPU environments like CUDA, this is handled through dynamic
+shared memory, warp-level primitives, or parallel hash tables. In
+gpu.js, however, kernels are compiled into WebGL fragment shaders, which
+impose strict limitations:</p>
+<ul>
+<li><strong>No Dynamic Output Sizes:</strong> WebGL shaders must output
+to a pre-allocated texture of fixed dimensions. Because the number of
+non-zero entries in the product matrix <span
+class="math inline">\(C\)</span> is unknown beforehand, allocating an
+exact CSR output buffer in a single pass is not possible.</li>
+<li><strong>Lack of Atomic Operations:</strong> Standard gpu.js shaders
+do not support atomic operations, preventing multiple threads from
+concurrently appending non-zero values to a shared CSR array.</li>
+<li><strong>Thread Divergence:</strong> Because sparse rows have varying
+numbers of non-zero elements, parallel threads executing loops based on
+<code>row_ptr</code> offsets will experience severe thread divergence,
+reducing GPU execution efficiency.</li>
+</ul>
+<h3 id="implementation-strategies-in-gpujs">Implementation Strategies in
+gpu.js</h3>
+<p>To run CSR multiplication in gpu.js, you must adapt the algorithm to
+work within these constraints using one of the following approaches:</p>
+<h4 id="1-csr-to-dense-output-simplest-approach">1. CSR-to-Dense Output
+(Simplest Approach)</h4>
+<p>If the resulting matrix can fit within system memory as a dense grid,
+you can parallelize across the output cells <span
+class="math inline">\((i, j)\)</span> or rows <span
+class="math inline">\(i\)</span>.</p>
+<ul>
+<li><strong>Kernel Design:</strong> Define a 2D kernel matching the
+dimensions of output matrix <span class="math inline">\(C\)</span>.</li>
+<li><strong>Execution:</strong> Each GPU thread computes a single cell
+<span class="math inline">\(C[i][j]\)</span>. Thread <span
+class="math inline">\((i, j)\)</span> reads the non-zero elements of row
+<span class="math inline">\(i\)</span> from matrix <span
+class="math inline">\(A\)</span> and checks whether any of those column
+positions have a corresponding entry in column <span
+class="math inline">\(j\)</span> of matrix <span
+class="math inline">\(B\)</span>.</li>
+<li><strong>Limitation:</strong> This eliminates the memory benefits of
+sparse matrices, rendering it impractical for extremely large,
+high-dimensional matrices.</li>
+</ul>
+<h4 id="2-two-pass-symbolic-and-numeric-approach-true-csr-output">2.
+Two-Pass Symbolic and Numeric Approach (True CSR Output)</h4>
+<p>To retain a CSR output format, the computation must be split into
+multiple kernel passes:</p>
+<ol type="1">
+<li><strong>Symbolic Multiplication Pass:</strong> A kernel computes
+only the number of non-zero elements produced per row. This output is
+read back to determine the <code>row_ptr</code> array for matrix <span
+class="math inline">\(C\)</span>.</li>
+<li><strong>Buffer Allocation:</strong> The total number of non-zero
+elements is calculated on the CPU, and the exact buffer sizes for
+<code>values</code> and <code>col_indices</code> are allocated.</li>
+<li><strong>Numeric Multiplication Pass:</strong> A second kernel
+evaluates the actual values and column indices, writing them into
+predetermined offsets calculated during the symbolic phase.</li>
+</ol>
+<p>Because gpu.js lacks fine-grained inter-thread communication,
+intermediate sorting and compaction often require transferring small
+index buffers back to the CPU, introducing PCIe transfer overhead.</p>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li><strong>Memory Bandwidth:</strong> Storing CSR arrays inside
+textures requires packing 1D data into 2D floating-point textures,
+adding index-decoding overhead inside the shader.</li>
+<li><strong>Overhead vs. Native JS:</strong> For small-to-medium sparse
+matrices, CPU-based sparse algorithms (which can freely use dynamic hash
+maps or heaps per row) often outperform gpu.js due to the overhead of
+kernel compilation and texture data transfers.</li>
+<li><strong>WebGPU Alternatives:</strong> Modern WebGPU compute shaders
+provide atomic operations, storage buffers, and workgroup shared memory.
+If your environment supports WebGPU, writing compute shaders directly
+provides a much more suitable foundation for parallel SpGEMM than
+WebGL-backed gpu.js kernels.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

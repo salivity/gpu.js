@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js: WebGL 1 Draw Calls vs WebGL 2 Transform Feedback - gpu.js</title>
+    <meta name="description" content="This article examines the internal architectural changes that occur within gpu.js when moving from WebGL 1 draw-call-based computation to WebGL 2 transform feedback. It covers shader stage migration, texture framebuffer bypasses, memory layout adaptation">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-web-gl-1-draw-calls-vs-web-gl-2-transform-feedback">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js: WebGL 1 Draw Calls vs WebGL 2 Transform Feedback - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-web-gl-1-draw-calls-vs-web-gl-2-transform-feedback" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines the internal architectural changes that occur within gpu.js when moving from WebGL 1 draw-call-based computation to WebGL 2 transform feedback. It covers shader stage migration, texture framebuffer bypasses, memory layout adaptation" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-webgl-1-draw-calls-vs-webgl-2-transform-feedback">gpu.js:
+WebGL 1 Draw Calls vs WebGL 2 Transform Feedback</h1>
+<p>This article examines the internal architectural changes that occur
+within gpu.js when moving from WebGL 1 draw-call-based computation to
+WebGL 2 transform feedback. It covers shader stage migration, texture
+framebuffer bypasses, memory layout adaptations, precision-packing
+elimination, and differences in multipass chaining.</p>
+<h3 id="shader-stage-relocation">Shader Stage Relocation</h3>
+<p>In WebGL 1 mode, gpu.js utilizes the rasterization pipeline.
+Computations are executed within the <strong>Fragment Shader</strong>.
+To trigger the calculation, gpu.js draws a full-screen quad (two
+triangles) covering the viewport. The vertices are trivial coordinates
+mapped to a canvas, while the computational logic runs per-fragment.</p>
+<p>When switching to WebGL 2 with Transform Feedback, the computational
+logic shifts to the <strong>Vertex Shader</strong>. gpu.js compiles the
+kernel code into vertex instructions rather than fragment routines. No
+rasterization or fragment stage is utilized. The GPU treats input
+datasets directly as vertex attributes or uniform buffers and performs
+math per vertex execution.</p>
+<h3 id="memory-targets-framebuffers-vs-buffer-objects">Memory Targets:
+Framebuffers vs. Buffer Objects</h3>
+<p>The destination for calculated data changes fundamentally:</p>
+<ul>
+<li><strong>WebGL 1 (Textures &amp; Framebuffers):</strong> WebGL 1
+lacks generic compute write targets. gpu.js must attach a 2D texture to
+a custom <code>WebGLFramebuffer</code> via
+<code>gl.framebufferTexture2D()</code>. The output of the fragment
+shader is captured inside this texture.</li>
+<li><strong>WebGL 2 (Transform Feedback Buffers):</strong> gpu.js binds
+a raw <code>WebGLBuffer</code> to
+<code>gl.TRANSFORM_FEEDBACK_BUFFER</code>. The output of the vertex
+shader streams directly into sequential memory locations without texture
+abstractions or color-attachment binding overhead.</li>
+</ul>
+<h3 id="elimination-of-texture-packing-and-unpacking">Elimination of
+Texture Packing and Unpacking</h3>
+<p>Because WebGL 1 outputs to color textures, writing high-precision
+floating-point numbers requires specialized workarounds:</p>
+<ul>
+<li><strong>Float Packing:</strong> If floating-point texture extensions
+(<code>OES_texture_float</code>, <code>WEBGL_color_buffer_float</code>)
+are unsupported or restricted, gpu.js injects math inside the fragment
+shader to encode 32-bit floats into four 8-bit channels
+(<code>gl_FragColor = encodeFloat(value)</code>). The CPU must
+subsequently decode these bytes.</li>
+<li><strong>Direct Primitives:</strong> With WebGL 2 Transform Feedback,
+values are written natively as 32-bit floats or integers into the
+destination buffer via <code>gl.transformFeedbackVaryings()</code>. This
+removes all arithmetic overhead associated with channel encoding and
+decoding.</li>
+</ul>
+<h3 id="disabling-the-rasterizer">Disabling the Rasterizer</h3>
+<p>In the WebGL 1 pipeline, the GPU must process primitives, interpolate
+varyings, and calculate fragment coverage across the screen
+dimensions.</p>
+<p>In WebGL 2 transform feedback mode, gpu.js invokes:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">enable</span>(gl<span class="op">.</span><span class="at">RASTERIZER_DISCARD</span>)<span class="op">;</span></span></code></pre></div>
+<p>This instruction cuts off the graphics pipeline immediately after the
+vertex (or geometry/transform) stage. The GPU bypasses the clipper, the
+rasterizer, depth/stencil tests, and the fragment processing unit
+entirely. This saves silicon cycles, drops bandwidth demands, and avoids
+viewport dimension limitations.</p>
+<h3 id="chaining-and-multipass-kernels">Chaining and Multipass
+Kernels</h3>
+<p>When kernels run sequentially, where the output of kernel <span
+class="math inline">\(A\)</span> serves as the input to kernel <span
+class="math inline">\(B\)</span>:</p>
+<ul>
+<li><strong>WebGL 1:</strong> gpu.js implements texture ping-ponging.
+The texture written by the framebuffer in pass <span
+class="math inline">\(A\)</span> is unbound and rebound as a sampler
+uniform for pass <span class="math inline">\(B\)</span>.</li>
+<li><strong>WebGL 2:</strong> The target <code>WebGLBuffer</code> from
+pass <span class="math inline">\(A\)</span> can be immediately bound as
+a vertex attribute array pointer (<code>gl.vertexAttribPointer</code>)
+for pass <span class="math inline">\(B\)</span>. There is no context
+overhead from switching framebuffer attachments.</li>
+</ul>
+<h3 id="data-readback">Data Readback</h3>
+<p>Data retrieval to JavaScript changes in both method and
+synchronization:</p>
+<ul>
+<li><strong>WebGL 1:</strong> Data must be retrieved using
+<code>gl.readPixels()</code>. This command blocks the CPU until the
+entire render queue completes, creating a pipeline stall.</li>
+<li><strong>WebGL 2:</strong> gpu.js reads back memory via
+<code>gl.getBufferSubData()</code>. Coupled with WebGL 2 fence sync
+objects (<code>gl.fenceSync</code>), gpu.js can query completion
+asynchronously, minimizing CPU-GPU lockstep pauses.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

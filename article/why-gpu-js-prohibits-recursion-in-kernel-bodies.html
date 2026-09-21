@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why gpu.js Prohibits Recursion in Kernel Bodies - gpu.js</title>
+    <meta name="description" content="This article explains why the gpu.js library forbids recursive function calls inside its kernel definitions. In short, gpu.js compiles JavaScript functions into WebGL shader code (GLSL), an environment that fundamentally lacks the dynamic stack memory an">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-prohibits-recursion-in-kernel-bodies">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why gpu.js Prohibits Recursion in Kernel Bodies - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-prohibits-recursion-in-kernel-bodies" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains why the gpu.js library forbids recursive function calls inside its kernel definitions. In short, gpu.js compiles JavaScript functions into WebGL shader code (GLSL), an environment that fundamentally lacks the dynamic stack memory an" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-prohibits-recursion-in-kernel-bodies">Why gpu.js
+Prohibits Recursion in Kernel Bodies</h1>
+<p>This article explains why the gpu.js library forbids recursive
+function calls inside its kernel definitions. In short, gpu.js compiles
+JavaScript functions into WebGL shader code (GLSL), an environment that
+fundamentally lacks the dynamic stack memory and architectural support
+required for recursion. Below is a breakdown of the hardware, language
+specification, and architectural constraints that enforce this
+limitation.</p>
+<h3 id="glsl-specification-constraints">GLSL Specification
+Constraints</h3>
+<p>Under the hood, gpu.js accelerates JavaScript code by transpiling the
+kernel function into OpenGL Shading Language (GLSL) to execute on the
+GPU via WebGL. The GLSL ES specification, which WebGL targets,
+explicitly forbids recursion.</p>
+<p>In GLSL, the call graph must be strictly acyclic. The compiler
+enforces this rule at parse time; if a function directly or indirectly
+calls itself, compilation fails immediately. Because gpu.js relies on
+the underlying graphics drivers to compile and execute the generated
+GLSL string, it must strictly adhere to these language
+specifications.</p>
+<h3 id="lack-of-a-dynamic-call-stack">Lack of a Dynamic Call Stack</h3>
+<p>CPUs handle recursive calls by pushing return addresses, arguments,
+and local variables onto a dedicated memory region known as the call
+stack. GPUs, by contrast, are designed for massive data parallelism
+across thousands of lightweight threads (cores) executing
+concurrently.</p>
+<p>Allocating a dynamic, unbounded call stack for tens of thousands of
+individual threads would require an enormous amount of high-speed
+memory. Instead, GPU architectures utilize small, fixed sets of
+registers per thread to maximize execution throughput. Without a
+per-thread dynamic call stack, tracking execution state across recursive
+calls is physically unsupported by the standard pipeline.</p>
+<h3 id="deterministic-register-allocation-and-inlining">Deterministic
+Register Allocation and Inlining</h3>
+<p>GPU compilers require static knowledge of a program's execution
+profile to optimize resource utilization. They analyze kernel code to
+determine the exact number of registers a thread needs before execution
+begins.</p>
+<p>Because recursive depth cannot typically be determined at compile
+time, the compiler cannot predict or allocate the necessary registers.
+As a result, GPU compilers predominantly inline functions—substituting
+the function call with the actual body of the function. Recursion breaks
+inlining, as it would cause infinite code expansion during the
+compilation phase.</p>
+<h3 id="handling-recursive-algorithms-in-gpujs">Handling Recursive
+Algorithms in gpu.js</h3>
+<p>Because recursion is prohibited, algorithms traditionally implemented
+recursively (such as tree traversal, quicksort, or fractal calculations)
+must be refactored before execution in a gpu.js kernel.</p>
+<p>To run these workloads on the GPU, developers must convert recursive
+logic into an iterative structure using standard loops (<code>for</code>
+or <code>while</code>). If the algorithm strictly requires tracking
+previous states, that state must be maintained manually using fixed-size
+arrays or pre-allocated buffers that simulate a stack within the
+kernel's local scope.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

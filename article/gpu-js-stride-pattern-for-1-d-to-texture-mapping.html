@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Stride Pattern for 1D to Texture Mapping - gpu.js</title>
+    <meta name="description" content="This article provides an overview of how GPU.js handles memory layout when converting flat 1D memory buffers into multi-dimensional WebGL textures. It details the underlying mathematical stride formulas, row-major memory ordering, and the hardware-constr">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-stride-pattern-for-1-d-to-texture-mapping">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Stride Pattern for 1D to Texture Mapping - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-stride-pattern-for-1-d-to-texture-mapping" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides an overview of how GPU.js handles memory layout when converting flat 1D memory buffers into multi-dimensional WebGL textures. It details the underlying mathematical stride formulas, row-major memory ordering, and the hardware-constr" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-stride-pattern-for-1d-to-texture-mapping">GPU.js Stride
+Pattern for 1D to Texture Mapping</h1>
+<p>This article provides an overview of how GPU.js handles memory layout
+when converting flat 1D memory buffers into multi-dimensional WebGL
+textures. It details the underlying mathematical stride formulas,
+row-major memory ordering, and the hardware-constrained 2D texture
+wrapping techniques used to maintain high throughput during parallel GPU
+computations.</p>
+<h3 id="logical-stride-row-major-order">Logical Stride: Row-Major
+Order</h3>
+<p>GPU.js relies on standard row-major (C-contiguous) ordering to
+translate multi-dimensional array coordinates into a contiguous 1D
+linear sequence. When mapping logical 2D or 3D matrices, the innermost
+dimension (typically the X-axis) has a stride of 1, meaning consecutive
+elements along this axis are adjacent in memory.</p>
+<p>For a 3D volume with dimensions <span class="math inline">\((D_x,
+D_y, D_z)\)</span>, the linear index <span
+class="math inline">\(I\)</span> of any logical element at <span
+class="math inline">\((x, y, z)\)</span> is calculated using the
+following stride formula:</p>
+<p><span class="math display">\[I = x + (y \times D_x) + (z \times D_x
+\times D_y)\]</span></p>
+<p>Here, the stride for the Y-dimension is <span
+class="math inline">\(D_x\)</span>, and the stride for the Z-dimension
+is the area of a 2D slice, <span class="math inline">\(D_x \times
+D_y\)</span>.</p>
+<h3 id="physical-stride-mapping-1d-memory-to-2d-textures">Physical
+Stride: Mapping 1D Memory to 2D Textures</h3>
+<p>WebGL cannot handle arbitrarily long 1D textures because hardware
+drivers enforce a strict <code>MAX_TEXTURE_SIZE</code> limit on any
+single dimension. To circumvent this, GPU.js folds 1D memory buffers
+across a 2D texture grid.</p>
+<p>The system determines a texture width (<span
+class="math inline">\(W_{tex}\)</span>) and height (<span
+class="math inline">\(H_{tex}\)</span>) that can fit the total element
+count <span class="math inline">\(N\)</span>. The 1D index <span
+class="math inline">\(I\)</span> is then mapped to 2D texture
+coordinates <span class="math inline">\((U, V)\)</span> using standard
+division and modulo strides:</p>
+<ul>
+<li><strong>Horizontal Texel Coordinate (<span
+class="math inline">\(X_{tex}\)</span>):</strong> <span
+class="math inline">\(I \pmod{W_{tex}}\)</span></li>
+<li><strong>Vertical Texel Coordinate (<span
+class="math inline">\(Y_{tex}\)</span>):</strong> <span
+class="math inline">\(\lfloor I / W_{tex} \rfloor\)</span></li>
+</ul>
+<p>In normalized WebGL texture space, an offset of <span
+class="math inline">\(0.5\)</span> is added to sample the center of each
+texel:</p>
+<p><span class="math display">\[U = \frac{(I \pmod{W_{tex}}) +
+0.5}{W_{tex}}\]</span> <span class="math display">\[V = \frac{\lfloor I
+/ W_{tex} \rfloor + 0.5}{H_{tex}}\]</span></p>
+<h3 id="channel-level-packing-stride">Channel-Level Packing Stride</h3>
+<p>When floating-point texture support (<code>OES_texture_float</code>)
+is unavailable or when packing data into standard 8-bit or 32-bit RGBA
+channels, GPU.js introduces a 4-element sub-stride. Four sequential
+logical values are packed into the Red, Green, Blue, and Alpha channels
+of a single pixel:</p>
+<ul>
+<li><strong>Pixel Index:</strong> <span class="math inline">\(I_{pixel}
+= \lfloor I / 4 \rfloor\)</span></li>
+<li><strong>Channel Offset:</strong> <span class="math inline">\(I \pmod
+4\)</span> (where 0 maps to R, 1 to G, 2 to B, and 3 to A)</li>
+</ul>
+<p>The resulting physical texture coordinates are calculated relative to
+<span class="math inline">\(I_{pixel}\)</span>, reducing the required
+texture surface area by a factor of four while preserving the overall
+row-major layout across the texture grid.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Increment and Decrement Operators in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how unary increment (++) and decrement (--) operators are processed and evaluated inside arithmetic expressions within gpu.js kernel functions. It explores how gpu.js transpiles these JavaScript update expressions into OpenGL Shadin">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/increment-and-decrement-operators-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Increment and Decrement Operators in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/increment-and-decrement-operators-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how unary increment (++) and decrement (--) operators are processed and evaluated inside arithmetic expressions within gpu.js kernel functions. It explores how gpu.js transpiles these JavaScript update expressions into OpenGL Shadin" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="increment-and-decrement-operators-in-gpujs">Increment and
+Decrement Operators in gpu.js</h1>
+<p>This article explains how unary increment (<code>++</code>) and
+decrement (<code>--</code>) operators are processed and evaluated inside
+arithmetic expressions within gpu.js kernel functions. It explores how
+gpu.js transpiles these JavaScript update expressions into OpenGL
+Shading Language (GLSL), the operational differences between prefix and
+postfix notations, and the execution rules governing variable side
+effects during GPU shader compilation.</p>
+<h2 id="transpilation-to-glsl">Transpilation to GLSL</h2>
+<p>gpu.js compiles standard JavaScript kernel functions into GLSL
+shaders executed directly on the GPU. When the gpu.js AST (Abstract
+Syntax Tree) parser encounters unary update operators—such as increment
+(<code>++</code>) and decrement (<code>--</code>)—within arithmetic
+expressions, it maps them directly to their corresponding GLSL
+equivalents.</p>
+<p>Because the GPU executes the resulting GLSL rather than standard
+JavaScript runtime code, the evaluation order and side-effect mechanics
+conform strictly to the GLSL ES specification.</p>
+<h2 id="prefix-vs-postfix-evaluation">Prefix vs. Postfix Evaluation</h2>
+<p>The behavior of increment and decrement operators depends on whether
+prefix or postfix notation is used within an arithmetic expression:</p>
+<ul>
+<li><strong>Prefix Operators (<code>++x</code>,
+<code>--x</code>):</strong> The variable is modified before its value is
+read into the surrounding expression. For example, in
+<code>let result = ++a + b;</code>, the value of <code>a</code> is
+incremented by 1 first, and the updated value is then added to
+<code>b</code>.</li>
+<li><strong>Postfix Operators (<code>x++</code>,
+<code>x--</code>):</strong> The variable's original value is evaluated
+in the expression before the modification occurs. In
+<code>let result = a++ + b;</code>, the current value of <code>a</code>
+is used in the addition, after which <code>a</code> is incremented by
+1.</li>
+</ul>
+<h2 id="evaluation-order-in-complex-expressions">Evaluation Order in
+Complex Expressions</h2>
+<p>When unary operators appear in multi-term arithmetic operations,
+gpu.js relies on GLSL operator precedence and associativity:</p>
+<ol type="1">
+<li><strong>Precedence:</strong> Unary increment and decrement operators
+have higher precedence than standard binary arithmetic operators
+(multiplication, division, addition, and subtraction). They bind
+directly to their target operand.</li>
+<li><strong>Associativity:</strong> Prefix operators are evaluated with
+right-to-left associativity, while postfix operators evaluate with
+left-to-right associativity.</li>
+<li><strong>Execution Environment:</strong> In expressions like
+<code>let y = (x++) * 2 + (--z);</code>, <code>x</code> is evaluated at
+its current value and scheduled for post-increment, <code>z</code> is
+immediately decremented, and the arithmetic operations proceed according
+to standard algebraic order.</li>
+</ol>
+<h2 id="pitfalls-and-undefined-behavior">Pitfalls and Undefined
+Behavior</h2>
+<p>While simple prefix and postfix operations evaluate reliably,
+modifying the same variable multiple times within a single arithmetic
+expression can produce undefined behavior.</p>
+<p>In GLSL, expressions such as <code>let result = x++ + ++x;</code> do
+not guarantee a sequence point between the two sub-expressions.
+Different GPU drivers and underlying graphics pipelines may evaluate
+sub-expressions in varied orders, causing non-deterministic results
+across different hardware.</p>
+<p>To ensure deterministic execution across all GPU platforms when using
+gpu.js, extract unary modifications with side effects into separate
+statements rather than chaining them inside complex arithmetic
+formulas.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Can GPU.js Process Labelled Break Statements? - gpu.js</title>
+    <meta name="description" content="The gpu.js Abstract Syntax Tree (AST) compiler cannot successfully process labelled break statements. While gpu.js translates standard JavaScript into WebGL-compatible GLSL (OpenGL Shading Language), its compiler lacks the translation logic for labelled">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/can-gpu-js-process-labelled-break-statements">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Can GPU.js Process Labelled Break Statements? - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/can-gpu-js-process-labelled-break-statements" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The gpu.js Abstract Syntax Tree (AST) compiler cannot successfully process labelled break statements. While gpu.js translates standard JavaScript into WebGL-compatible GLSL (OpenGL Shading Language), its compiler lacks the translation logic for labelled" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="can-gpujs-process-labelled-break-statements">Can GPU.js Process
+Labelled Break Statements?</h1>
+<p>The gpu.js Abstract Syntax Tree (AST) compiler cannot successfully
+process labelled break statements. While gpu.js translates standard
+JavaScript into WebGL-compatible GLSL (OpenGL Shading Language), its
+compiler lacks the translation logic for labelled jump targets,
+primarily because the underlying GLSL specification does not support
+labelled loops, multi-level breaks, or <code>goto</code>
+instructions.</p>
+<h2 id="the-limitation-in-the-ast-compiler">The Limitation in the AST
+Compiler</h2>
+<p>gpu.js operates by parsing written JavaScript functions into an AST
+using a JavaScript parser. During this process, it walks through each
+AST node and converts JavaScript syntax into corresponding GLSL
+code.</p>
+<p>When encountering a standard <code>BreakStatement</code> without an
+identifier (a simple <code>break;</code>), the compiler translates it
+directly into the native C-style <code>break;</code> statement supported
+by GLSL. However, when a label identifier is attached to the break
+statement (such as <code>break outerLoop;</code>), the compiler fails.
+The AST traversal mechanism in gpu.js does not contain an implementation
+to map labelled AST jump nodes to GLSL-compliant control flow
+structures. Depending on the version of gpu.js, this will either trigger
+an unsupported syntax compilation error during AST validation or
+generate invalid GLSL code that fails to compile on the GPU.</p>
+<h2 id="the-underlying-glsl-constraint">The Underlying GLSL
+Constraint</h2>
+<p>Even if the AST compiler were modified to parse the label AST node,
+GLSL itself imposes strict architectural constraints on control
+flow:</p>
+<ul>
+<li>GLSL only permits <code>break</code> statements to exit the
+immediately enclosing <code>for</code>, <code>while</code>,
+<code>do-while</code>, or <code>switch</code> construct.</li>
+<li>GLSL has no syntax for labels or arbitrary jumping mechanisms.</li>
+<li>Emulating a labelled break in shader languages requires
+synthetically flattening control structures or inserting conditional
+state variables.</li>
+</ul>
+<p>Because gpu.js relies on a mostly direct syntax-to-syntax conversion
+strategy, it does not rewrite deeply nested loop ASTs into complex
+flag-checking structures.</p>
+<h2 id="recommended-workarounds">Recommended Workarounds</h2>
+<p>To achieve the behavior of a labelled break within a gpu.js kernel,
+code must be restructured using patterns native to GLSL:</p>
+<ol type="1">
+<li><strong>State Flags:</strong> Use a boolean variable outside the
+inner loop. Set the boolean to <code>true</code> when the exit condition
+is met, trigger a standard <code>break;</code> in the inner loop, and
+check that boolean in the outer loop to break immediately.</li>
+<li><strong>Loop Invariants:</strong> Modify the loop condition of the
+outer loop to evaluate a shared termination condition, allowing both
+loops to terminate sequentially.</li>
+<li><strong>Early Returns:</strong> If the break is meant to terminate
+the entire computation for a given thread or invocation, replace the
+labelled break with a <code>return</code> statement, which GLSL natively
+supports.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

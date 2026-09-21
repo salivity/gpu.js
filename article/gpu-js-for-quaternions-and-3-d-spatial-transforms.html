@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js for Quaternions and 3D Spatial Transforms - gpu.js</title>
+    <meta name="description" content="Quaternion mathematics and 3D spatial transformations can be computed efficiently using gpu.js. By compiling JavaScript functions into WebGL-based shaders, gpu.js offloads parallel floating-point calculations to the GPU, making it well-suited for high-th">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-for-quaternions-and-3-d-spatial-transforms">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js for Quaternions and 3D Spatial Transforms - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-for-quaternions-and-3-d-spatial-transforms" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Quaternion mathematics and 3D spatial transformations can be computed efficiently using gpu.js. By compiling JavaScript functions into WebGL-based shaders, gpu.js offloads parallel floating-point calculations to the GPU, making it well-suited for high-th" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-for-quaternions-and-3d-spatial-transforms">GPU.js for
+Quaternions and 3D Spatial Transforms</h1>
+<p>Quaternion mathematics and 3D spatial transformations can be computed
+efficiently using gpu.js. By compiling JavaScript functions into
+WebGL-based shaders, gpu.js offloads parallel floating-point
+calculations to the GPU, making it well-suited for high-throughput 3D
+graphics, physics simulations, and spatial transforms. This article
+explains how quaternion operations are structured in gpu.js, how spatial
+transformations are performed, and the practical performance
+considerations involved.</p>
+<h2 id="how-gpujs-handles-quaternion-mathematics">How GPU.js Handles
+Quaternion Mathematics</h2>
+<p>Quaternions represent 3D orientations and rotations as
+four-dimensional vectors, conventionally defined as <span
+class="math inline">\(q = (x, y, z, w)\)</span>. Because gpu.js maps
+JavaScript numeric arrays directly to GPU memory buffers and texture
+formats, quaternions are naturally represented as 4-element
+floating-point arrays or flattened 1D arrays for multiple instances.</p>
+<p>GPU.js kernels can execute core quaternion operations in parallel
+across thousands of elements simultaneously:</p>
+<ul>
+<li><strong>Hamilton Product (Quaternion Multiplication):</strong> Used
+to combine rotations. The kernel takes two sets of quaternions and
+computes the component-wise formula:
+<ul>
+<li><span class="math inline">\(w = w_1w_2 - x_1x_2 - y_1y_2 -
+z_1z_2\)</span></li>
+<li><span class="math inline">\(x = w_1x_2 + x_1w_2 + y_1z_2 -
+z_1y_2\)</span></li>
+<li><span class="math inline">\(y = w_1y_2 - x_1z_2 + y_1w_2 +
+z_1x_2\)</span></li>
+<li><span class="math inline">\(z = w_1z_2 + x_1y_2 - y_1x_2 +
+z_1w_2\)</span></li>
+</ul></li>
+<li><strong>Conjugation and Inversion:</strong> Straightforward parallel
+vector negation of the vector components <span class="math inline">\((x,
+y, z)\)</span> divided by the squared norm.</li>
+<li><strong>Normalization:</strong> Enforces unit quaternions across
+large batches to prevent floating-point drift over successive
+transformations.</li>
+</ul>
+<h2 id="executing-3d-spatial-transformations">Executing 3D Spatial
+Transformations</h2>
+<p>Rotating a 3D point <span class="math inline">\(v = (x, y,
+z)\)</span> by a unit quaternion <span class="math inline">\(q\)</span>
+can be calculated directly in a gpu.js kernel using the formula:</p>
+<p><span class="math display">\[v&#39; = v + 2 \cdot r \times (r \times
+v + w \cdot v)\]</span></p>
+<p>where <span class="math inline">\(r = (x, y, z)\)</span> is the
+vector part of the quaternion, <span
+class="math inline">\(\times\)</span> represents the cross product, and
+<span class="math inline">\(w\)</span> is the scalar component.</p>
+<p>Alternatively, a gpu.js kernel can convert batches of quaternions
+into <span class="math inline">\(4 \times 4\)</span> or <span
+class="math inline">\(3 \times 3\)</span> affine transformation
+matrices. Once converted, standard matrix-vector multiplication can
+apply combined scale, rotation, and translation to large meshes or point
+clouds in parallel.</p>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<p>Using gpu.js for spatial transformations is most beneficial when
+operating on large datasets. Transforming hundreds of thousands of
+independent vertices or updating the orientation of massive particle
+systems shows significant speedups over CPU execution.</p>
+<p>However, for single-point transformations or small-scale
+calculations, the overhead of transferring data from the CPU to the GPU
+(via WebGL textures) and reading it back into JavaScript memory can
+exceed the execution time of pure CPU computations. For optimal
+performance, pipelines should minimize data round-trips by chaining
+multiple transformation kernels directly on the GPU using pipelined
+textures (<code>{ pipeline: true }</code>).</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

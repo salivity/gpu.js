@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Packs RGBA Data into Scalar Outputs - gpu.js</title>
+    <meta name="description" content="This article explains how the gpu.js library bridges the gap between WebGL's native 4-channel RGBA framebuffers and single scalar JavaScript values. It covers the underlying constraints of WebGL textures, the mathematical techniques used to encode 32-bit">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-packs-rgba-data-into-scalar-outputs">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Packs RGBA Data into Scalar Outputs - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-packs-rgba-data-into-scalar-outputs" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how the gpu.js library bridges the gap between WebGL's native 4-channel RGBA framebuffers and single scalar JavaScript values. It covers the underlying constraints of WebGL textures, the mathematical techniques used to encode 32-bit" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-packs-rgba-data-into-scalar-outputs">How gpu.js Packs
+RGBA Data into Scalar Outputs</h1>
+<p>This article explains how the gpu.js library bridges the gap between
+WebGL's native 4-channel RGBA framebuffers and single scalar JavaScript
+values. It covers the underlying constraints of WebGL textures, the
+mathematical techniques used to encode 32-bit floating-point numbers
+into 8-bit color channels, channel multiplexing strategies, and the
+reverse unpacking pipeline during CPU readbacks.</p>
+<h2 id="the-architectural-constraint-of-webgl-textures">The
+Architectural Constraint of WebGL Textures</h2>
+<p>WebGL shaders are fundamentally graphics pipelines designed to output
+vectors representing colors. When a kernel in gpu.js executes, its
+output is written to a target framebuffer backed by a texture. By
+default, WebGL framebuffers handle data in 4-component vectors: Red,
+Green, Blue, and Alpha (RGBA).</p>
+<p>JavaScript computations typically work with single scalar numbers
+(such as floats or integers) arranged in 1D, 2D, or 3D arrays. Because
+graphics hardware does not natively read and write arbitrary scalar
+memory layouts without specialized extensions, gpu.js must translate
+scalar computations into 4-channel formats when writing to textures, and
+reverse the process when reading the data back.</p>
+<h2 id="ieee-754-floating-point-encoding-into-rgba">IEEE-754
+Floating-Point Encoding into RGBA</h2>
+<p>When hardware float texture extensions
+(<code>OES_texture_float</code> or WebGL 2
+<code>EXT_color_buffer_float</code>) are unavailable, textures must
+store color components as standard 8-bit unsigned normalized integers
+(<code>Uint8</code>), yielding 32 bits of total storage per pixel across
+the four RGBA channels.</p>
+<p>To store a single 32-bit IEEE-754 floating-point scalar inside a
+single RGBA pixel, gpu.js utilizes an encoding algorithm inside the
+fragment shader:</p>
+<ol type="1">
+<li><strong>Sign and Exponent Extraction:</strong> The GLSL code
+separates the sign bit, the 8-bit exponent, and the 23-bit mantissa of
+the scalar number.</li>
+<li><strong>Byte Distribution:</strong> The 32 bits are split into four
+8-bit segments.</li>
+<li><strong>Channel Assignment:</strong>
+<ul>
+<li>Red receives the upper bits containing the sign and part of the
+exponent.</li>
+<li>Green receives the remainder of the exponent and the upper bits of
+the mantissa.</li>
+<li>Blue and Alpha receive the remaining bits of the mantissa.</li>
+</ul></li>
+<li><strong>Normalization:</strong> Each 8-bit value is divided by 255.0
+to produce a normalized float value between <code>0.0</code> and
+<code>1.0</code>, which is assigned to <code>gl_FragColor</code>.</li>
+</ol>
+<p>When unpacking this data back to a single scalar float during texture
+reads or CPU transfer, the inverse operation reconstructs the float:</p>
+<p><span class="math display">\[\text{Scalar} = \mathbf{V} \cdot \left[
+1.0, \, \frac{1.0}{255.0}, \, \frac{1.0}{65025.0}, \,
+\frac{1.0}{16581375.0} \right]\]</span></p>
+<p>In WebGL 2 contexts, this manual bit-shifting is bypassed using the
+native GLSL built-in functions <code>packFloat2x16</code>,
+<code>unpackFloat2x16</code>, or direct bit-casting via
+<code>floatBitsToInt</code> and <code>uintBitsToFloat</code>.</p>
+<h2 id="channel-multiplexing-vector-packing">Channel Multiplexing
+(Vector Packing)</h2>
+<p>In scenarios where float textures are supported but execution
+throughput is prioritized, gpu.js packs four distinct scalar array
+elements into a single RGBA pixel rather than splitting one float across
+four channels.</p>
+<ul>
+<li><strong>Index Mapping:</strong> For an output array of length <span
+class="math inline">\(N\)</span>, gpu.js allocates a texture of size
+<span class="math inline">\(N / 4\)</span>.</li>
+<li><strong>Kernel Evaluation:</strong> The fragment shader computes
+four consecutive output indices <span class="math inline">\((i, i+1,
+i+2, i+3)\)</span> simultaneously.</li>
+<li><strong>Channel Assignment:</strong>
+<ul>
+<li><code>gl_FragColor.r</code> = output at index <span
+class="math inline">\(i\)</span></li>
+<li><code>gl_FragColor.g</code> = output at index <span
+class="math inline">\(i+1\)</span></li>
+<li><code>gl_FragColor.b</code> = output at index <span
+class="math inline">\(i+2\)</span></li>
+<li><code>gl_FragColor.a</code> = output at index <span
+class="math inline">\(i+3\)</span></li>
+</ul></li>
+</ul>
+<p>This reduces the total number of fragment shader invocations by a
+factor of four, maximizing GPU vector unit utilization.</p>
+<h2 id="unpacking-and-cpu-readback">Unpacking and CPU Readback</h2>
+<p>When pulling data out of the GPU back into JavaScript,
+<code>gl.readPixels()</code> downloads the raw buffer. Depending on the
+packing mode chosen during kernel compilation, the final retrieval
+follows one of two paths:</p>
+<ol type="1">
+<li><strong>Multiplexed Readout:</strong> If four scalars were stored
+per pixel in a 32-bit float texture, <code>gl.readPixels()</code> reads
+directly into a <code>Float32Array</code>. Because the RGBA channels
+correspond sequentially to array indices, the flat memory representation
+matches standard JavaScript array ordering without additional
+transformations.</li>
+<li><strong>Decoded Byte Reconstruction:</strong> If 8-bit fallback
+packing was used, <code>gl.readPixels()</code> populates a
+<code>Uint8Array</code>. gpu.js then runs a decoding pass (often via a
+typed array buffer view) using
+<code>Float32Array(uint8Array.buffer)</code> to reassemble the four
+bytes of each pixel into a valid IEEE-754 single-precision float.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

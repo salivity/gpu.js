@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Can You Use Bitwise Operations in GPU.js? - gpu.js</title>
+    <meta name="description" content="GPU.js does not natively support JavaScript bitwise operations such as bit-shifting (<<, >>), bitwise AND (&), OR (|), or XOR (^) inside kernel functions. Because GPU.js transpiles JavaScript code into GLSL shaders optimized for 32-bit floating-point ari">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/can-you-use-bitwise-operations-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Can You Use Bitwise Operations in GPU.js? - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/can-you-use-bitwise-operations-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js does not natively support JavaScript bitwise operations such as bit-shifting (<<, >>), bitwise AND (&), OR (|), or XOR (^) inside kernel functions. Because GPU.js transpiles JavaScript code into GLSL shaders optimized for 32-bit floating-point ari" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="can-you-use-bitwise-operations-in-gpujs">Can You Use Bitwise
+Operations in GPU.js?</h1>
+<p>GPU.js does not natively support JavaScript bitwise operations such
+as bit-shifting (<code>&lt;&lt;</code>, <code>&gt;&gt;</code>), bitwise
+AND (<code>&amp;</code>), OR (<code>|</code>), or XOR (<code>^</code>)
+inside kernel functions. Because GPU.js transpiles JavaScript code into
+GLSL shaders optimized for 32-bit floating-point arithmetic and
+maintains backward compatibility with WebGL 1.0, direct integer bitwise
+operators are unavailable. However, developers requiring bitwise logic
+can either emulate these operations using mathematical equivalents or
+transition to modern WebGPU solutions for native integer
+manipulation.</p>
+<h3 id="why-gpujs-lacks-direct-bitwise-support">Why GPU.js Lacks Direct
+Bitwise Support</h3>
+<p>The limitation stems from the underlying graphics APIs and data
+typing GPU.js relies upon:</p>
+<ol type="1">
+<li><strong>WebGL 1.0 Limitations</strong>: GPU.js was originally
+architected around WebGL 1.0 (GLSL ES 1.00) to ensure wide cross-browser
+compatibility. WebGL 1.0 lacks native support for integer bitwise
+operators.</li>
+<li><strong>Floating-Point Representation</strong>: Inside standard
+GPU.js kernels, numerical values are treated as single-precision 32-bit
+floating-point numbers (<code>float</code>) rather than integers
+(<code>int</code> or <code>uint</code>). In GLSL, bitwise operators
+cannot be applied directly to floating-point types.</li>
+</ol>
+<p>Attempting to run code containing operators like
+<code>a &amp; b</code> or <code>a &lt;&lt; 2</code> inside a GPU.js
+kernel will result in transpilation errors or unexpected compilation
+failures.</p>
+<h3 id="emulating-bitwise-operations-mathematically">Emulating Bitwise
+Operations Mathematically</h3>
+<p>If your algorithms require bitwise behavior, you can approximate
+common operations using standard arithmetic:</p>
+<h4 id="1-bit-shifting-via-multiplication-and-division">1. Bit-Shifting
+via Multiplication and Division</h4>
+<p>Bit-shifting operates by powers of two, which can be replicated with
+multiplication, division, and truncation:</p>
+<ul>
+<li><p><strong>Left Shift (<code>x &lt;&lt; n</code>)</strong>:
+Equivalent to multiplying by <span
+class="math inline">\(2^n\)</span>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">leftShift</span>(x<span class="op">,</span> n) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> x <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(<span class="dv">2</span><span class="op">,</span> n)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div></li>
+<li><p><strong>Right Shift (<code>x &gt;&gt; n</code>)</strong>:
+Equivalent to dividing by <span class="math inline">\(2^n\)</span> and
+rounding down.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">rightShift</span>(x<span class="op">,</span> n) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(x <span class="op">/</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(<span class="dv">2</span><span class="op">,</span> n))<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div></li>
+</ul>
+<h4 id="2-bit-extraction-and-masking">2. Bit Extraction and Masking</h4>
+<p>To check or extract a specific bit, combine division, floor, and the
+modulo operator:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getBit</span>(value<span class="op">,</span> bitIndex) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(value <span class="op">/</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(<span class="dv">2</span><span class="op">,</span> bitIndex)) <span class="op">%</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>By extracting bits iteratively, you can reconstruct complex bitwise
+operations such as bitwise AND, OR, or XOR inside a loop, though this
+approach introduces computational overhead.</p>
+<h3 id="performance-considerations-and-alternatives">Performance
+Considerations and Alternatives</h3>
+<p>While arithmetic emulation works for basic requirements, it is
+inefficient for bit-heavy applications like cryptography, compression,
+or hashing.</p>
+<p>For workloads that strictly require native bitwise manipulation on
+the GPU:</p>
+<ul>
+<li><strong>Raw WebGL 2.0</strong>: Direct GLSL ES 3.00 shaders support
+<code>int</code>, <code>uint</code>, and standard bitwise operators
+natively.</li>
+<li><strong>WebGPU</strong>: The modern successor to WebGL provides
+first-class compute shader support (WGSL) with fully functional 32-bit
+signed and unsigned integer bitwise operations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

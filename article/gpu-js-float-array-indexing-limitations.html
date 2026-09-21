@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Float Array Indexing Limitations - gpu.js</title>
+    <meta name="description" content="Using floating-point calculations to determine array indices in GPU.js introduces critical constraints rooted in WebGL shader compilation, hardware precision drift, and data type handling. Because GPU.js transpiles JavaScript kernels into GLSL (OpenGL Sh">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-float-array-indexing-limitations">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Float Array Indexing Limitations - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-float-array-indexing-limitations" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Using floating-point calculations to determine array indices in GPU.js introduces critical constraints rooted in WebGL shader compilation, hardware precision drift, and data type handling. Because GPU.js transpiles JavaScript kernels into GLSL (OpenGL Sh" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-float-array-indexing-limitations">GPU.js Float Array
+Indexing Limitations</h1>
+<p>Using floating-point calculations to determine array indices in
+GPU.js introduces critical constraints rooted in WebGL shader
+compilation, hardware precision drift, and data type handling. Because
+GPU.js transpiles JavaScript kernels into GLSL (OpenGL Shading
+Language), indexing an array or accessing data structures with
+calculated floats requires strict conversion, careful error mitigation,
+and an awareness of internal texture lookup limitations.</p>
+<h3 id="strict-glsl-type-incompatibility">Strict GLSL Type
+Incompatibility</h3>
+<p>GLSL enforces strict type checking. In standard JavaScript, array
+indices can often be coerced or evaluated loosely, but WebGL requires an
+explicit integer (<code>int</code>) to index an array or access a
+buffer. If an index is derived from a floating-point calculation without
+an explicit integer conversion, the GPU.js compiler will either throw a
+compilation error during kernel creation or fail to generate valid GLSL
+code. Any computed floating-point variable must be explicitly converted
+using mathematical operations like <code>Math.floor()</code>,
+<code>Math.ceil()</code>, or <code>Math.round()</code> within the
+kernel.</p>
+<h3 id="truncation-and-off-by-one-errors">Truncation and Off-by-One
+Errors</h3>
+<p>Floating-point arithmetic on the GPU adheres to hardware-dependent
+IEEE 754 precision standards (often limited to 32-bit or even 16-bit
+half-precision depending on target hardware and WebGL settings).
+Non-integer math routinely produces values with small precision
+discrepancies:</p>
+<ul>
+<li>A computed index intended to be <code>3.0</code> may evaluate to
+<code>2.9999998</code>.</li>
+<li>Applying truncation or functions like <code>Math.floor()</code> will
+drop the value to <code>2</code> instead of <code>3</code>.</li>
+<li>This causes silent off-by-one indexing errors that propagate
+inaccurate outputs throughout the dataset.</li>
+</ul>
+<p>To avoid this behavior, indices must include a small epsilon
+adjustment (e.g., <code>Math.floor(calculatedFloat + 0.00001)</code>) or
+use <code>Math.round()</code> where appropriate.</p>
+<h3 id="texture-lookup-and-pixel-center-offset">Texture Lookup and
+Pixel-Center Offset</h3>
+<p>GPU.js internally represents large arrays and matrices as 2D WebGL
+textures. When an index calculation targets a coordinate within these
+internal data structures:</p>
+<ul>
+<li>Texture lookups access discrete texels arranged in a grid.</li>
+<li>Floating-point coordinates sample the data grid based on
+nearest-neighbor sampling.</li>
+<li>If a float coordinate lands on or near a texel boundary (such as
+<code>x.0</code>), floating-point drift can arbitrarily snap the read
+operation to the left or right texel.</li>
+<li>Proper texture addressing often requires shifting to the texel
+center (adding <code>0.5 / dimension</code>) to guarantee the correct
+texel is read, which standard integer indices handle automatically
+behind the scenes.</li>
+</ul>
+<h3 id="out-of-bounds-clamping-and-invalidation">Out-of-Bounds Clamping
+and Invalidation</h3>
+<p>When an index is calculated dynamically through floating-point
+operations, boundary checks become less predictable:</p>
+<ul>
+<li>Slight negative values (e.g., <code>-0.000001</code>) resulting from
+rounding errors will be cast or floored into invalid array
+positions.</li>
+<li>Unlike standard JavaScript, which returns <code>undefined</code> for
+out-of-bounds indices, GPU kernels reading out-of-bounds memory from
+underlying texture buffers typically return <code>0</code>, the clamped
+edge value, or completely unpredictable data depending on the WebGL
+environment and clamping configuration.</li>
+</ul>
+<h3 id="best-practices-for-mitigation">Best Practices for
+Mitigation</h3>
+<p>To safely index arrays via derived values in GPU.js:</p>
+<ol type="1">
+<li><strong>Rely on native thread IDs:</strong> Prefer
+<code>this.thread.x</code>, <code>this.thread.y</code>, or
+<code>this.thread.z</code>, which are guaranteed integers.</li>
+<li><strong>Normalize before casting:</strong> If calculating offsets
+via floats, apply safe rounding functions (<code>Math.round()</code>
+rather than raw truncation).</li>
+<li><strong>Clamp boundary values:</strong> Explicitly clamp the
+resulting integer between <code>0</code> and <code>length - 1</code> to
+prevent hardware texture out-of-bounds faults.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

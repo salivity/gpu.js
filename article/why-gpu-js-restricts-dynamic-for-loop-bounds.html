@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why gpu.js Restricts Dynamic For-Loop Bounds - gpu.js</title>
+    <meta name="description" content="Dynamic for-loop bounds with non-constant limits are restricted in certain gpu.js configurations because the library transpiles JavaScript into WebGL shader language (GLSL), which is subject to strict graphics hardware and shader compilation constraints.">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-restricts-dynamic-for-loop-bounds">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why gpu.js Restricts Dynamic For-Loop Bounds - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-restricts-dynamic-for-loop-bounds" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Dynamic for-loop bounds with non-constant limits are restricted in certain gpu.js configurations because the library transpiles JavaScript into WebGL shader language (GLSL), which is subject to strict graphics hardware and shader compilation constraints." />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-restricts-dynamic-for-loop-bounds">Why gpu.js
+Restricts Dynamic For-Loop Bounds</h1>
+<p>Dynamic for-loop bounds with non-constant limits are restricted in
+certain gpu.js configurations because the library transpiles JavaScript
+into WebGL shader language (GLSL), which is subject to strict graphics
+hardware and shader compilation constraints. In older target
+environments such as WebGL 1.0, the underlying GLSL specification
+explicitly prohibits non-constant loop bounds to guarantee loop
+termination and enable static optimization. Understanding why this
+restriction exists requires looking at shader compilation standards, GPU
+hardware architecture, and compiler loop unrolling.</p>
+<h3 id="webgl-10-specification-and-glsl-es-100-limitations">WebGL 1.0
+Specification and GLSL ES 1.00 Limitations</h3>
+<p>When gpu.js compiles a kernel function, it parses the JavaScript code
+and converts it into GLSL code. By default or in backward-compatible
+fallbacks, gpu.js targets WebGL 1.0, which is built upon the GLSL ES
+1.00 specification.</p>
+<p>Appendix A of the GLSL ES 1.00 specification enforces strict
+syntactic limitations on loop structures. Specifically, it mandates
+that:</p>
+<ul>
+<li>The loop condition must compare the loop index against an integer or
+floating-point constant expression.</li>
+<li>The loop increment must be a constant expression.</li>
+</ul>
+<p>Because non-constant variables—such as dynamic parameters, varying
+values, or dependent calculations—do not resolve to compile-time
+constants, the underlying WebGL shader compiler will reject the shader
+and fail to compile the pipeline.</p>
+<h3 id="loop-unrolling-and-static-analysis">Loop Unrolling and Static
+Analysis</h3>
+<p>GPU drivers rely heavily on loop unrolling to maximize execution
+speed. During compilation, the shader compiler replaces a loop with
+repeated sequences of the loop body. This removes the branch
+instructions, minimizes pipeline stalls, and allows instruction-level
+parallelism.</p>
+<p>For the compiler to unroll a loop or determine exact register
+allocation, the iteration count must be known before execution begins.
+When a loop limit is dynamic and varies per thread or per draw call, the
+compiler cannot calculate the static unroll factor or optimize register
+pressure, leading to unpredictable shader execution times and driver
+compilation failures.</p>
+<h3 id="simd-architecture-and-branch-divergence">SIMD Architecture and
+Branch Divergence</h3>
+<p>GPUs process data using Single Instruction, Multiple Threads (SIMT).
+Threads are grouped into fixed-size units, such as warps on NVIDIA
+hardware or wavefronts on AMD hardware, which execute the exact same
+instruction at any given clock cycle.</p>
+<p>If a for-loop utilizes a non-constant bound that differs across
+individual threads (for example, depending on thread position or input
+array values), it causes branch divergence:</p>
+<ul>
+<li>Threads requiring fewer iterations must idle while threads with
+larger limits continue processing.</li>
+<li>The execution time of the entire warp becomes equivalent to the
+thread with the highest iteration count.</li>
+</ul>
+<p>To mitigate this massive performance penalty, older graphics APIs
+strictly disallowed non-uniform loop conditions.</p>
+<h3 id="overcoming-the-restriction">Overcoming the Restriction</h3>
+<p>Developers encountering dynamic loop bound errors in gpu.js can
+resolve them using a few specific techniques:</p>
+<ol type="1">
+<li><strong>Target WebGL 2:</strong> Modern implementations based on
+WebGL 2.0 (GLSL ES 3.00) lift many of the strict constant-bound
+restrictions found in WebGL 1.0, permitting dynamic evaluation of loop
+conditions.</li>
+<li><strong>Fixed Upper Bounds with Early Exits:</strong> Use a static,
+constant maximum limit for the loop, and terminate execution early using
+a dynamic condition inside the loop body:
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> MAX_LIMIT<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">&gt;=</span> dynamicLimit) <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Kernel computation</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div></li>
+<li><strong>Use Uniform Constants:</strong> If the bound is constant
+across all execution threads for a specific run, pass it as a uniform
+variable into a WebGL 2-backed kernel rather than calculating it
+per-pixel or per-thread.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

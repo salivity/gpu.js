@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Gabor Filter Banks Using gpu.js - gpu.js</title>
+    <meta name="description" content="Gabor filter banks are widely used in computer vision for texture feature extraction by capturing localized frequency and orientation data across an image. This article explores whether and how multiple Gabor filters across varying angles can be parallel">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-gabor-filter-banks-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel Gabor Filter Banks Using gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-gabor-filter-banks-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Gabor filter banks are widely used in computer vision for texture feature extraction by capturing localized frequency and orientation data across an image. This article explores whether and how multiple Gabor filters across varying angles can be parallel" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-gabor-filter-banks-using-gpujs">Parallel Gabor Filter
+Banks Using gpu.js</h1>
+<p>Gabor filter banks are widely used in computer vision for texture
+feature extraction by capturing localized frequency and orientation data
+across an image. This article explores whether and how multiple Gabor
+filters across varying angles can be parallelized using gpu.js, a
+JavaScript library that compiles code into WebGL shaders. By exploiting
+GPU architecture, developers can compute spatial convolutions across
+multiple orientations simultaneously, transforming computationally heavy
+texture extraction pipelines into high-performance, real-time web
+applications.</p>
+<h2 id="the-suitability-of-gabor-filtering-for-gpu-parallelization">The
+Suitability of Gabor Filtering for GPU Parallelization</h2>
+<p>Gabor filtering is inherently parallel. A standard 2D Gabor filter
+operates as a linear filter that modulates a sinusoidal plane wave with
+a Gaussian envelope. When applied across multiple orientations (<span
+class="math inline">\(\theta\)</span>) and frequencies (<span
+class="math inline">\(\lambda\)</span>), the filtering process involves
+convolving the input image with several discrete kernels.</p>
+<p>Each pixel’s response to a specific filter depends solely on the
+local neighborhood surrounding that pixel and is entirely independent of
+other pixels. Furthermore, each filter orientation is independent of the
+others. This satisfies the definition of an embarrassingly parallel
+workload:</p>
+<ul>
+<li><strong>Spatial Independence:</strong> Every output pixel <span
+class="math inline">\((x, y)\)</span> can be evaluated
+independently.</li>
+<li><strong>Filter Independence:</strong> Every angle <span
+class="math inline">\(\theta\)</span> can be evaluated without relying
+on the results of other orientations.</li>
+</ul>
+<p>Because gpu.js maps computational threads directly to GPU execution
+units via WebGL fragment shaders, it is exceptionally well-suited for
+this two-level parallelism.</p>
+<h2 id="structuring-the-parallel-pipeline-in-gpujs">Structuring the
+Parallel Pipeline in gpu.js</h2>
+<p>In traditional CPU implementations, filtering across multiple angles
+typically requires a nested loop: an outer loop iterating through each
+orientation and inner loops traversing the image rows and columns. In
+gpu.js, these loops can be collapsed into a single 3D compute
+kernel.</p>
+<h3 id="1-dimension-mapping">1. Dimension Mapping</h3>
+<p>By defining the output dimensions of the gpu.js kernel as a 3D array
+<code>[imageWidth, imageHeight, numberOfAngles]</code>, gpu.js maps the
+computation across a 3D thread space:</p>
+<ul>
+<li><code>this.thread.x</code> corresponds to the pixel's <span
+class="math inline">\(x\)</span>-coordinate.</li>
+<li><code>this.thread.y</code> corresponds to the pixel's <span
+class="math inline">\(y\)</span>-coordinate.</li>
+<li><code>this.thread.z</code> corresponds to the angle/filter
+index.</li>
+</ul>
+<h3 id="2-kernel-generation-vs-dynamic-mathematical-evaluation">2.
+Kernel Generation vs. Dynamic Mathematical Evaluation</h3>
+<p>There are two approaches to computing the filter responses inside
+gpu.js:</p>
+<ul>
+<li><strong>Precomputed Kernel Textures:</strong> Generate the 2D Gabor
+masks on the CPU, upload them to the GPU as arrays or textures, and
+perform a straightforward convolution using <code>this.thread.z</code>
+to sample from the corresponding kernel. This approach is optimal when
+using large filter sizes, as it minimizes mathematical evaluations per
+thread.</li>
+<li><strong>On-the-Fly Calculation:</strong> Directly calculate the
+Gabor equation within the shader function for each neighbor in the
+convolution window. Because modern GPUs excel at floating-point
+arithmetic (trigonometric functions like <code>sin</code> and
+<code>cos</code>), calculating the kernel mathematically on the fly
+avoids texture lookups, potentially reducing memory bandwidth
+bottlenecks.</li>
+</ul>
+<h2 id="implementation-architecture">Implementation Architecture</h2>
+<p>A basic multi-angle Gabor extractor in gpu.js follows this
+design:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernelRadius <span class="op">=</span> <span class="dv">4</span><span class="op">;</span> <span class="co">// 9x9 kernel</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernelSize <span class="op">=</span> kernelRadius <span class="op">*</span> <span class="dv">2</span> <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> orientations <span class="op">=</span> [<span class="dv">0</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">/</span> <span class="dv">4</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">/</span> <span class="dv">2</span><span class="op">,</span> (<span class="dv">3</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span>) <span class="op">/</span> <span class="dv">4</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> lambda <span class="op">=</span> <span class="fl">4.0</span><span class="op">;</span> <span class="co">// Wavelength</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sigma <span class="op">=</span> <span class="fl">2.0</span><span class="op">;</span>  <span class="co">// Gaussian envelope spread</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gamma <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span>  <span class="co">// Spatial aspect ratio</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gaborFilterBank <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(image<span class="op">,</span> angles<span class="op">,</span> lambda<span class="op">,</span> sigma<span class="op">,</span> gamma<span class="op">,</span> radius) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> angleIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> theta <span class="op">=</span> angles[angleIndex]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> ky <span class="op">=</span> <span class="op">-</span>radius<span class="op">;</span> ky <span class="op">&lt;=</span> radius<span class="op">;</span> ky<span class="op">++</span>) {</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> kx <span class="op">=</span> <span class="op">-</span>radius<span class="op">;</span> kx <span class="op">&lt;=</span> radius<span class="op">;</span> kx<span class="op">++</span>) {</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Coordinate rotation relative to orientation</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> xPrime <span class="op">=</span> kx <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(theta) <span class="op">+</span> ky <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(theta)<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> yPrime <span class="op">=</span> <span class="op">-</span>kx <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(theta) <span class="op">+</span> ky <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(theta)<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Gabor equation</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> gaussian <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>(xPrime <span class="op">*</span> xPrime <span class="op">+</span> gamma <span class="op">*</span> gamma <span class="op">*</span> yPrime <span class="op">*</span> yPrime) <span class="op">/</span> (<span class="fl">2.0</span> <span class="op">*</span> sigma <span class="op">*</span> sigma))<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> sinusoid <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>((<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">*</span> xPrime) <span class="op">/</span> lambda)<span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> weight <span class="op">=</span> gaussian <span class="op">*</span> sinusoid<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Sample image with boundary clamping</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> pixel <span class="op">=</span> image[y <span class="op">+</span> ky][x <span class="op">+</span> kx]<span class="op">;</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>            sum <span class="op">+=</span> pixel <span class="op">*</span> weight<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([imageWidth<span class="op">,</span> imageHeight<span class="op">,</span> orientations<span class="op">.</span><span class="at">length</span>])<span class="op">;</span></span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<p>While gpu.js provides significant acceleration, optimal throughput
+requires addressing key architectural constraints:</p>
+<ul>
+<li><strong>Memory Transfer Overhead:</strong> Moving high-resolution
+images between the CPU (RAM) and GPU (VRAM) introduces latency. To
+maximize efficiency, keep the input data on the GPU by chaining
+operations if further texture analysis or classification is
+required.</li>
+<li><strong>Kernel Size Limits:</strong> Convolution in the spatial
+domain scales quadratically (<span
+class="math inline">\(O(K^2)\)</span>) with the kernel dimension. For
+large Gabor kernels (e.g., sizes exceeding <span
+class="math inline">\(31 \times 31\)</span>), the spatial loop becomes
+costly. In such cases, frequency-domain multiplication via a
+GPU-accelerated Fast Fourier Transform (FFT) is preferred over direct
+spatial convolution.</li>
+<li><strong>Texture Format and Precision:</strong> By default, gpu.js
+utilizes 32-bit floating-point textures when supported by WebGL. Ensure
+that hardware precision extensions are available in the target
+environment to maintain numerical stability during feature
+extraction.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

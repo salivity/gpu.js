@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js: this.thread vs Texture Memory Lookups - gpu.js</title>
+    <meta name="description" content="In GPU.js, performance often hinges on how data is accessed inside a kernel. Reading values from this.thread provides virtually instantaneous access to thread-index registers generated directly by the GPU's hardware scheduler. In contrast, retrieving val">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-this-thread-vs-texture-memory-lookups">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js: this.thread vs Texture Memory Lookups - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-this-thread-vs-texture-memory-lookups" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In GPU.js, performance often hinges on how data is accessed inside a kernel. Reading values from this.thread provides virtually instantaneous access to thread-index registers generated directly by the GPU's hardware scheduler. In contrast, retrieving val" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-thisthread-vs-texture-memory-lookups">GPU.js: this.thread
+vs Texture Memory Lookups</h1>
+<p>In GPU.js, performance often hinges on how data is accessed inside a
+kernel. Reading values from <code>this.thread</code> provides virtually
+instantaneous access to thread-index registers generated directly by the
+GPU's hardware scheduler. In contrast, retrieving values from input
+textures or arrays requires memory transactions against the GPU's video
+memory (VRAM) via the texture cache. Understanding the architectural
+differences between register-based thread coordinates and texture memory
+lookups helps developers optimize kernel execution times and minimize
+memory bottlenecks.</p>
+<h3
+id="architectural-difference-registers-vs-texture-memory">Architectural
+Difference: Registers vs. Texture Memory</h3>
+<p><code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code> represent the current execution coordinates
+assigned to an individual invocation of the kernel. These values do not
+reside in memory; instead, the GPU assigns them directly into thread
+registers upon dispatch. Because registers represent the fastest storage
+tier on a GPU, accessing <code>this.thread</code> incurs zero memory
+latency and zero bandwidth consumption.</p>
+<p>Texture lookups occur whenever you read from an input array, matrix,
+or previously generated GPU.js texture (e.g.,
+<code>myArray[this.thread.y][this.thread.x]</code>). Under the hood,
+GPU.js converts standard JavaScript arrays into WebGL textures. Reading
+from these inputs requires the GPU to:</p>
+<ol type="1">
+<li>Translate array coordinates into normalized UV texture
+coordinates.</li>
+<li>Query the on-chip texture cache (L1/L2).</li>
+<li>Fall back to VRAM to fetch the data if a cache miss occurs.</li>
+</ol>
+<h3 id="latency-and-memory-bandwidth">Latency and Memory Bandwidth</h3>
+<ul>
+<li><strong>Latency:</strong> Register operations, such as reading
+<code>this.thread</code>, take 1 to 2 clock cycles. A texture lookup can
+take anywhere from a few cycles (if the data is already in the L1/L2
+texture cache) to several hundred clock cycles if the memory request has
+to travel all the way to global VRAM.</li>
+<li><strong>Bandwidth Consumption:</strong> Accessing
+<code>this.thread</code> consumes no memory bus bandwidth. Reading
+textures actively consumes GPU memory bandwidth. If multiple threads
+simultaneously request data scattered across different memory addresses,
+memory stalls occur, degrading performance.</li>
+</ul>
+<h3 id="spatial-locality-and-caching">Spatial Locality and Caching</h3>
+<p>GPUs process threads in groups called warps (Nvidia) or wavefronts
+(AMD). When neighboring threads in a warp access neighboring coordinates
+in a texture—such as thread <span class="math inline">\((x, y)\)</span>
+reading texture coordinate <span class="math inline">\((x,
+y)\)</span>—the hardware can fetch the required data in a single
+coalesced memory transaction. In this optimal scenario, the texture
+cache absorbs much of the latency.</p>
+<p>However, non-linear access patterns (such as reading rotated,
+transposed, or randomized texture indices) cause cache misses. In these
+cases, texture lookups become significantly slower than operations
+purely derived from <code>this.thread</code>.</p>
+<h3 id="when-to-use-each-approach">When to Use Each Approach</h3>
+<ul>
+<li><strong>Rely on <code>this.thread</code> for Procedural
+Workloads:</strong> If your kernel generates values through mathematical
+formulas, noise functions, coordinate mapping, or procedural geometry,
+calculate results entirely using <code>this.thread</code>. Generating
+values computationally is often orders of magnitude faster than storing
+and retrieving them from texture memory.</li>
+<li><strong>Use Texture Lookups for Data-Driven Workloads:</strong>
+Texture memory is mandatory when your algorithm requires preexisting
+data sets, such as image processing, neural network inference, or matrix
+multiplication.</li>
+</ul>
+<h3 id="optimization-takeaway">Optimization Takeaway</h3>
+<p>When designing GPU.js kernels, minimize texture lookups whenever data
+can be mathematically derived from <code>this.thread</code>. When
+texture reads are unavoidable, structure your indexing so that adjacent
+threads access adjacent elements in the input arrays to maximize cache
+hits and maintain high memory throughput.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

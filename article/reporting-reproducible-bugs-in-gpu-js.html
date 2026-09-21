@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporting Reproducible Bugs in gpu.js - gpu.js</title>
+    <meta name="description" content="Filing an effective bug report in the gpu.js repository ensures that maintainers can quickly diagnose, reproduce, and resolve issues related to GPU-accelerated JavaScript. Because gpu.js bridges high-level JavaScript code with low-level WebGL and WebGPU">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/reporting-reproducible-bugs-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Reporting Reproducible Bugs in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/reporting-reproducible-bugs-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Filing an effective bug report in the gpu.js repository ensures that maintainers can quickly diagnose, reproduce, and resolve issues related to GPU-accelerated JavaScript. Because gpu.js bridges high-level JavaScript code with low-level WebGL and WebGPU" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="reporting-reproducible-bugs-in-gpujs">Reporting Reproducible
+Bugs in gpu.js</h1>
+<p>Filing an effective bug report in the gpu.js repository ensures that
+maintainers can quickly diagnose, reproduce, and resolve issues related
+to GPU-accelerated JavaScript. Because gpu.js bridges high-level
+JavaScript code with low-level WebGL and WebGPU pipelines, bug reports
+require specific hardware details, isolated test cases, and execution
+logs. This guide outlines the essential practices developers must follow
+to submit high-quality, actionable bug reports to the gpu.js issue
+tracker.</p>
+<h3 id="1-search-for-existing-issues">1. Search for Existing Issues</h3>
+<p>Before opening a new ticket, search both open and closed issues as
+well as discussions in the repository. Many common errors—such as
+unsupported matrix operations, syntax limitations inside kernels, or
+known browser-specific WebGL quirks—have already been reported,
+resolved, or documented with workarounds. If a related issue exists,
+contribute additional reproduction details to that thread instead of
+creating a duplicate.</p>
+<h3 id="2-isolate-a-minimal-reproducible-example-mre">2. Isolate a
+Minimal, Reproducible Example (MRE)</h3>
+<p>Provide the smallest amount of code necessary to trigger the bug. Do
+not submit an entire application codebase or complex external
+dependencies.</p>
+<ul>
+<li>Extract only the problematic kernel and its immediate input
+data.</li>
+<li>Hardcode simple input arrays (such as <code>[1, 2, 3]</code>) rather
+than reading from network requests or large assets.</li>
+<li>Provide the example as a self-contained snippet in markdown code
+blocks, or host it on an interactive sandbox like JSFiddle, CodePen, or
+a minimal GitHub repository.</li>
+</ul>
+<h3 id="3-detail-hardware-and-environment-specifications">3. Detail
+Hardware and Environment Specifications</h3>
+<p>Because gpu.js relies heavily on hardware acceleration, behavior
+often varies across graphic cards, operating systems, and browser
+runtimes. Always include the following system details:</p>
+<ul>
+<li><strong>Operating System:</strong> Exact version and architecture
+(e.g., macOS Sonoma 14.4, Windows 11 64-bit, Ubuntu 22.04).</li>
+<li><strong>Runtime / Browser:</strong> Specific version of Node.js or
+browser (e.g., Node.js v20.11.0, Chrome 123.0.6312.86).</li>
+<li><strong>GPU Model and Driver:</strong> Specific graphics hardware
+(e.g., NVIDIA GeForce RTX 3080, Apple M2 Max, Intel Iris Xe) and driver
+versions.</li>
+<li><strong>gpu.js Version:</strong> The exact npm package or CDN
+version installed.</li>
+</ul>
+<h3 id="4-test-across-fallback-and-execution-modes">4. Test Across
+Fallback and Execution Modes</h3>
+<p>gpu.js supports multiple execution modes, including WebGL 2, WebGL 1,
+and a pure CPU fallback. Testing your kernel across these modes isolates
+whether the issue is a compiler parser error or a graphics pipeline
+failure. Specify in your report:</p>
+<ul>
+<li>Does the code fail under <code>{ mode: 'gpu' }</code>?</li>
+<li>Does it fail under <code>{ mode: 'cpu' }</code>?</li>
+<li>Does the error persist if forced into <code>{ mode: 'webgl' }</code>
+or <code>{ mode: 'webgl2' }</code>?</li>
+</ul>
+<h3 id="5-include-complete-logs-and-stack-traces">5. Include Complete
+Logs and Stack Traces</h3>
+<p>Vague descriptions like "the kernel crashes" make debugging
+impossible. Provide exact diagnostic output:</p>
+<ul>
+<li>Full JavaScript console error messages and stack traces.</li>
+<li>WebGL context warnings or GLSL compile errors logged to the
+developer console.</li>
+<li>Expected output values contrasted directly against the actual
+returned output values.</li>
+</ul>
+<h3 id="6-follow-the-repository-issue-template">6. Follow the Repository
+Issue Template</h3>
+<p>When opening a ticket, strictly follow the repository's provided
+markdown issue template. Fill in every requested section completely,
+format all code with appropriate markdown syntax highlighting, and avoid
+posting screenshots of text or code blocks.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

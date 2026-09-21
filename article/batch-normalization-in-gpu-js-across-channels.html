@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Batch Normalization in GPU.js Across Channels - gpu.js</title>
+    <meta name="description" content="Batch normalization stabilizes and accelerates deep neural network execution by standardizing intermediate activations across mini-batches and spatial dimensions. Implementing channel-wise batch normalization using GPU.js allows web-based applications to">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/batch-normalization-in-gpu-js-across-channels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Batch Normalization in GPU.js Across Channels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/batch-normalization-in-gpu-js-across-channels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Batch normalization stabilizes and accelerates deep neural network execution by standardizing intermediate activations across mini-batches and spatial dimensions. Implementing channel-wise batch normalization using GPU.js allows web-based applications to" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="batch-normalization-in-gpujs-across-channels">Batch
+Normalization in GPU.js Across Channels</h1>
+<p>Batch normalization stabilizes and accelerates deep neural network
+execution by standardizing intermediate activations across mini-batches
+and spatial dimensions. Implementing channel-wise batch normalization
+using GPU.js allows web-based applications to leverage WebGL shaders for
+high-throughput parallel processing of multi-dimensional tensors
+directly in the browser or Node.js. This guide details the mathematical
+formulation, kernel architecture, and step-by-step implementation
+required to execute channel-specific batch normalization using
+GPU.js.</p>
+<hr />
+<h3 id="mathematical-formulation">Mathematical Formulation</h3>
+<p>In convolutional neural networks, batch normalization is applied
+independently to each feature channel. Given an activation tensor
+formatted in 4D space as <span class="math inline">\((N, C, H,
+W)\)</span> or across 3D feature maps <span class="math inline">\((W, H,
+C)\)</span> for single-instance evaluation, the transformation
+standardizes each channel <span class="math inline">\(c\)</span>
+using:</p>
+<p><span class="math display">\[\hat{x}_{c} = \frac{x_{c} -
+\mu_c}{\sqrt{\sigma_c^2 + \epsilon}}\]</span></p>
+<p><span class="math display">\[y_{c} = \gamma_c \cdot \hat{x}_{c} +
+\beta_c\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(x_{c}\)</span> is the input activation
+value at channel <span class="math inline">\(c\)</span>.</li>
+<li><span class="math inline">\(\mu_c\)</span> is the mean calculated
+(or precomputed running mean) for channel <span
+class="math inline">\(c\)</span>.</li>
+<li><span class="math inline">\(\sigma_c^2\)</span> is the variance (or
+precomputed running variance) for channel <span
+class="math inline">\(c\)</span>.</li>
+<li><span class="math inline">\(\epsilon\)</span> (epsilon) is a tiny
+constant added to prevent division by zero (e.g., <span
+class="math inline">\(10^{-5}\)</span>).</li>
+<li><span class="math inline">\(\gamma_c\)</span> (gamma) is the
+learnable channel scaling factor.</li>
+<li><span class="math inline">\(\beta_c\)</span> (beta) is the learnable
+channel shifting factor.</li>
+</ul>
+<hr />
+<h3 id="kernel-architecture-in-gpujs">Kernel Architecture in GPU.js</h3>
+<p>GPU.js maps multi-dimensional output spaces directly to GPU shader
+execution threads. When processing a tensor shaped as
+<code>[Width, Height, Channels]</code>:</p>
+<ol type="1">
+<li>The output dimensions of the kernel are configured as
+<code>[width, height, channels]</code>.</li>
+<li>GPU.js provides access to current thread indices via
+<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code>.</li>
+<li>In this coordinate system, <code>this.thread.x</code> corresponds to
+the width index, <code>this.thread.y</code> to the height index, and
+<code>this.thread.z</code> to the channel index.</li>
+<li>Channel parameters (<code>gamma</code>, <code>beta</code>,
+<code>mean</code>, and <code>variance</code>) are passed as 1D arrays,
+indexed directly by <code>this.thread.z</code>.</li>
+</ol>
+<hr />
+<h3 id="step-by-step-implementation">Step-by-Step Implementation</h3>
+<h4 id="1-initialize-gpujs">1. Initialize GPU.js</h4>
+<p>Instantiate the GPU environment:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span></code></pre></div>
+<h4 id="2-construct-the-batch-normalization-kernel">2. Construct the
+Batch Normalization Kernel</h4>
+<p>Create a customized WebGL kernel capable of reading the 3D tensor
+alongside the 1D arrays of channel parameters:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createBatchNormKernel <span class="op">=</span> (width<span class="op">,</span> height<span class="op">,</span> channels) <span class="kw">=&gt;</span> {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">function</span> (input<span class="op">,</span> mean<span class="op">,</span> variance<span class="op">,</span> gamma<span class="op">,</span> beta<span class="op">,</span> epsilon) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> c <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> val <span class="op">=</span> input[c][y][x]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> m <span class="op">=</span> mean[c]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> v <span class="op">=</span> variance[c]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> g <span class="op">=</span> gamma[c]<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> b <span class="op">=</span> beta[c]<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Standardize and apply affine transformation</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> normalized <span class="op">=</span> (val <span class="op">-</span> m) <span class="op">/</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(v <span class="op">+</span> epsilon)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> (normalized <span class="op">*</span> g) <span class="op">+</span> b<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height<span class="op">,</span> channels])</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setPrecision</span>(<span class="st">&#39;single&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<h4 id="3-prepare-tensor-and-parameter-data">3. Prepare Tensor and
+Parameter Data</h4>
+<p>Input tensors must be formatted to match the coordinate structure
+defined by the kernel. For an activation volume with dimensions <span
+class="math inline">\(4 \times 4 \times 3\)</span>:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> channels <span class="op">=</span> <span class="dv">3</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> epsilon <span class="op">=</span> <span class="fl">1e-5</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Channel-specific parameters (size = channels)</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> mean <span class="op">=</span> [<span class="fl">0.5</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.2</span><span class="op">,</span> <span class="fl">1.1</span>]<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> variance <span class="op">=</span> [<span class="fl">0.25</span><span class="op">,</span> <span class="fl">0.81</span><span class="op">,</span> <span class="fl">0.04</span>]<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gamma <span class="op">=</span> [<span class="fl">1.0</span><span class="op">,</span> <span class="fl">0.5</span><span class="op">,</span> <span class="fl">2.0</span>]<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> beta <span class="op">=</span> [<span class="fl">0.0</span><span class="op">,</span> <span class="fl">0.1</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.5</span>]<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co">// Generate synthetic 3D input tensor: [channels][height][width]</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> inputTensor <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> c <span class="op">&lt;</span> channels<span class="op">;</span> c<span class="op">++</span>) {</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> channelPlane <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>      row<span class="op">.</span><span class="fu">push</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">2</span> <span class="op">-</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    channelPlane<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  inputTensor<span class="op">.</span><span class="fu">push</span>(channelPlane)<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="4-execute-the-kernel">4. Execute the Kernel</h4>
+<p>Instantiate and execute the compiled kernel using the parameters:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> batchNormKernel <span class="op">=</span> <span class="fu">createBatchNormKernel</span>(width<span class="op">,</span> height<span class="op">,</span> channels)<span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> outputTensor <span class="op">=</span> <span class="fu">batchNormKernel</span>(</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  inputTensor<span class="op">,</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  mean<span class="op">,</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  variance<span class="op">,</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  gamma<span class="op">,</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  beta<span class="op">,</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  epsilon</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(outputTensor)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="handling-4d-mini-batches">Handling 4D Mini-Batches</h3>
+<p>To extend this pattern to 4D tensors <span
+class="math inline">\((Batch, Channel, Height, Width)\)</span>, you can
+flatten the batch and channel dimensions or define a 3D kernel
+where:</p>
+<ul>
+<li><code>this.thread.x</code> = Width</li>
+<li><code>this.thread.y</code> = Height</li>
+<li><code>this.thread.z</code> = Flattened Index
+(<code>batchIndex * totalChannels + channelIndex</code>)</li>
+</ul>
+<p>Inside the kernel, retrieve the specific channel using modulo
+arithmetic:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> c <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span> <span class="op">%</span> totalChannels<span class="op">;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> m <span class="op">=</span> mean[c]<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> v <span class="op">=</span> variance[c]<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> g <span class="op">=</span> gamma[c]<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> b <span class="op">=</span> beta[c]<span class="op">;</span></span></code></pre></div>
+<p>This keeps memory access parallel while ensuring each feature map
+receives normalization parameters dedicated to its specific channel.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Graphical Mode Behavior in CPU Fallback - gpu.js</title>
+    <meta name="description" content="When gpu.js is forced to run in CPU fallback mode with graphical mode enabled, it shifts from hardware-accelerated WebGL fragment rendering to a software-based pixel rendering emulation. The library maintains API compatibility by outputting visual data d">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-graphical-mode-behavior-in-cpu-fallback">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Graphical Mode Behavior in CPU Fallback - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-graphical-mode-behavior-in-cpu-fallback" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When gpu.js is forced to run in CPU fallback mode with graphical mode enabled, it shifts from hardware-accelerated WebGL fragment rendering to a software-based pixel rendering emulation. The library maintains API compatibility by outputting visual data d" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-graphical-mode-behavior-in-cpu-fallback">GPU.js Graphical
+Mode Behavior in CPU Fallback</h1>
+<p>When gpu.js is forced to run in CPU fallback mode with graphical mode
+enabled, it shifts from hardware-accelerated WebGL fragment rendering to
+a software-based pixel rendering emulation. The library maintains API
+compatibility by outputting visual data directly to an HTML canvas
+element, but it substitutes GPU parallel processing with standard
+JavaScript loops and pixel buffer manipulation. While visual parity is
+largely preserved, the execution shifts entirely to the main CPU thread,
+resulting in severe performance drops.</p>
+<h3 id="canvas-management-and-context-adaptation">Canvas Management and
+Context Adaptation</h3>
+<p>Under standard operation, setting <code>.setGraphical(true)</code>
+configures gpu.js to output directly to a canvas using a WebGL or WebGL2
+context. When forced into CPU mode (<code>mode: 'cpu'</code>), WebGL is
+bypassed entirely.</p>
+<p>Instead, gpu.js utilizes a standard HTML5 2D canvas context
+(<code>CanvasRenderingContext2D</code>) in browser environments, or a
+simulated pixel buffer in headless environments. The internal kernel
+creates an <code>ImageData</code> object to match the specified kernel
+output dimensions.</p>
+<h3 id="color-mapping-and-pixel-buffer-emulation">Color Mapping and
+Pixel Buffer Emulation</h3>
+<p>In graphical mode, kernels use the
+<code>this.color(r, g, b, a)</code> method to assign pixel colors,
+accepting normalized floating-point values between <code>0</code> and
+<code>1</code>.</p>
+<p>In CPU fallback mode:</p>
+<ul>
+<li>The kernel function executes sequentially for every coordinate
+<code>(x, y)</code> in the defined output dimensions.</li>
+<li>When <code>this.color(r, g, b, a)</code> is invoked, the CPU runtime
+intercepts the values, multiplies each channel by <code>255</code>,
+clamps them to the <code>[0, 255]</code> range, and writes the 8-bit
+unsigned integers directly into the <code>ImageData.data</code>
+Uint8ClampedArray.</li>
+<li>Once all iterations finish, the array is pushed to the canvas via
+<code>ctx.putImageData()</code>.</li>
+</ul>
+<h3 id="performance-and-execution-impact">Performance and Execution
+Impact</h3>
+<p>The most noticeable consequence of CPU fallback in graphical mode is
+execution latency:</p>
+<ul>
+<li><strong>Single-Threaded Bottleneck:</strong> Unlike the GPU, which
+shades thousands of pixels simultaneously, the CPU evaluates pixels one
+by one across nested JavaScript loops.</li>
+<li><strong>UI Freezing:</strong> Because software rendering runs
+synchronously on the browser's main execution thread, large resolutions
+(e.g., 1080p) will block the event loop, causing user interface stutter
+or temporary browser lockups.</li>
+<li><strong>Frame Rate Degradation:</strong> Dynamic, real-time
+graphical outputs that easily achieve 60 FPS via WebGL often drop to low
+single-digit frame rates on the CPU.</li>
+</ul>
+<h3 id="visual-fidelity-and-precision-differences">Visual Fidelity and
+Precision Differences</h3>
+<p>For most rendering tasks, the visual output remains identical between
+GPU and CPU modes. However, minor discrepancies can appear:</p>
+<ul>
+<li><strong>Float Precision:</strong> WebGL shaders adhere to specific
+hardware-based 16-bit or 32-bit floating-point standards, whereas the
+CPU executes standard 64-bit JavaScript floats. Complex math can lead to
+subtle anti-aliasing or gradient variations.</li>
+<li><strong>Color Clamping:</strong> Built-in safeguards in the CPU
+fallback actively prevent out-of-bounds array operations, handling NaN
+or undefined values differently than a GPU shader pipeline would.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

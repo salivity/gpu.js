@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulating 3D Acoustic Waves Using gpu.js - gpu.js</title>
+    <meta name="description" content="Simulating acoustic sound wave dispersion across complex 3D rooms using gpu.js is technically feasible, but it is bound by significant performance and architectural constraints. By leveraging WebGL through gpu.js, developers can parallelize the mathemati">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulating-3-d-acoustic-waves-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulating 3D Acoustic Waves Using gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulating-3-d-acoustic-waves-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating acoustic sound wave dispersion across complex 3D rooms using gpu.js is technically feasible, but it is bound by significant performance and architectural constraints. By leveraging WebGL through gpu.js, developers can parallelize the mathemati" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulating-3d-acoustic-waves-using-gpujs">Simulating 3D Acoustic
+Waves Using gpu.js</h1>
+<p>Simulating acoustic sound wave dispersion across complex 3D rooms
+using gpu.js is technically feasible, but it is bound by significant
+performance and architectural constraints. By leveraging WebGL through
+gpu.js, developers can parallelize the mathematical updates required for
+wave propagation models like the Finite-Difference Time-Domain (FDTD)
+method directly in JavaScript. However, while simple or low-resolution
+spaces can be rendered effectively, high-frequency dispersion and
+intricate 3D architectural boundaries present steep memory and
+computational challenges in a browser-based environment.</p>
+<h3 id="the-mechanism-implementing-fdtd-with-gpujs">The Mechanism:
+Implementing FDTD with gpu.js</h3>
+<p>To simulate true acoustic wave dispersion—including phenomena like
+diffraction, interference, and reflection—the standard approach is the
+3D Finite-Difference Time-Domain (FDTD) method. FDTD discretizes both
+space and time, solving the acoustic wave equation across a 3D grid of
+nodes.</p>
+<p>Because gpu.js transpiles a subset of JavaScript into GLSL shaders,
+it can execute grid-wide matrix calculations in parallel. In a 3D FDTD
+model:</p>
+<ul>
+<li>The room volume is broken down into a 3D voxel grid.</li>
+<li>Each node stores acoustic pressure and particle velocity.</li>
+<li>gpu.js kernels update each cell’s state at time step <span
+class="math inline">\(t+1\)</span> based on its neighboring values at
+time step <span class="math inline">\(t\)</span>.</li>
+</ul>
+<p>By flattening 3D spatial coordinates into 2D textures or utilizing
+supported 3D array inputs, gpu.js handles the matrix math significantly
+faster than standard JavaScript loops.</p>
+<h3 id="challenges-with-complex-3d-geometries">Challenges with Complex
+3D Geometries</h3>
+<p>While empty rectangular rooms are straightforward to compute,
+real-world rooms introduce complexities that push gpu.js to its
+limits:</p>
+<ol type="1">
+<li><p><strong>Boundary Conditions and Voxelization:</strong> Realistic
+simulation requires defining absorbent materials, non-parallel walls,
+furniture, and apertures. Non-planar surfaces must be voxelized into
+stair-stepped cells, which can cause artificial scattering unless
+smoothed with complex impedance boundary conditions. Encoding these
+conditional rules within gpu.js kernels increases shader branching,
+which degrades GPU parallel processing performance.</p></li>
+<li><p><strong>Memory Scaling (<span
+class="math inline">\(O(N^3)\)</span>):</strong> Acoustic accuracy
+requires at least 6 to 10 spatial nodes per wavelength to prevent
+numerical dispersion. High-frequency sounds have short wavelengths
+(e.g., 1 kHz corresponds to ~34 cm, while 10 kHz is ~3.4 cm). Simulating
+a medium-sized room (e.g., <span class="math inline">\(10\text{m} \times
+10\text{m} \times 3\text{m}\)</span>) at higher frequencies requires
+tens to hundreds of millions of cells. Storing multiple floating-point
+state buffers for this volume easily exceeds WebGL texture dimensions
+and browser memory limits.</p></li>
+<li><p><strong>Compute Constraints vs. Modern WebGPU:</strong> gpu.js
+relies on WebGL fragment shaders, which lack compute shader features
+such as shared workgroup memory and atomic operations. Calculating 3D
+neighborhoods (stencil operations) requires redundant memory lookups
+from global texture memory, reducing efficiency compared to modern
+compute APIs.</p></li>
+</ol>
+<h3 id="alternative-approaches-geometric-acoustics">Alternative
+Approaches: Geometric Acoustics</h3>
+<p>If the goal is to evaluate room impulse responses (RIR) or sound
+localization rather than wave-level physical phenomena like phase
+cancellation and diffraction, geometric acoustics offers a more viable
+alternative within gpu.js.</p>
+<p>Techniques like ray tracing, beam tracing, or acoustic radiosity
+approximate sound as particles or rays. gpu.js can trace thousands of
+sound rays in parallel, calculating wall intersections, absorption
+coefficients, and arrival times at a listener's position. This approach
+handles complex 3D meshes much better than volumetric grids and requires
+significantly less memory.</p>
+<h3 id="practical-verdict">Practical Verdict</h3>
+<p>gpu.js is capable of simulating 3D acoustic wave dispersion for:</p>
+<ul>
+<li>Low-frequency waves (infrasound to roughly 500 Hz).</li>
+<li>Small, simplified spatial enclosures.</li>
+<li>Educational demonstrations and proof-of-concept visualizers.</li>
+</ul>
+<p>For full-spectrum, production-grade acoustic analysis of complex
+architectural designs, gpu.js is generally outmatched by native CUDA/C++
+engines or newer web standards like WebGPU, which offer the compute
+shaders and memory bandwidth required for high-resolution volumetric
+acoustics.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

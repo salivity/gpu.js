@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Empty Array Compile Error Explained - gpu.js</title>
+    <meta name="description" content="Passing an empty array into a GPU.js kernel causes a compilation and execution failure because the underlying compiler cannot infer data types or allocate valid WebGL texture dimensions from zero-length inputs. This article details the specific errors ge">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-empty-array-compile-error-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Empty Array Compile Error Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-empty-array-compile-error-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Passing an empty array into a GPU.js kernel causes a compilation and execution failure because the underlying compiler cannot infer data types or allocate valid WebGL texture dimensions from zero-length inputs. This article details the specific errors ge" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-empty-array-compile-error-explained">GPU.js Empty Array
+Compile Error Explained</h1>
+<p>Passing an empty array into a GPU.js kernel causes a compilation and
+execution failure because the underlying compiler cannot infer data
+types or allocate valid WebGL texture dimensions from zero-length
+inputs. This article details the specific errors generated when an empty
+array is provided to a compiled GPU.js kernel, explains why the compiler
+fails at the architectural level, and outlines how to handle empty data
+inputs safely.</p>
+<h2 id="the-generated-error">The Generated Error</h2>
+<p>When passing an empty array (<code>[]</code>) into a GPU.js kernel,
+GPU.js throws an error during argument parsing and shader compilation.
+The exact error typically surfaces as:</p>
+<pre class="text"><code>Error: Argument array cannot be empty</code></pre>
+<p>or, depending on the GPU.js version and internal pipeline stage:</p>
+<pre class="text"><code>Error: Cannot compile kernel: Unknown argument type</code></pre>
+<p>If the kernel was pre-compiled and attempts to allocate a WebGL
+texture directly for the input argument, the process can also fail at
+the WebGL texture initialization layer with:</p>
+<pre class="text"><code>Error: Texture width and height must be greater than zero</code></pre>
+<h2 id="why-the-compile-error-occurs">Why the Compile Error Occurs</h2>
+<p>GPU.js relies on Just-In-Time (JIT) shader compilation and strict
+WebGL pipeline specifications. When an argument is supplied to a kernel,
+several validation steps occur:</p>
+<ol type="1">
+<li><strong>Type and Dimensionality Inference:</strong> GPU.js inspects
+the elements inside an array (starting at index <code>0</code>) to
+determine whether the argument is a 1D, 2D, or 3D array, as well as the
+primitive data type (integers, floats, or vectors). An empty array has
+no index <code>0</code>, making it impossible for the type reflection
+system to determine the GLSL variable type.</li>
+<li><strong>Texture Memory Allocation:</strong> In WebGL mode, GPU.js
+packages array arguments into textures to stream data onto the graphics
+hardware. A zero-length array evaluates to a dimension of zero, which
+violates WebGL texture constraints requiring positive dimensions
+(<code>width &gt; 0</code> and <code>height &gt; 0</code>).</li>
+<li><strong>GLSL Uniform Declarations:</strong> Because the compiler
+cannot establish the data shape, it cannot generate the corresponding
+uniform declarations or texture samplers in the resulting GLSL fragment
+shader source code, immediately terminating compilation.</li>
+</ol>
+<h2 id="how-to-resolve-the-error">How to Resolve the Error</h2>
+<p>Because GPU kernels cannot process empty buffers, input handling must
+be managed on the CPU before invoking the kernel:</p>
+<ul>
+<li><strong>Short-Circuit Empty Inputs:</strong> Check array lengths
+prior to kernel invocation. If an array is empty, bypass the kernel call
+entirely and return an empty array or default value immediately via
+standard JavaScript.</li>
+<li><strong>Use Padding/Placeholders:</strong> If the kernel must run
+unconditionally, provide a single-element placeholder array (e.g.,
+<code>[0]</code>) and pass a separate uniform variable representing the
+actual active element count (<code>0</code>) to prevent out-of-bounds
+calculations inside the kernel loop.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

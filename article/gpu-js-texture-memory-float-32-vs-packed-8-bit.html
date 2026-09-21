@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Texture Memory: Float32 vs Packed 8-Bit - gpu.js</title>
+    <meta name="description" content="Understanding texture memory allocation in GPU.js is critical for optimizing WebGL kernel performance and managing GPU VRAM usage. When computing with numerical data, GPU.js can either output data to unpacked 32-bit floating-point textures or encode (pac">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-texture-memory-float-32-vs-packed-8-bit">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Texture Memory: Float32 vs Packed 8-Bit - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-texture-memory-float-32-vs-packed-8-bit" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Understanding texture memory allocation in GPU.js is critical for optimizing WebGL kernel performance and managing GPU VRAM usage. When computing with numerical data, GPU.js can either output data to unpacked 32-bit floating-point textures or encode (pac" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-texture-memory-float32-vs-packed-8-bit">GPU.js Texture
+Memory: Float32 vs Packed 8-Bit</h1>
+<p>Understanding texture memory allocation in GPU.js is critical for
+optimizing WebGL kernel performance and managing GPU VRAM usage. When
+computing with numerical data, GPU.js can either output data to unpacked
+32-bit floating-point textures or encode (pack) those values into
+standard 8-bit unsigned byte textures. In standard WebGL 1
+configurations, maintaining unpacked Float32 textures typically incurs a
+4x (400%) memory overhead compared to packed 8-bit textures,
+significantly impacting memory consumption and memory bandwidth.</p>
+<h3 id="the-underlying-texture-formats">The Underlying Texture
+Formats</h3>
+<p>GPU.js relies on WebGL textures as its primary mechanism for passing
+data to and from the GPU. The representation of individual elements in
+VRAM differs depending on the packing configuration:</p>
+<ul>
+<li><strong>Packed 8-bit Textures (<code>gl.RGBA</code>,
+<code>gl.UNSIGNED_BYTE</code>):</strong> GPU.js encodes a single 32-bit
+IEEE 754 floating-point number across the red, green, blue, and alpha
+channels of a single pixel. Each channel holds an 8-bit unsigned byte.
+<ul>
+<li><strong>Memory Footprint:</strong> 4 channels × 1 byte = <strong>4
+bytes (32 bits) per scalar value</strong>.</li>
+</ul></li>
+<li><strong>Unpacked Float32 Textures (<code>gl.RGBA</code>,
+<code>gl.FLOAT</code>):</strong> In WebGL 1 environments, rendering
+directly to a floating-point target via the
+<code>OES_texture_float</code> extension generally requires an RGBA
+framebuffer. Because single-channel float render targets
+(<code>gl.LUMINANCE</code> or <code>gl.ALPHA</code>) are either
+unsupported or read-only on many drivers, GPU.js must allocate an RGBA
+texture where each channel is a full 32-bit float.
+<ul>
+<li><strong>Memory Footprint:</strong> 4 channels × 4 bytes = <strong>16
+bytes (128 bits) per texel</strong>. Even if only one float is
+calculated per element, the driver allocates the entire 4-component
+vector.</li>
+</ul></li>
+</ul>
+<h3 id="direct-memory-overhead-comparison">Direct Memory Overhead
+Comparison</h3>
+<p>When processing an array of <span class="math inline">\(N\)</span>
+float values:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Metric</th>
+<th style="text-align: left;">Packed 8-bit
+(<code>UNSIGNED_BYTE</code>)</th>
+<th style="text-align: left;">Unpacked Float32 (WebGL 1
+<code>FLOAT</code>)</th>
+<th style="text-align: left;">WebGL 2 Unpacked (<code>R32F</code>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Bytes per Element</strong></td>
+<td style="text-align: left;">4 bytes</td>
+<td style="text-align: left;">16 bytes</td>
+<td style="text-align: left;">4 bytes</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>VRAM for 1 Million
+Floats</strong></td>
+<td style="text-align: left;">~4 MB</td>
+<td style="text-align: left;">~16 MB</td>
+<td style="text-align: left;">~4 MB</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Relative VRAM
+Overhead</strong></td>
+<td style="text-align: left;">Baseline (1x)</td>
+<td style="text-align: left;"><strong>4x (300% increase)</strong></td>
+<td style="text-align: left;">1x (parity)</td>
+</tr>
+</tbody>
+</table>
+<p>In modern browsers running a WebGL 2 context, GPU.js can leverage
+<code>gl.R32F</code> (single-channel red float textures), bringing the
+unpacked memory footprint down to 4 bytes per scalar float. However,
+fallback conditions to WebGL 1—common on mobile hardware or restrictive
+environments—instantly trigger the 16-byte-per-element RGBA
+allocation.</p>
+<h3 id="performance-and-bandwidth-trade-offs">Performance and Bandwidth
+Trade-offs</h3>
+<p>The 4x memory overhead of unpacked Float32 textures introduces key
+hardware performance implications:</p>
+<ol type="1">
+<li><strong>Memory Bandwidth Saturation:</strong> A 4x increase in
+texture size requires four times more data to be pushed across the
+memory bus during texture read, write, and copy operations. For
+bandwidth-bound kernels, this overhead often negates the computational
+advantage of working directly with raw floats.</li>
+<li><strong>GPU Cache Eviction:</strong> Larger texels consume L1 and L2
+texture caches significantly faster. Packed textures allow four times as
+many scalar values to fit into the same cache line, resulting in higher
+cache hit rates during neighboring texture lookups.</li>
+<li><strong>ALU vs. Memory Bottlenecks:</strong> Packed textures require
+additional arithmetic operations (bitwise manipulation and division)
+within the fragment shader to encode and decode IEEE 754 components into
+<code>[0.0, 1.0]</code> byte ranges. Unpacked Float32 textures bypass
+these ALU cycles entirely, making unpacked textures faster only when the
+kernel is heavily compute-bound rather than memory-bandwidth-bound.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

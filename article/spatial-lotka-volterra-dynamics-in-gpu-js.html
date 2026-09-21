@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spatial Lotka-Volterra Dynamics in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to model continuous spatial Lotka-Volterra predator-prey dynamics using gpu.js, a JavaScript library that compiles code to run on WebGL-enabled GPUs. It breaks down the mathematical representation of reaction-diffusion equations">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/spatial-lotka-volterra-dynamics-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Spatial Lotka-Volterra Dynamics in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/spatial-lotka-volterra-dynamics-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to model continuous spatial Lotka-Volterra predator-prey dynamics using gpu.js, a JavaScript library that compiles code to run on WebGL-enabled GPUs. It breaks down the mathematical representation of reaction-diffusion equations" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="spatial-lotka-volterra-dynamics-in-gpujs">Spatial Lotka-Volterra
+Dynamics in gpu.js</h1>
+<p>This article explains how to model continuous spatial Lotka-Volterra
+predator-prey dynamics using gpu.js, a JavaScript library that compiles
+code to run on WebGL-enabled GPUs. It breaks down the mathematical
+representation of reaction-diffusion equations, the mechanics of mapping
+grid cells to GPU threads, implementation details such as discrete
+Laplacians and ping-pong buffering, and practical constraints regarding
+numerical stability in browser-based parallel computing.</p>
+<h2 id="the-mathematical-foundation">The Mathematical Foundation</h2>
+<p>Standard Lotka-Volterra models define temporal interactions between
+predators and prey using ordinary differential equations (ODEs). To
+expand this model across continuous space, it must be converted into a
+reaction-diffusion partial differential equation (PDE) system:</p>
+<p><span class="math display">\[\frac{\partial u}{\partial t} = D_u
+\nabla^2 u + \alpha u - \beta u v\]</span> <span
+class="math display">\[\frac{\partial v}{\partial t} = D_v \nabla^2 v +
+\delta u v - \gamma v\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(u(x, y, t)\)</span> is prey density, and
+<span class="math inline">\(v(x, y, t)\)</span> is predator
+density.</li>
+<li><span class="math inline">\(D_u\)</span> and <span
+class="math inline">\(D_v\)</span> are the spatial diffusion
+coefficients.</li>
+<li><span class="math inline">\(\nabla^2\)</span> is the Laplace
+operator representing spatial diffusion.</li>
+<li><span class="math inline">\(\alpha, \beta, \delta,\)</span> and
+<span class="math inline">\(\gamma\)</span> denote natural prey growth,
+predation rate, predator reproduction efficiency, and predator
+mortality, respectively.</li>
+</ul>
+<p>When modeled on a continuous grid, the spatial domain is discretized
+into a 2D mesh, and spatial derivatives are computed using finite
+difference methods.</p>
+<h2 id="how-gpujs-executes-grid-based-simulations">How gpu.js Executes
+Grid-Based Simulations</h2>
+<p>gpu.js translates standard JavaScript functions into WebGL fragment
+shaders, executing operations simultaneously across thousands of GPU
+cores.</p>
+<p>Because ecological reaction-diffusion models require localized,
+independent calculations for every point in space, they map directly to
+the Single Instruction, Multiple Threads (SIMT) architecture of graphics
+hardware. Each thread represents a discrete grid coordinate <span
+class="math inline">\((x, y)\)</span>, computing local interactions and
+exchanging density data with immediate neighbors.</p>
+<h2 id="implementation-architecture">Implementation Architecture</h2>
+<h3 id="1-grid-discretization-and-state-representation">1. Grid
+Discretization and State Representation</h3>
+<p>To track two populations (<span class="math inline">\(u\)</span> and
+<span class="math inline">\(v\)</span>), the spatial domain is
+maintained as 2D textures or arrays. Because gpu.js handles
+multidimensional outputs, the state can be stored as distinct
+floating-point arrays or mapped across color channels (e.g., prey in the
+Red channel, predators in the Green channel).</p>
+<h3 id="2-spatial-diffusion-via-discrete-laplacian">2. Spatial Diffusion
+via Discrete Laplacian</h3>
+<p>Diffusion requires calculating the flow of organisms into and out of
+adjacent cells. In gpu.js, this is achieved through a 2D discrete
+convolution stencil (such as a 5-point stencil):</p>
+<p><span class="math display">\[\nabla^2 u \approx \frac{u_{x+1,y} +
+u_{x-1,y} + u_{x,y+1} + u_{x,y-1} - 4u_{x,y}}{\Delta x^2}\]</span></p>
+<p>Within the gpu.js kernel, threads sample these adjacent coordinates
+using thread-indexed lookups: <code>this.thread.x</code> and
+<code>this.thread.y</code>.</p>
+<h3 id="3-numerical-integration-step">3. Numerical Integration Step</h3>
+<p>Each iteration represents a time increment (<span
+class="math inline">\(\Delta t\)</span>). The kernel calculates:</p>
+<ol type="1">
+<li>The discrete Laplacian for both species.</li>
+<li>The reaction kinetics (predation and growth rates).</li>
+<li>The integrated state update using a method such as Forward
+Euler:</li>
+</ol>
+<p><span class="math display">\[u^{t+\Delta t} = u^t + \Delta t \left(
+D_u \nabla^2 u^t + \alpha u^t - \beta u^t v^t \right)\]</span> <span
+class="math display">\[v^{t+\Delta t} = v^t + \Delta t \left( D_v
+\nabla^2 v^t + \delta u^t v^t - \gamma v^t \right)\]</span></p>
+<h3 id="4-ping-pong-buffering">4. Ping-Pong Buffering</h3>
+<p>Simulations cannot read from and write to the same texture
+simultaneously. A ping-pong buffer pattern resolves this: Texture A
+serves as input while Texture B receives the calculated frame. On the
+next time step, the roles are swapped. In gpu.js, this is handled by
+setting the kernel output to a texture and feeding that output texture
+back into the kernel as the primary argument for the subsequent
+step.</p>
+<h2 id="performance-and-stability-considerations">Performance and
+Stability Considerations</h2>
+<ul>
+<li><strong>Courant-Friedrichs-Lewy (CFL) Condition:</strong> For
+explicit integration schemes, stability requires that the time step
+satisfies <span class="math inline">\(\Delta t \le \frac{\Delta x^2}{4
+\max(D_u, D_v)}\)</span>. Exceeding this threshold causes unbounded
+numerical oscillations and system collapse.</li>
+<li><strong>Boundary Conditions:</strong> The kernel must explicitly
+enforce boundaries, typically implementing periodic boundaries (toroidal
+space) using modulo arithmetic on indices, or reflective (Neumann)
+boundaries by clamping indices at grid edges.</li>
+<li><strong>Precision:</strong> High-precision ecological patterns
+require 32-bit floating-point textures (<code>pipeline: true</code> and
+float textures enabled in WebGL) to avoid truncation errors during
+low-density diffusion phases.</li>
+</ul>
+<p>Spatial Lotka-Volterra dynamics can be modeled effectively in gpu.js,
+transforming a computationally heavy PDE simulation into an interactive,
+real-time visual system inside a browser.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom WebGL Blending Modes in GPU.js Kernels - gpu.js</title>
+    <meta name="description" content="This article examines whether custom WebGL blending modes can be enabled during the execution of graphical kernels in gpu.js. While gpu.js provides a high-level abstraction for running parallel computations and rendering graphics via WebGL, it lacks nati">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/custom-web-gl-blending-modes-in-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Custom WebGL Blending Modes in GPU.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/custom-web-gl-blending-modes-in-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether custom WebGL blending modes can be enabled during the execution of graphical kernels in gpu.js. While gpu.js provides a high-level abstraction for running parallel computations and rendering graphics via WebGL, it lacks nati" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="custom-webgl-blending-modes-in-gpujs-kernels">Custom WebGL
+Blending Modes in GPU.js Kernels</h1>
+<p>This article examines whether custom WebGL blending modes can be
+enabled during the execution of graphical kernels in gpu.js. While
+gpu.js provides a high-level abstraction for running parallel
+computations and rendering graphics via WebGL, it lacks native API
+settings for configuring WebGL blend equations and functions. However,
+developers can achieve custom blending either by directly accessing the
+underlying WebGL context or by calculating blend equations
+mathematically within the kernel code.</p>
+<h3 id="native-support-in-gpujs">Native Support in gpu.js</h3>
+<p>When creating a graphical kernel in gpu.js using
+<code>{ graphical: true }</code>, the library sets up an internal WebGL
+pipeline configured to output pixels directly to an HTML5 canvas. The
+standard gpu.js API does not expose direct configuration flags for WebGL
+state management features like <code>gl.enable(gl.BLEND)</code> or
+<code>gl.blendFunc()</code>. Because gpu.js is primarily designed for
+general-purpose computing on the GPU (GPGPU), its default behavior is to
+replace pixel values in the target framebuffer rather than blend them
+with existing color data.</p>
+<h3 id="method-1-intercepting-the-underlying-webgl-context">Method 1:
+Intercepting the Underlying WebGL Context</h3>
+<p>You can attempt hardware-level blending by directly modifying the
+WebGL rendering context managed by gpu.js. The underlying context can be
+accessed through the <code>GPU</code> instance via
+<code>gpu.context</code>.</p>
+<p>To apply a custom WebGL blend mode:</p>
+<ol type="1">
+<li>Retrieve the context: <code>const gl = gpu.context;</code></li>
+<li>Enable blending manually before running the kernel:
+<code>gl.enable(gl.BLEND);</code></li>
+<li>Specify your blend equation and factors, for example:
+<code>gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);</code></li>
+<li>Execute the graphical kernel.</li>
+</ol>
+<p>While this approach relies on standard WebGL calls, it can be
+fragile. Internal execution steps in gpu.js may clear buffers, alter
+viewport states, or reset certain WebGL flags between draw calls, which
+can override your custom blending settings.</p>
+<h3 id="method-2-shader-based-software-blending">Method 2: Shader-Based
+Software Blending</h3>
+<p>The most reliable way to implement custom blending in gpu.js is to
+compute the blend logic directly inside the kernel function. Because
+gpu.js allows textures and canvases to be passed as inputs, you can
+implement a two-texture or ping-pong approach:</p>
+<ol type="1">
+<li>Pass the existing canvas or background frame into the kernel as an
+input texture.</li>
+<li>Read the source color and the destination color for the current
+pixel coordinate.</li>
+<li>Apply standard blend formulas manually (such as additive, multiply,
+screen, or alpha compositing) using JavaScript math inside the
+kernel.</li>
+<li>Output the final computed color using
+<code>this.color(r, g, b, a)</code>.</li>
+</ol>
+<h3 id="conclusion">Conclusion</h3>
+<p>Direct API support for WebGL blending modes does not exist in gpu.js.
+While you can configure <code>gl.blendFunc()</code> directly on
+<code>gpu.context</code>, performing the blending math explicitly within
+the kernel shader provides greater control, stability, and
+predictability across graphical operations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running GPU.js with WebGL in Headless Puppeteer - gpu.js</title>
+    <meta name="description" content="GPU.js can successfully run on top of WebGL implementations in headless environments like Chromium Puppeteer, enabling accelerated mathematical computations in server-side, automated pipelines. Because GPU.js automatically probes the environment for a st">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/running-gpu-js-with-web-gl-in-headless-puppeteer">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Running GPU.js with WebGL in Headless Puppeteer - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/running-gpu-js-with-web-gl-in-headless-puppeteer" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can successfully run on top of WebGL implementations in headless environments like Chromium Puppeteer, enabling accelerated mathematical computations in server-side, automated pipelines. Because GPU.js automatically probes the environment for a st" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="running-gpujs-with-webgl-in-headless-puppeteer">Running GPU.js
+with WebGL in Headless Puppeteer</h1>
+<p>GPU.js can successfully run on top of WebGL implementations in
+headless environments like Chromium Puppeteer, enabling accelerated
+mathematical computations in server-side, automated pipelines. Because
+GPU.js automatically probes the environment for a standard HTML5 Canvas
+and an active WebGL context, it functions in Puppeteer provided the
+underlying browser process is configured to expose WebGL capabilities.
+This article details how WebGL operates in headless Chrome, the launch
+flags required to initialize it, the differences between hardware and
+software rendering, and how to verify GPU.js execution.</p>
+<h3 id="how-gpujs-interacts-with-headless-chromium">How GPU.js Interacts
+with Headless Chromium</h3>
+<p>GPU.js compiles specialized JavaScript functions into GLSL (OpenGL
+Shading Language) and executes them on a WebGL context via a
+<code>&lt;canvas&gt;</code> element. In a standard browser, this happens
+seamlessly against the client's display hardware.</p>
+<p>In a headless environment managed by Puppeteer, there is no physical
+display output. However, modern Chromium contains internal rendering
+pipelines capable of producing functional WebGL 1.0 and WebGL 2.0
+contexts. When Puppeteer loads a page that imports GPU.js, the library
+checks for <code>HTMLCanvasElement.prototype.getContext('webgl2')</code>
+or <code>getContext('webgl')</code>. If Chromium successfully exposes
+these interfaces, GPU.js compiles and runs its kernels without requiring
+any special headless-specific code modifications.</p>
+<h3 id="required-puppeteer-configuration-and-flags">Required Puppeteer
+Configuration and Flags</h3>
+<p>By default, headless mode often disables hardware acceleration or
+omits graphics stack features to save resources. To ensure WebGL is
+available to GPU.js, Chromium must be launched with specific
+arguments.</p>
+<p>Using modern Puppeteer with the current headless implementation
+(<code>headless: true</code> or <code>headless: 'shell'</code>), the
+launch configuration should include:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> browser <span class="op">=</span> <span class="cf">await</span> puppeteer<span class="op">.</span><span class="fu">launch</span>({</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">headless</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">args</span><span class="op">:</span> [</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;--no-sandbox&#39;</span><span class="op">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;--enable-webgl&#39;</span><span class="op">,</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;--ignore-gpu-blocklist&#39;</span><span class="op">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;--use-gl=angle&#39;</span><span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">&#39;--use-angle=swiftshader&#39;</span> <span class="co">// or default to platform-specific drivers</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<ul>
+<li><strong><code>--enable-webgl</code></strong>: Explicitly turns on
+the WebGL pipeline.</li>
+<li><strong><code>--ignore-gpu-blocklist</code></strong>: Bypasses
+Chromium’s internal blocklist that may disable acceleration on virtual
+machines, server environments, or specific graphics driver
+versions.</li>
+<li><strong><code>--use-gl=...</code></strong>: Dictates the backend
+driver interface to use, such as <code>angle</code>, <code>egl</code>,
+or <code>swiftshader</code>.</li>
+</ul>
+<h3 id="hardware-vs-software-rendering">Hardware vs. Software
+Rendering</h3>
+<p>Running WebGL in headless Chromium occurs in one of two modes:</p>
+<ol type="1">
+<li><p><strong>Hardware Acceleration (Host GPU):</strong> If the host
+machine possesses a physical GPU (such as an NVIDIA or AMD card) and
+appropriate graphics drivers are configured, Chromium can route WebGL
+draw calls directly to the hardware. In containerized environments like
+Docker, this requires mounting GPU drivers and passing flags like
+<code>--use-gl=egl</code>. This approach yields full execution speed for
+GPU.js workloads.</p></li>
+<li><p><strong>Software Emulation (SwiftShader):</strong> In
+environments lacking a physical GPU—such as standard cloud instances or
+continuous integration runners—Chromium falls back to SwiftShader,
+Google’s CPU-based implementation of the Vulkan and OpenGL ES APIs.
+While SwiftShader provides a fully conforming WebGL context that allows
+GPU.js to execute, the calculations are executed on the host CPU.
+Performance under SwiftShader will be significantly lower than physical
+hardware, but it ensures compatibility without dedicated GPU
+infrastructure.</p></li>
+</ol>
+<h3 id="fallback-behavior-and-context-validation">Fallback Behavior and
+Context Validation</h3>
+<p>If Chromium fails to initialize WebGL due to missing drivers,
+restrictive security sandboxes, or improper launch flags, GPU.js will
+either trigger its automatic fallback to pure JavaScript CPU execution
+or throw a context initialization error (if CPU fallback is explicitly
+disabled).</p>
+<p>To verify that GPU.js is genuinely utilizing WebGL rather than
+falling back to CPU mode in Puppeteer, inspect the kernel mode during
+runtime:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> mode <span class="op">=</span> kernel<span class="op">.</span><span class="at">subKernelOutput</span> <span class="op">?</span> kernel<span class="op">.</span><span class="at">mode</span> <span class="op">:</span> myKernel<span class="op">.</span><span class="at">gpu</span><span class="op">.</span><span class="at">mode</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`GPU.js initialized in mode: </span><span class="sc">${</span>mode<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span> </span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Expected output: &quot;gpu&quot; or &quot;webgl2&quot; / &quot;webgl&quot;</span></span></code></pre></div>
+<p>If the returned mode is <code>cpu</code>, the WebGL context failed to
+initialize, indicating that the Puppeteer browser instance lacks the
+necessary flags or backend support to create a headless WebGL
+surface.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

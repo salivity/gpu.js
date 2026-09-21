@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implement SVM Kernel Functions Using GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to leverage GPU.js to accelerate Support Vector Machine (SVM) kernel computations directly in JavaScript. You will learn the mechanics of calculating pairwise Gram matrices on the GPU, followed by ready-to-use implementations of">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/implement-svm-kernel-functions-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Implement SVM Kernel Functions Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/implement-svm-kernel-functions-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to leverage GPU.js to accelerate Support Vector Machine (SVM) kernel computations directly in JavaScript. You will learn the mechanics of calculating pairwise Gram matrices on the GPU, followed by ready-to-use implementations of" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="implement-svm-kernel-functions-using-gpujs">Implement SVM Kernel
+Functions Using GPU.js</h1>
+<p>This article explains how to leverage GPU.js to accelerate Support
+Vector Machine (SVM) kernel computations directly in JavaScript. You
+will learn the mechanics of calculating pairwise Gram matrices on the
+GPU, followed by ready-to-use implementations of the Linear, Polynomial,
+and Radial Basis Function (RBF) kernels.</p>
+<hr />
+<h3 id="why-accelerate-svm-kernels-with-gpujs">Why Accelerate SVM
+Kernels with GPU.js?</h3>
+<p>Training an SVM or evaluating predictions with non-linear kernels
+requires computing an <span class="math inline">\(N \times N\)</span>
+Gram matrix, where each element <span class="math inline">\((i,
+j)\)</span> represents the kernel evaluation <span
+class="math inline">\(K(x_i, x_j)\)</span> between two data points. For
+a dataset of size <span class="math inline">\(N\)</span> with
+dimensionality <span class="math inline">\(D\)</span>, this requires
+<span class="math inline">\(O(N^2 \cdot D)\)</span> operations.</p>
+<p>Because each cell in the Gram matrix can be computed independently,
+this task is embarrassingly parallel. GPU.js compiles JavaScript
+functions into WebGL shaders (or OpenCL in Node.js), allowing thousands
+of threads to calculate matrix entries concurrently.</p>
+<hr />
+<h3 id="setup-and-data-format">Setup and Data Format</h3>
+<p>GPU.js operates best with primitive data types such as flattened
+arrays or 2D matrices of numbers. Prepare your dataset as a 2D array
+where each row represents a feature vector.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Sample dataset: 4 samples with 3 features each</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> data <span class="op">=</span> [</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">1.0</span><span class="op">,</span> <span class="fl">2.0</span><span class="op">,</span> <span class="fl">1.5</span>]<span class="op">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.5</span><span class="op">,</span> <span class="fl">1.5</span><span class="op">,</span> <span class="fl">2.0</span>]<span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">3.0</span><span class="op">,</span> <span class="fl">1.0</span><span class="op">,</span> <span class="fl">0.5</span>]<span class="op">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">2.0</span><span class="op">,</span> <span class="fl">2.5</span><span class="op">,</span> <span class="fl">1.0</span>]</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numSamples <span class="op">=</span> data<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numFeatures <span class="op">=</span> data[<span class="dv">0</span>]<span class="op">.</span><span class="at">length</span><span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="1-linear-kernel">1. Linear Kernel</h3>
+<p>The Linear kernel is the standard dot product between two
+vectors:</p>
+<p><span class="math display">\[K(x_i, x_j) = x_i \cdot x_j =
+\sum_{k=0}^{D-1} x_{ik} \cdot x_{jk}\]</span></p>
+<h4 id="gpujs-implementation">GPU.js Implementation:</h4>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> linearKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> numFeatures) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> numFeatures<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    sum <span class="op">+=</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][k] <span class="op">*</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][k]<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([numSamples<span class="op">,</span> numSamples])<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> linearGramMatrix <span class="op">=</span> <span class="fu">linearKernel</span>(data<span class="op">,</span> numFeatures)<span class="op">;</span></span></code></pre></div>
+<p>In GPU.js, <code>this.thread.x</code> and <code>this.thread.y</code>
+represent the current column and row of the output matrix. Thread <span
+class="math inline">\((x, y)\)</span> computes the dot product between
+<code>data[y]</code> and <code>data[x]</code>.</p>
+<hr />
+<h3 id="2-polynomial-kernel">2. Polynomial Kernel</h3>
+<p>The Polynomial kernel captures feature interactions up to degree
+<span class="math inline">\(d\)</span>:</p>
+<p><span class="math display">\[K(x_i, x_j) = (x_i \cdot x_j +
+c)^d\]</span></p>
+<h4 id="gpujs-implementation-1">GPU.js Implementation:</h4>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> polyKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> numFeatures<span class="op">,</span> c<span class="op">,</span> degree) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> numFeatures<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    sum <span class="op">+=</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][k] <span class="op">*</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][k]<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(sum <span class="op">+</span> c<span class="op">,</span> degree)<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([numSamples<span class="op">,</span> numSamples])<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> degree <span class="op">=</span> <span class="dv">3</span><span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> c <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> polyGramMatrix <span class="op">=</span> <span class="fu">polyKernel</span>(data<span class="op">,</span> numFeatures<span class="op">,</span> c<span class="op">,</span> degree)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="3-radial-basis-function-rbf-kernel">3. Radial Basis Function
+(RBF) Kernel</h3>
+<p>The RBF (Gaussian) kernel measures similarity based on Euclidean
+distance:</p>
+<p><span class="math display">\[K(x_i, x_j) = \exp(-\gamma \|x_i -
+x_j\|^2)\]</span></p>
+<h4 id="gpujs-implementation-2">GPU.js Implementation:</h4>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rbfKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> numFeatures<span class="op">,</span> gamma) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> squaredDistance <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> numFeatures<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> diff <span class="op">=</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][k] <span class="op">-</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][k]<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    squaredDistance <span class="op">+=</span> diff <span class="op">*</span> diff<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>gamma <span class="op">*</span> squaredDistance)<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([numSamples<span class="op">,</span> numSamples])<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gamma <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rbfGramMatrix <span class="op">=</span> <span class="fu">rbfKernel</span>(data<span class="op">,</span> numFeatures<span class="op">,</span> gamma)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="computing-cross-matrices-train-vs-test">Computing Cross-Matrices
+(Train vs. Test)</h3>
+<p>When classifying new test samples, you must evaluate the kernel
+between <span class="math inline">\(M\)</span> test samples and <span
+class="math inline">\(N\)</span> training samples, yielding an <span
+class="math inline">\(M \times N\)</span> matrix.</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rbfPredictKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(trainData<span class="op">,</span> testData<span class="op">,</span> numFeatures<span class="op">,</span> gamma) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> squaredDistance <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> numFeatures<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> diff <span class="op">=</span> testData[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][k] <span class="op">-</span> trainData[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][k]<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    squaredDistance <span class="op">+=</span> diff <span class="op">*</span> diff<span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>gamma <span class="op">*</span> squaredDistance)<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([numTrainSamples<span class="op">,</span> numTestSamples])<span class="op">;</span> <span class="co">// Output width x height: train x test</span></span></code></pre></div>
+<hr />
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ol type="1">
+<li><strong>Precision</strong>: WebGL handles single-precision floats
+(<code>float32</code>) by default. If your SVM algorithm requires
+double-precision (<code>float64</code>), pass
+<code>{ precision: 'single' }</code> consciously or use GPU.js
+configurations that support 64-bit precision where hardware allows.</li>
+<li><strong>Data Transfer Overhead</strong>: Copying data from the CPU
+to the GPU incurs overhead. Keep matrices on the GPU using
+<code>pipeline: true</code> if you intend to feed the Gram matrix
+directly into subsequent GPU-accelerated solvers.</li>
+<li><strong>Loop Limits</strong>: GPU.js compiles loops into native
+shaders. Always pass dimension lengths (like <code>numFeatures</code>)
+as explicit arguments rather than attempting to read
+<code>.length</code> properties inside the kernel function.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

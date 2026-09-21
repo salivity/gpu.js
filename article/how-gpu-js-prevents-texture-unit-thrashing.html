@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Prevents Texture Unit Thrashing - gpu.js</title>
+    <meta name="description" content="Passing dozens of input arrays into a single GPU.js kernel can quickly overwhelm the graphics hardware's physical texture limits, causing severe performance degradation known as texture unit thrashing. GPU.js avoids this bottleneck by leveraging texture">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-prevents-texture-unit-thrashing">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Prevents Texture Unit Thrashing - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-prevents-texture-unit-thrashing" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Passing dozens of input arrays into a single GPU.js kernel can quickly overwhelm the graphics hardware's physical texture limits, causing severe performance degradation known as texture unit thrashing. GPU.js avoids this bottleneck by leveraging texture" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-prevents-texture-unit-thrashing">How GPU.js Prevents
+Texture Unit Thrashing</h1>
+<p>Passing dozens of input arrays into a single GPU.js kernel can
+quickly overwhelm the graphics hardware's physical texture limits,
+causing severe performance degradation known as texture unit thrashing.
+GPU.js avoids this bottleneck by leveraging texture packing, internal
+texture caching, uniform sampler re-mapping, and intelligent multi-pass
+kernel synthesis. This article explains the underlying WebGL constraints
+and the specific mechanisms GPU.js employs to safely process large
+numbers of inputs without triggering continuous texture swapping.</p>
+<h3 id="the-problem-webgl-texture-unit-limits">The Problem: WebGL
+Texture Unit Limits</h3>
+<p>In WebGL, shaders access external data primarily via textures bound
+to specific texture image units. Browsers and graphics drivers impose a
+strict hardware ceiling on simultaneous texture bindings, defined by
+<code>gl.MAX_TEXTURE_IMAGE_UNITS</code> (typically 8, 16, or 32
+units).</p>
+<p>When a shader requires more active textures than the hardware
+supports, the application must repeatedly unbind existing textures and
+bind new ones during execution. This frequent rebinding introduces
+pipeline stalls, invalidates driver-level GPU caches, and degrades
+throughput.</p>
+<h3 id="1-rgba-channel-packing-and-vectorization">1. RGBA Channel
+Packing and Vectorization</h3>
+<p>Rather than creating a distinct texture for each scalar input or
+small array, GPU.js packs data into the red, green, blue, and alpha
+(RGBA) channels of a single 32-bit floating-point or unsigned byte
+texture.</p>
+<ul>
+<li><strong>4:1 Data Consolidation:</strong> A dataset that would
+otherwise occupy four distinct single-channel textures is combined into
+a single 4-element vector per pixel.</li>
+<li><strong>Dimensional Encoding:</strong> For multi-dimensional
+matrices, GPU.js converts 2D and 3D array inputs into flattened 2D
+memory layouts that conform to standard GPU power-of-two or rectangular
+texture boundaries, reducing the total count of required sampler
+instances.</li>
+</ul>
+<h3 id="2-texture-pooling-and-persistent-binding-cache">2. Texture
+Pooling and Persistent Binding Cache</h3>
+<p>GPU.js maintains an internal texture manager that tracks which
+textures are currently assigned to WebGL texture units:</p>
+<ul>
+<li><strong>State Tracking:</strong> The engine maintains an internal
+map of active texture units. If an input texture was bound to
+<code>TEXTURE0</code> in a previous tick and remains unchanged, GPU.js
+skips the costly <code>gl.activeTexture()</code> and
+<code>gl.bindTexture()</code> invocations entirely.</li>
+<li><strong>Uniform Sampler Mapping:</strong> Instead of binding new
+textures to the same unit inside a single draw cycle, GPU.js statically
+assigns samplers to reserved slots during the kernel compilation step,
+ensuring the WebGL pipeline never swaps texture targets midway through a
+fragment shader pass.</li>
+</ul>
+<h3 id="3-texture-atlasing-for-sub-kernel-inputs">3. Texture Atlasing
+for Sub-Kernel Inputs</h3>
+<p>When multiple static arrays are passed to a kernel, GPU.js can
+combine them into a single larger composite texture (an atlas).</p>
+<p>The generated GLSL code automatically computes coordinate offsets
+based on the target array's position within the composite texture. This
+allows dozens of logically distinct inputs to be queried using only one
+physical sampler uniform, completely bypassing the
+<code>MAX_TEXTURE_IMAGE_UNITS</code> restriction.</p>
+<h3 id="4-pipeline-decomposition-and-multi-pass-fallbacks">4. Pipeline
+Decomposition and Multi-Pass Fallbacks</h3>
+<p>If the number of unique dynamic inputs fundamentally exceeds the
+hardware sampler capacity and cannot be merged into an atlas, GPU.js
+prompts multi-pass kernel design:</p>
+<ul>
+<li><strong>Kernel Chaining:</strong> Complex kernels requiring
+excessive inputs can be broken down using
+<code>kernel.setOutput(true)</code> to output directly to
+framebuffers.</li>
+<li><strong>Intermediate Textures:</strong> Intermediate calculation
+results are written directly to offscreen WebGL framebuffers (render
+targets) and piped into subsequent kernel passes, maintaining GPU
+residency without overloading any single execution stage with too many
+simultaneous read textures.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

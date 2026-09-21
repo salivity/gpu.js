@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generate Voronoi Road Networks with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to procedurally generate city road networks using Voronoi diagrams accelerated by GPU.js. By delegating distance calculations and edge detection to the GPU via WebGL shaders, you can synthesize high-resolution, complex urban lay">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/generate-voronoi-road-networks-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Generate Voronoi Road Networks with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/generate-voronoi-road-networks-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to procedurally generate city road networks using Voronoi diagrams accelerated by GPU.js. By delegating distance calculations and edge detection to the GPU via WebGL shaders, you can synthesize high-resolution, complex urban lay" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="generate-voronoi-road-networks-with-gpujs">Generate Voronoi Road
+Networks with GPU.js</h1>
+<p>This article explains how to procedurally generate city road networks
+using Voronoi diagrams accelerated by GPU.js. By delegating distance
+calculations and edge detection to the GPU via WebGL shaders, you can
+synthesize high-resolution, complex urban layouts in real time. Below,
+you will find the architectural principles, a complete GPU.js
+implementation, and techniques for refining procedural road
+hierarchies.</p>
+<h2 id="1-understanding-voronoi-road-networks">1. Understanding Voronoi
+Road Networks</h2>
+<p>In procedural city generation, Voronoi diagrams divide space into
+regions based on distances to a specified set of seed points. The
+boundaries between these regions naturally mimic road networks, forming
+organic, cell-like city blocks.</p>
+<p>To determine where a road lies on a 2D grid, a shader computes the
+distance from each pixel to the closest seed point (<span
+class="math inline">\(d_1\)</span>) and the second-closest seed point
+(<span class="math inline">\(d_2\)</span>). An edge (or road) exists
+wherever the difference between these two distances falls below a
+specified threshold:</p>
+<p><span class="math display">\[\Delta d = d_2 - d_1 &lt;
+\text{road\_thickness}\]</span></p>
+<p>Because this check requires measuring distances to dozens or hundreds
+of seeds for millions of pixels, executing it on the CPU is slow. GPU.js
+compiles JavaScript functions into WebGL shaders, running this process
+in parallel across GPU threads.</p>
+<h2 id="2-setting-up-gpujs">2. Setting Up GPU.js</h2>
+<p>First, include the GPU.js library in your project via npm or a
+CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdnjs.cloudflare.com/ajax/libs/gpu.js/2.15.2/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<p>Initialize a new <code>GPU</code> instance and configure a canvas
+element where the result will be rendered.</p>
+<h2 id="3-seed-point-generation">3. Seed Point Generation</h2>
+<p>Generate a set of 2D coordinates representing city block centers.
+These can be uniformly random, jittered grid points for organized
+districts, or distributed via Poisson disc sampling for balanced
+neighborhoods.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">generateSeeds</span>(count<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> seeds <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> count<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        seeds<span class="op">.</span><span class="fu">push</span>([</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>            <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> width<span class="op">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>            <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> height</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        ])<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> seeds<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="4-writing-the-gpujs-kernel">4. Writing the GPU.js Kernel</h2>
+<p>Create a GPU.js kernel that computes the distance to the two nearest
+seeds for each pixel and outputs the road network directly to a
+canvas.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">800</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">800</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> seedCount <span class="op">=</span> <span class="dv">64</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> seeds <span class="op">=</span> <span class="fu">generateSeeds</span>(seedCount<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderRoads <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(seeds<span class="op">,</span> seedCount<span class="op">,</span> roadWidth) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> d1 <span class="op">=</span> <span class="fl">100000.0</span><span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> d2 <span class="op">=</span> <span class="fl">100000.0</span><span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Find the two nearest seed points</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> seedCount<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> sx <span class="op">=</span> seeds[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> sy <span class="op">=</span> seeds[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Euclidean distance squared</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dx <span class="op">=</span> x <span class="op">-</span> sx<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dy <span class="op">=</span> y <span class="op">-</span> sy<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dist <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy)<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (dist <span class="op">&lt;</span> d1) {</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>            d2 <span class="op">=</span> d1<span class="op">;</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>            d1 <span class="op">=</span> dist<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>        } <span class="cf">else</span> <span class="cf">if</span> (dist <span class="op">&lt;</span> d2) {</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>            d2 <span class="op">=</span> dist<span class="op">;</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Edge detection threshold</span></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> ((d2 <span class="op">-</span> d1) <span class="op">&lt;</span> roadWidth) {</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Road color (e.g., light gray)</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.85</span><span class="op">,</span> <span class="fl">0.85</span><span class="op">,</span> <span class="fl">0.85</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Block / terrain color (e.g., dark slate)</span></span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.12</span><span class="op">,</span> <span class="fl">0.14</span><span class="op">,</span> <span class="fl">0.18</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a><span class="fu">renderRoads</span>(seeds<span class="op">,</span> seedCount<span class="op">,</span> <span class="fl">3.0</span>)<span class="op">;</span></span>
+<span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-47"><a href="#cb3-47" aria-hidden="true" tabindex="-1"></a><span class="co">// Append the resulting WebGL canvas to the document</span></span>
+<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(renderRoads<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="5-refining-road-networks">5. Refining Road Networks</h2>
+<p>To transform raw Voronoi boundaries into believable urban layouts,
+apply the following adjustments:</p>
+<ul>
+<li><strong>Manhattan Distance:</strong> Replace Euclidean distance with
+Manhattan distance (<span class="math inline">\(|dx| + |dy|\)</span>) or
+Minkowski distance (<span class="math inline">\((|dx|^p +
+|dy|^p)^{1/p}\)</span>) to produce orthogonal, rectangular city blocks
+instead of hexagonal shapes.</li>
+<li><strong>Hierarchical Road Widths:</strong> Assign weights or
+hierarchical tiers to seeds. Seed boundaries separating major regional
+centers can evaluate against a larger threshold to form highways, while
+internal subdivisions use a narrower threshold for local streets.</li>
+<li><strong>Coordinate Warping:</strong> Add simplex or Perlin noise to
+the pixel coordinates before distance calculation
+(<code>x + noise(x, y)</code>). This perturbs straight Voronoi
+boundaries into meandering, natural paths suited for rural roads or
+coastline routes.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

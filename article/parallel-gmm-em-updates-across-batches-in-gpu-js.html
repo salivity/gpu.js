@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel GMM EM Updates Across Batches in GPU.js - gpu.js</title>
+    <meta name="description" content="Gaussian Mixture Model (GMM) Expectation-Maximization (EM) updates can be parallelized across batches in gpu.js, but performance depends on how the algorithm is split across GPU kernels. While the Expectation step (E-step) is embarrassingly parallel and">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-gmm-em-updates-across-batches-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel GMM EM Updates Across Batches in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-gmm-em-updates-across-batches-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Gaussian Mixture Model (GMM) Expectation-Maximization (EM) updates can be parallelized across batches in gpu.js, but performance depends on how the algorithm is split across GPU kernels. While the Expectation step (E-step) is embarrassingly parallel and" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-gmm-em-updates-across-batches-in-gpujs">Parallel GMM EM
+Updates Across Batches in GPU.js</h1>
+<p>Gaussian Mixture Model (GMM) Expectation-Maximization (EM) updates
+can be parallelized across batches in gpu.js, but performance depends on
+how the algorithm is split across GPU kernels. While the Expectation
+step (E-step) is embarrassingly parallel and ideally suited for gpu.js,
+the Maximization step (M-step) involves data reduction operations that
+encounter limitations due to the underlying WebGL architecture.</p>
+<h3 id="parallelizing-the-expectation-step-e-step">Parallelizing the
+Expectation Step (E-Step)</h3>
+<p>The E-step calculates the responsibility that each Gaussian component
+holds for each data point. This calculation requires evaluating the
+multivariate Gaussian probability density function for every sample and
+normalizing the results across components.</p>
+<p>Because each data point's responsibility calculation is independent
+of all others, this step is easily parallelized across both samples and
+batches. In gpu.js, you can define a kernel with a 2D or 3D output
+dimension:</p>
+<ul>
+<li><strong>Dimension X:</strong> Sample index within a batch.</li>
+<li><strong>Dimension Y:</strong> Batch index.</li>
+<li><strong>Dimension Z:</strong> Gaussian component index.</li>
+</ul>
+<p>By passing data as 2D textures or flattened arrays, gpu.js computes
+the log-likelihood and responsibility matrices simultaneously across all
+samples and batches in parallel.</p>
+<h3 id="the-challenge-of-the-maximization-step-m-step">The Challenge of
+the Maximization Step (M-Step)</h3>
+<p>The M-step updates the parameters—means, covariances, and mixing
+weights—by aggregating the responsibilities across all samples within a
+batch. This requires summation reductions over the batch size.</p>
+<p>gpu.js compiles JavaScript functions into WebGL fragment shaders,
+which introduces two constraints:</p>
+<ol type="1">
+<li><strong>No Shared Memory or Atomics:</strong> Unlike WebGPU or CUDA,
+WebGL shaders cannot use thread-level shared memory or atomic add
+operations. A thread cannot directly accumulate values into a single
+memory address.</li>
+<li><strong>Ping-Pong Reductions:</strong> To sum values entirely on the
+GPU, you must implement multi-pass reduction kernels (logarithmic tree
+reductions), iteratively rendering down to smaller textures until a
+single aggregated value per batch remains.</li>
+</ol>
+<p>Because multi-pass reductions introduce shader pass overhead, full
+GPU execution of the M-step can be slow for small-to-moderate batch
+sizes.</p>
+<h3 id="recommended-implementation-approaches">Recommended
+Implementation Approaches</h3>
+<h4 id="1-the-hybrid-approach-gpu-e-step-cpu-m-step">1. The Hybrid
+Approach (GPU E-Step, CPU M-Step)</h4>
+<p>For small to medium batch sizes, the most practical implementation
+executes only the E-step on the GPU:</p>
+<ul>
+<li><strong>GPU:</strong> Compute the responsibilities for all samples
+across batches in parallel.</li>
+<li><strong>Data Transfer:</strong> Read the responsibility matrix back
+to the CPU via <code>kernel()</code> execution.</li>
+<li><strong>CPU:</strong> Compute the summations for updated means,
+covariances, and weights on the CPU using fast typed arrays, then pass
+the updated parameters back into the next GPU iteration.</li>
+</ul>
+<p>This circumvents the need for complex reduction shaders while
+accelerating the most compute-heavy portion of the algorithm.</p>
+<h4 id="2-pure-gpu-batched-reductions">2. Pure GPU Batched
+Reductions</h4>
+<p>For very large datasets where reading data back to the CPU creates a
+memory bus bottleneck, you can perform parallel reductions inside
+gpu.js:</p>
+<ul>
+<li>Structure the reduction kernel to sum chunks of responsibilities per
+batch over multiple iterations.</li>
+<li>Maintain the batch index as an independent axis during the reduction
+passes so that separate batches do not interfere with one another.</li>
+<li>Update the parameter textures directly in GPU memory to keep the EM
+loop self-contained.</li>
+</ul>
+<h3 id="numerical-stability-and-precision">Numerical Stability and
+Precision</h3>
+<p>When running GMM updates in gpu.js, standard WebGL textures default
+to 32-bit floating-point precision (or 16-bit on older devices).
+Evaluating multivariate Gaussians in high dimensions frequently causes
+underflow or overflow when calculating probabilities directly. To ensure
+numerical stability across parallel batches:</p>
+<ul>
+<li>Implement the <strong>Log-Sum-Exp</strong> trick inside the gpu.js
+kernel to compute normalized responsibilities in log-space.</li>
+<li>Add a small regularization term (shrinkage) along the diagonal of
+covariance matrices to avoid singularity during matrix inversion on the
+GPU.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

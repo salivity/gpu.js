@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Missing GPU Hardware - gpu.js</title>
+    <meta name="description" content="GPU.js is a popular JavaScript library designed to accelerate complex computations by compiling specialized functions into shader language that runs directly on graphics hardware. When an environment lacks compatible GPU hardware, drivers, or WebGL suppo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-missing-gpu-hardware">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Missing GPU Hardware - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-missing-gpu-hardware" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js is a popular JavaScript library designed to accelerate complex computations by compiling specialized functions into shader language that runs directly on graphics hardware. When an environment lacks compatible GPU hardware, drivers, or WebGL suppo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-missing-gpu-hardware">How GPU.js Handles
+Missing GPU Hardware</h1>
+<p>GPU.js is a popular JavaScript library designed to accelerate complex
+computations by compiling specialized functions into shader language
+that runs directly on graphics hardware. When an environment lacks
+compatible GPU hardware, drivers, or WebGL support, GPU.js prevents
+application crashes by employing an automatic fallback mechanism that
+seamlessly switches execution to standard JavaScript on the CPU. This
+ensures cross-platform reliability, allowing developers to write
+high-performance code that gracefully degrades when hardware
+acceleration is unavailable.</p>
+<h3 id="the-automatic-fallback-architecture">The Automatic Fallback
+Architecture</h3>
+<p>By default, creating an instance with <code>new GPU()</code>
+initializes the runtime in automatic mode. In this state, the library
+assesses the environment's capabilities in a sequential priority
+list:</p>
+<ol type="1">
+<li><strong>WebGL 2:</strong> If the environment supports WebGL 2,
+GPU.js compiles kernels into GLSL (OpenGL Shading Language) optimized
+for WebGL 2 contexts to achieve maximum throughput.</li>
+<li><strong>WebGL 1:</strong> If WebGL 2 is not detected or fails to
+initialize, the library checks for standard WebGL 1 support and adapts
+the shader code accordingly.</li>
+<li><strong>Headless GL (Node.js):</strong> In server environments like
+Node.js, GPU.js attempts to interface with the system's GPU via native
+bindings like <code>headless-gl</code>.</li>
+<li><strong>CPU Fallback:</strong> If none of the hardware-accelerated
+contexts are available, GPU.js bypasses shader compilation altogether
+and switches the kernel runner to pure JavaScript.</li>
+</ol>
+<h3 id="how-the-cpu-fallback-operates">How the CPU Fallback
+Operates</h3>
+<p>When the CPU mode is triggered, GPU.js translates the kernel logic
+back into standard JavaScript execution rather than compiling it into
+GLSL.</p>
+<p>The multidimensional output loop—normally parallelized across
+thousands of GPU cores—is converted into nested JavaScript
+<code>for</code> loops. The library mimics the behavior of the GPU
+thread indexing variables (such as <code>this.thread.x</code>,
+<code>this.thread.y</code>, and <code>this.thread.z</code>), ensuring
+that the output data structure and mathematical results match the GPU
+output identically. Built-in shader-like functions, such as vector math
+operations and matrix handling, are mapped to standard JavaScript
+<code>Math</code> library equivalents.</p>
+<h3 id="performance-implications">Performance Implications</h3>
+<p>While functionality remains identical between GPU and CPU modes,
+performance differs drastically:</p>
+<ul>
+<li><strong>Massive Parallelism vs. Single-Threaded Loops:</strong> On a
+GPU, calculations run simultaneously across thousands of stream
+processors. In CPU fallback mode, the execution typically runs on a
+single thread within the JavaScript event loop, leading to significantly
+longer processing times for large datasets.</li>
+<li><strong>Memory Management:</strong> GPU mode incurs overhead when
+transferring data between system RAM and GPU VRAM. CPU fallback executes
+directly within system memory, eliminating texture-packing overhead but
+lacking the raw arithmetic throughput of specialized graphics
+processors.</li>
+</ul>
+<h3 id="explicit-mode-configuration">Explicit Mode Configuration</h3>
+<p>Developers can override the automatic detection behavior by defining
+the execution mode during initialization or kernel creation. This is
+useful for testing, debugging, or enforcing strict hardware
+requirements:</p>
+<ul>
+<li><strong><code>mode: 'gpu'</code></strong>: Forces GPU execution. If
+compatible GPU hardware or WebGL contexts are missing, GPU.js throws an
+explicit error rather than falling back to the CPU.</li>
+<li><strong><code>mode: 'cpu'</code></strong>: Bypasses GPU detection
+entirely and forces the kernel to run as standard JavaScript on the
+CPU.</li>
+<li><strong><code>mode: 'dev'</code></strong>: A specialized mode that
+treats kernels as plain JavaScript functions, allowing developers to use
+standard browser debugging tools, breakpoints, and
+<code>console.log</code> statements within their compute logic.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

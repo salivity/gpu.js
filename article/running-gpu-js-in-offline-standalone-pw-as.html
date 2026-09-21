@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running gpu.js in Offline Standalone PWAs - gpu.js</title>
+    <meta name="description" content="Yes, gpu.js can fully run within Progressive Web Apps (PWAs) operating in standalone offline mode. Because gpu.js relies entirely on client-side WebGL to compile and execute general-purpose computations directly on the device's hardware, it does not depe">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/running-gpu-js-in-offline-standalone-pw-as">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Running gpu.js in Offline Standalone PWAs - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/running-gpu-js-in-offline-standalone-pw-as" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Yes, gpu.js can fully run within Progressive Web Apps (PWAs) operating in standalone offline mode. Because gpu.js relies entirely on client-side WebGL to compile and execute general-purpose computations directly on the device's hardware, it does not depe" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="running-gpujs-in-offline-standalone-pwas">Running gpu.js in
+Offline Standalone PWAs</h1>
+<p>Yes, gpu.js can fully run within Progressive Web Apps (PWAs)
+operating in standalone offline mode. Because gpu.js relies entirely on
+client-side WebGL to compile and execute general-purpose computations
+directly on the device's hardware, it does not depend on an active
+internet connection or external server infrastructure once loaded. This
+article outlines how gpu.js functions inside an offline PWA, the
+mechanics behind local WebGL execution, and the implementation
+requirements necessary to ensure smooth standalone operation.</p>
+<h3 id="client-side-execution-and-webgl">Client-Side Execution and
+WebGL</h3>
+<p>The core mechanism of gpu.js is transcompiling JavaScript functions
+into WebGL shaders (GLSL). These shaders are dispatched directly to the
+host machine's graphics processing unit (GPU) through the browser's
+WebGL API. Because the WebGL API interfaces directly with the local
+operating system and graphics drivers, it operates entirely client-side.
+The network state of the application has no bearing on the ability of
+the browser engine to interact with the local GPU.</p>
+<h3 id="standalone-and-offline-requirements">Standalone and Offline
+Requirements</h3>
+<p>To run gpu.js inside an offline, standalone PWA, the application must
+manage its assets properly through standard PWA architecture:</p>
+<ol type="1">
+<li><strong>Service Worker Caching:</strong> The gpu.js library (whether
+imported via a bundle, npm, or a local static file) must be explicitly
+cached by the application's Service Worker during the
+<code>install</code> phase. Using the Cache API ensures that the entire
+runtime is available without internet access.</li>
+<li><strong>Web App Manifest:</strong> For the standalone mode to
+trigger, a valid <code>manifest.json</code> configured with
+<code>"display": "standalone"</code> is required. When launched from the
+user's home screen or desktop, the application executes within its own
+dedicated browser container, maintaining full access to the WebGL
+context.</li>
+<li><strong>No External Network Calls:</strong> Ensure that the
+computational kernels defined in gpu.js do not expect dynamic network
+inputs or rely on external CDN resources after initial
+installation.</li>
+</ol>
+<h3 id="handling-hardware-fallbacks">Handling Hardware Fallbacks</h3>
+<p>While gpu.js will successfully initialize offline, hardware support
+varies across target devices:</p>
+<ul>
+<li><strong>Fallback Mode:</strong> If a user's device lacks WebGL
+support or has disabled hardware acceleration, gpu.js automatically
+falls back to standard multi-threaded or single-threaded CPU execution.
+This fallback also operates completely offline.</li>
+<li><strong>Context Loss:</strong> In standalone mobile PWAs, moving the
+application to the background can occasionally cause the browser to
+reclaim GPU memory (triggering a <code>webglcontextlost</code> event).
+Robust offline applications should listen for this event and
+re-initialize their gpu.js kernels when the application resumes
+focus.</li>
+</ul>
+<p>By pre-caching the required script assets and leveraging the
+browser's native WebGL bindings, gpu.js delivers accelerated local
+compute capabilities in fully disconnected environments.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

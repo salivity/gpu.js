@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Precision in GPU.js: Highp, Mediump, Lowp - gpu.js</title>
+    <meta name="description" content="When running accelerated JavaScript using GPU.js, code is transpiled into WebGL Shading Language (GLSL) to execute directly on the graphics card. Inside these generated shaders, floating-point and integer values must be qualified with highp, mediump, or">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-precision-in-gpu-js-highp-mediump-lowp">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL Precision in GPU.js: Highp, Mediump, Lowp - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-precision-in-gpu-js-highp-mediump-lowp" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When running accelerated JavaScript using GPU.js, code is transpiled into WebGL Shading Language (GLSL) to execute directly on the graphics card. Inside these generated shaders, floating-point and integer values must be qualified with highp, mediump, or" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl-precision-in-gpujs-highp-mediump-lowp">WebGL Precision in
+GPU.js: Highp, Mediump, Lowp</h1>
+<p>When running accelerated JavaScript using GPU.js, code is transpiled
+into WebGL Shading Language (GLSL) to execute directly on the graphics
+card. Inside these generated shaders, floating-point and integer values
+must be qualified with <code>highp</code>, <code>mediump</code>, or
+<code>lowp</code> to define their bit-depth and numerical range. This
+article explains why WebGL enforces these precision qualifiers, how they
+balance computational accuracy against hardware performance, and what
+role they play in GPU.js kernel execution.</p>
+<h3 id="the-origin-opengl-es-and-webgl-architecture">The Origin: OpenGL
+ES and WebGL Architecture</h3>
+<p>WebGL is based on OpenGL ES (Embedded Systems), a graphics
+specification originally tailored for mobile devices and embedded
+hardware with strictly limited memory and processing power. Unlike
+standard desktop OpenGL, where 32-bit floating-point math is universally
+standard, OpenGL ES required developers to explicitly declare the
+required arithmetic precision to conserve power, memory bandwidth, and
+register allocation.</p>
+<p>Because GPU.js translates JavaScript functions into GLSL shaders
+under the hood, it directly inherits these WebGL constraints. Without
+precision qualifiers, WebGL fragment shaders fail to compile.</p>
+<h3 id="definition-of-precision-qualifiers">Definition of Precision
+Qualifiers</h3>
+<p>GLSL defines three distinct precision levels for floating-point and
+integer types:</p>
+<ul>
+<li><strong><code>highp</code> (High Precision):</strong> Uses a minimum
+of 32-bit floating-point representation (comparable to standard IEEE 754
+single-precision floats). It provides a 24-bit mantissa with an exponent
+range from -62 to 62. This format avoids truncation and rounding errors
+during iterative arithmetic and coordinate calculations.</li>
+<li><strong><code>mediump</code> (Medium Precision):</strong> Uses a
+minimum of 16-bit floating-point representation (half precision). It
+provides a 10-bit mantissa with an exponent range from -14 to 14. It is
+significantly faster on mobile GPUs but can introduce noticeable
+rounding artifacts in complex numerical routines.</li>
+<li><strong><code>lowp</code> (Low Precision):</strong> Uses an 8-bit to
+10-bit representation, typically mapped to fixed-point ranges such as
+-2.0 to 2.0. It is suitable primarily for simple color components and
+normalized values.</li>
+</ul>
+<h3 id="why-gpujs-defaults-to-highp">Why GPU.js Defaults to
+<code>highp</code></h3>
+<p>JavaScript natively uses double-precision (64-bit) floating-point
+numbers for all numeric calculations. When a developer writes
+mathematical algorithms in GPU.js, they typically expect numerical
+stability close to standard JavaScript behavior.</p>
+<p>Because of this expectation, GPU.js generates shaders that declare
+<code>precision highp float;</code> at the top of the generated code.
+Using <code>highp</code> ensures:</p>
+<ol type="1">
+<li><strong>Numerical Stability:</strong> Matrix multiplication, neural
+network training, and scientific simulations require sufficient
+bit-depth to prevent values from collapsing into zero or overflowing to
+infinity.</li>
+<li><strong>Parity with CPU Fallbacks:</strong> GPU.js provides fallback
+execution on the CPU when WebGL is unavailable. <code>highp</code>
+minimizes numerical drift between GPU output and CPU output.</li>
+</ol>
+<h3 id="hardware-impact-and-performance-trade-offs">Hardware Impact and
+Performance Trade-Offs</h3>
+<p>While modern desktop GPUs almost always run arithmetic at full 32-bit
+precision regardless of qualifiers, mobile and integrated GPUs
+physically alter their hardware paths based on the precision
+specified:</p>
+<ul>
+<li><strong>Register Allocation:</strong> Lower precision
+(<code>mediump</code> or <code>lowp</code>) allows the GPU's execution
+units to pack multiple values into a single register, enabling greater
+thread concurrency and throughput.</li>
+<li><strong>Memory Bandwidth:</strong> Storing textures and buffers at
+lower precision reduces the memory footprint and the bandwidth required
+to stream data to and from the GPU cores.</li>
+<li><strong>Power Consumption:</strong> On mobile chipsets, 16-bit
+floating-point ALUs consume substantially less power and generate less
+heat than 32-bit ALUs.</li>
+</ul>
+<p>Precision qualifies as <code>highp</code>, <code>mediump</code>, or
+<code>lowp</code> in GPU.js because WebGL must instruct the GPU compiler
+how to allocate hardware registers and arithmetic pipelines across
+diverse computing environments.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

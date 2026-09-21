@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Measuring GPU.js Kernel and Memory Transfer Time - gpu.js</title>
+    <meta name="description" content="This article explains how to accurately benchmark and separate raw kernel execution time from memory transfer overhead in gpu.js. By default, running a standard gpu.js kernel bundles host-to-device data upload, shader execution, and device-to-host readba">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/measuring-gpu-js-kernel-and-memory-transfer-time">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Measuring GPU.js Kernel and Memory Transfer Time - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/measuring-gpu-js-kernel-and-memory-transfer-time" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to accurately benchmark and separate raw kernel execution time from memory transfer overhead in gpu.js. By default, running a standard gpu.js kernel bundles host-to-device data upload, shader execution, and device-to-host readba" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="measuring-gpujs-kernel-and-memory-transfer-time">Measuring
+GPU.js Kernel and Memory Transfer Time</h1>
+<p>This article explains how to accurately benchmark and separate raw
+kernel execution time from memory transfer overhead in gpu.js. By
+default, running a standard gpu.js kernel bundles host-to-device data
+upload, shader execution, and device-to-host readback into a single
+operation. To isolate these metrics, developers must utilize texture
+outputs via pipeline mode and JavaScript’s High Resolution Timer to
+measure each phase independently.</p>
+<h3 id="understanding-the-gpujs-pipeline-overhead">Understanding the
+GPU.js Pipeline Overhead</h3>
+<p>When executing a kernel with standard JavaScript arrays, gpu.js
+performs three distinct operations:</p>
+<ol type="1">
+<li><strong>CPU-to-GPU Transfer:</strong> Converts JavaScript arrays
+into WebGL textures and uploads them to the GPU.</li>
+<li><strong>Kernel Execution:</strong> Executes the WebGL fragment
+shader across the specified output dimensions.</li>
+<li><strong>GPU-to-CPU Transfer:</strong> Reads pixels back from the GPU
+frame buffer via <code>gl.readPixels</code> and formats them into a
+standard JavaScript array.</li>
+</ol>
+<p>Because WebGL API calls are asynchronous, timing a basic
+<code>kernel(array)</code> call measures the sum of all three phases
+rather than the raw compute speed.</p>
+<h3 id="separating-compute-from-transfer-with-pipeline-mode">Separating
+Compute from Transfer with Pipeline Mode</h3>
+<p>To isolate raw execution time, you must prevent gpu.js from
+automatically transferring the result back to the CPU. Enabling
+<code>pipeline: true</code> forces the kernel to return a WebGL texture
+that remains in GPU memory.</p>
+<h4 id="1-configure-the-kernels">1. Configure the Kernels</h4>
+<p>Set up an input preparation kernel (or pipeline your input) alongside
+the computation kernel with pipelining enabled:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel configured with pipeline mode enabled</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(inputTexture) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> inputTexture[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000000</span>])</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h4 id="2-measuring-cpu-to-gpu-upload-time">2. Measuring CPU-to-GPU
+Upload Time</h4>
+<p>To measure memory upload time, isolate the creation of the input
+texture on the GPU:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rawData <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="dv">1000000</span>)<span class="op">.</span><span class="fu">fill</span>(<span class="fl">1.5</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Measure upload time by creating a GPU-resident texture</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> uploadStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> inputTexture <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000000</span>])</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)(rawData)<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> uploadEnd <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cpuToGpuTime <span class="op">=</span> uploadEnd <span class="op">-</span> uploadStart<span class="op">;</span></span></code></pre></div>
+<h4 id="3-measuring-raw-kernel-execution-time">3. Measuring Raw Kernel
+Execution Time</h4>
+<p>Pass the pre-allocated texture directly into the target kernel.
+Because the output is retained on the GPU as a texture, CPU readback
+overhead is eliminated:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> execStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Execute kernel: Texture In -&gt; Texture Out</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> resultTexture <span class="op">=</span> <span class="fu">computeKernel</span>(inputTexture)<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> execEnd <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rawExecutionTime <span class="op">=</span> execEnd <span class="op">-</span> execStart<span class="op">;</span></span></code></pre></div>
+<h4 id="4-measuring-gpu-to-cpu-readback-time">4. Measuring GPU-to-CPU
+Readback Time</h4>
+<p>To capture the device-to-host transfer time, explicitly call
+<code>.toArray()</code> on the returned texture. This triggers
+<code>gl.readPixels</code>, synchronizes the execution pipeline, and
+transfers the data back into system memory:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> downloadStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Force GPU synchronization and memory readback</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cpuArray <span class="op">=</span> resultTexture<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> downloadEnd <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpuToCpuTime <span class="op">=</span> downloadEnd <span class="op">-</span> downloadStart<span class="op">;</span></span></code></pre></div>
+<h3 id="analyzing-the-results">Analyzing the Results</h3>
+<p>After gathering the measurements:</p>
+<ul>
+<li><strong>Memory Transfer Time:</strong>
+<code>cpuToGpuTime + gpuToCpuTime</code> represents the total I/O cost
+of interacting with the graphics hardware.</li>
+<li><strong>Compute Time:</strong> <code>rawExecutionTime</code>
+reflects only the time spent queuing and running the shader
+operations.</li>
+</ul>
+<p>If the combined memory transfer time significantly exceeds the raw
+execution time, the algorithm is memory-bound, and operations should be
+chained together in pipeline mode to minimize CPU-GPU round trips.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

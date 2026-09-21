@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Polynomial Root Finding via Companion Matrix - gpu.js</title>
+    <meta name="description" content="This article explains how to parallelize polynomial root finding in JavaScript by formulating the problem as an eigenvalue computation of a companion matrix and offloading the workload to the GPU using GPU.js. It details the construction of the Frobenius">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-polynomial-root-finding-via-companion-matrix">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Polynomial Root Finding via Companion Matrix - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-polynomial-root-finding-via-companion-matrix" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to parallelize polynomial root finding in JavaScript by formulating the problem as an eigenvalue computation of a companion matrix and offloading the workload to the GPU using GPU.js. It details the construction of the Frobenius" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-polynomial-root-finding-via-companion-matrix">GPU.js
+Polynomial Root Finding via Companion Matrix</h1>
+<p>This article explains how to parallelize polynomial root finding in
+JavaScript by formulating the problem as an eigenvalue computation of a
+companion matrix and offloading the workload to the GPU using GPU.js. It
+details the construction of the Frobenius companion matrix, outlines the
+iterative QR algorithm used for eigenvalue extraction, and demonstrates
+how to implement compute kernels for both single high-degree polynomials
+and large-scale batch polynomial evaluation.</p>
+<h2 id="the-companion-matrix-formulation">The Companion Matrix
+Formulation</h2>
+<p>Given a monic polynomial of degree <span
+class="math inline">\(n\)</span>:</p>
+<p><span class="math display">\[P(x) = x^n + a_{n-1}x^{n-1} + \dots +
+a_1x + a_0\]</span></p>
+<p>Its roots are identical to the eigenvalues of its companion matrix
+<span class="math inline">\(C \in \mathbb{R}^{n \times n}\)</span>. A
+standard Frobenius companion matrix has the form:</p>
+<p><span class="math display">\[C = \begin{bmatrix}
+0 &amp; 0 &amp; \dots &amp; 0 &amp; -a_0 \\
+1 &amp; 0 &amp; \dots &amp; 0 &amp; -a_{n-1} \\
+0 &amp; 1 &amp; \dots &amp; 0 &amp; -a_{n-2} \\
+\vdots &amp; \vdots &amp; \ddots &amp; \vdots &amp; \vdots \\
+0 &amp; 0 &amp; \dots &amp; 1 &amp; -a_{n-1}
+\end{bmatrix}\]</span></p>
+<p>Computing the eigenvalues of <span class="math inline">\(C\)</span>
+reveals all real and complex roots of <span
+class="math inline">\(P(x)\)</span> without requiring initial root
+estimates.</p>
+<h2 id="parallelization-strategies-in-gpujs">Parallelization Strategies
+in GPU.js</h2>
+<p>Eigenvalue computation typically relies on the iterative QR algorithm
+(<span class="math inline">\(A_{k+1} = R_k Q_k\)</span>). Because the QR
+algorithm is inherently iterative, parallelization must be targeted
+appropriately depending on the workload:</p>
+<ol type="1">
+<li><strong>Batch Parallelism (Many Polynomials):</strong> Ideal for
+low-to-medium degree polynomials evaluated across thousands of inputs.
+Each GPU thread runs the QR algorithm on a distinct companion matrix
+independently.</li>
+<li><strong>Matrix-Level Parallelism (Single High-Degree
+Polynomial):</strong> Ideal for very large matrices (<span
+class="math inline">\(n &gt; 100\)</span>). Each step of the QR
+decomposition—specifically matrix-matrix multiplications and orthogonal
+transformations—is mapped across a 2D grid of GPU threads.</li>
+</ol>
+<h2 id="implementing-batch-companion-matrix-solvers">Implementing Batch
+Companion Matrix Solvers</h2>
+<p>When evaluating thousands of polynomials simultaneously, map each
+polynomial to a thread index. GPU.js executes each thread over WebGL
+compute shaders.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to construct companion matrices in parallel for M polynomials of degree N</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> buildCompanionMatrices <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(coefficients<span class="op">,</span> n) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> polyIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Last column contains negated coefficients</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (col <span class="op">===</span> n <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="op">-</span>coefficients[polyIdx][row]<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Subdiagonal contains ones</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (row <span class="op">===</span> col <span class="op">+</span> <span class="dv">1</span>) {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="co">// All other entries are zero</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N<span class="op">,</span> M])<span class="op">;</span></span></code></pre></div>
+<h2
+id="parallelizing-the-qr-step-for-large-companion-matrices">Parallelizing
+the QR Step for Large Companion Matrices</h2>
+<p>For a single large companion matrix, parallelize the underlying
+linear algebra operations. The standard shifted QR step involves:</p>
+<ol type="1">
+<li><strong>Orthogonalization (<span class="math inline">\(Q\)</span>
+and <span class="math inline">\(R\)</span> extraction):</strong>
+Parallelized using block Householder reflectors or parallel Givens
+rotations.</li>
+<li><strong>Similarity Update (<span class="math inline">\(A_{k+1} = R
+Q\)</span>):</strong> Parallel matrix multiplication, which maps
+directly to 2D GPU.js kernels.</li>
+</ol>
+<h3 id="parallel-matrix-multiplication-kernel">Parallel Matrix
+Multiplication Kernel</h3>
+<p>The similarity transformation step requires repeated matrix
+multiplications:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiplyMatrices <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(A<span class="op">,</span> B<span class="op">,</span> n) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> n<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> A[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> B[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Retain output in GPU VRAM to avoid transfer overhead</span></span></code></pre></div>
+<p>By setting <code>pipeline: true</code>, intermediate matrices remain
+in GPU memory between iterations, eliminating CPU-GPU memory bus
+bottlenecks during convergence loops.</p>
+<h2 id="handling-complex-roots">Handling Complex Roots</h2>
+<p>Companion matrices of real polynomials often produce complex
+conjugate pairs. Because standard single-thread scalar registers in
+GPU.js operate on real numbers, complex eigenvalues must be extracted
+from the quasi-triangular real Schur form produced by the Francis
+double-shift QR algorithm.</p>
+<p>In this form:</p>
+<ul>
+<li>Real roots appear directly as <span class="math inline">\(1 \times
+1\)</span> blocks on the diagonal.</li>
+<li>Complex conjugate roots <span class="math inline">\((\lambda =
+\alpha \pm \beta i)\)</span> appear as <span class="math inline">\(2
+\times 2\)</span> blocks along the diagonal:</li>
+</ul>
+<p><span class="math display">\[\begin{bmatrix} a &amp; b \\ c &amp; d
+\end{bmatrix} \implies \lambda = \frac{a + d}{2} \pm \frac{\sqrt{4bc +
+(a - d)^2}}{2}\]</span></p>
+<p>A final extraction kernel scans the diagonal in parallel, flags <span
+class="math inline">\(2 \times 2\)</span> non-zero subdiagonal blocks,
+and computes the real and imaginary components directly on the GPU.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

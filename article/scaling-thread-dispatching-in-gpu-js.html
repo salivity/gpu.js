@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scaling Thread Dispatching in gpu.js - gpu.js</title>
+    <meta name="description" content="This article examines how gpu.js handles massively parallel workloads, specifically analyzing how thread dispatching scales when processing millions of data elements. By compiling JavaScript functions into WebGL shaders, gpu.js delegates execution to the">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/scaling-thread-dispatching-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Scaling Thread Dispatching in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/scaling-thread-dispatching-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how gpu.js handles massively parallel workloads, specifically analyzing how thread dispatching scales when processing millions of data elements. By compiling JavaScript functions into WebGL shaders, gpu.js delegates execution to the" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="scaling-thread-dispatching-in-gpujs">Scaling Thread Dispatching
+in gpu.js</h1>
+<p>This article examines how gpu.js handles massively parallel
+workloads, specifically analyzing how thread dispatching scales when
+processing millions of data elements. By compiling JavaScript functions
+into WebGL shaders, gpu.js delegates execution to the underlying GPU
+hardware scheduler. Understanding this architecture reveals how thread
+dispatching moves from a linear CPU execution model to a highly parallel
+GPU pipeline, where millions of threads are scheduled, distributed
+across hardware compute units, and constrained by memory bandwidth
+rather than instruction count.</p>
+<h2 id="the-dispatch-architecture">The Dispatch Architecture</h2>
+<p>When you define an execution grid in gpu.js using
+<code>kernel.setOutput([width, height])</code>, you are not spawning
+individual software threads. Instead, gpu.js transpiles the JavaScript
+kernel into a WebGL shader program.</p>
+<p>In standard WebGL-based gpu.js modes, execution relies on fragment
+shaders. To evaluate millions of parallel elements, gpu.js binds a
+texture of the corresponding output dimensions, sets an identical
+viewport size, and renders a screen-aligned quad consisting of two
+triangles. The GPU rasterizer breaks this quad into fragments,
+automatically generating one thread invocation per target output pixel.
+When WebGL 2.0 Compute is supported, gpu.js maps the output dimensions
+to compute shader workgroups instead, dispatching threads across
+explicit local and global coordinate spaces.</p>
+<h2 id="hardware-scaling-and-latency-hiding">Hardware Scaling and
+Latency Hiding</h2>
+<p>GPUs rely on massive parallelism to achieve high throughput, making
+workloads with millions of elements ideal for their execution model.</p>
+<ul>
+<li><strong>Warps and Wavefronts:</strong> The GPU's hardware scheduler
+groups threads into fixed-size units—warps of 32 threads on NVIDIA
+hardware or wavefronts of 32 to 64 threads on AMD hardware. Millions of
+individual operations are partitioned into tens of thousands of these
+groups.</li>
+<li><strong>Occupancy and Scheduling:</strong> Streaming Multiprocessors
+(SMs) or Compute Units (CUs) cycle between active warps on every clock
+cycle. When one warp encounters a high-latency operation, such as
+sampling from an input texture or accessing global device memory, the
+scheduler instantly switches to another ready warp without
+context-switch penalties.</li>
+<li><strong>Saturation:</strong> At low element counts (e.g., tens of
+thousands), GPU compute units are underutilized, and CPU-to-GPU dispatch
+overhead dominates run time. Scaling to millions of elements saturates
+all compute units, driving the GPU to maximum execution efficiency where
+latency is effectively masked.</li>
+</ul>
+<h2 id="managing-architectural-constraints-at-scale">Managing
+Architectural Constraints at Scale</h2>
+<p>Handling millions of threads through a WebGL abstraction introduces
+specific limitations that gpu.js must manage to prevent driver crashes
+or execution failures.</p>
+<h3 id="texture-dimension-limits">Texture Dimension Limits</h3>
+<p>GPUs enforce a hardware limit on single-dimension textures, defined
+by <code>gl.MAX_TEXTURE_SIZE</code> (typically 4,096 to 16,384 pixels
+depending on the device). A flat 1D array of 16 million elements cannot
+be mapped into a single 1D texture line. gpu.js overcomes this by
+automatically mapping 1D and 3D output topologies into 2D textures. A 1D
+array of 4,194,304 elements is dispatched as a 2048×2048 grid, with
+thread coordinates internally decoded within the generated shader code
+using modular arithmetic.</p>
+<h3 id="memory-overhead-and-serialization">Memory Overhead and
+Serialization</h3>
+<p>While thread dispatching on the GPU itself scales with near-linear
+hardware efficiency, data movement scales strictly by memory bus
+bandwidth. The bottleneck at multi-million element scales shifts from
+thread dispatch to data transmission:</p>
+<ol type="1">
+<li><strong>Input Packing:</strong> JavaScript arrays must be converted
+to typed arrays (<code>Float32Array</code>) and uploaded as
+textures.</li>
+<li><strong>Execution:</strong> The shader runs across millions of
+fragments in parallel.</li>
+<li><strong>Output Readback:</strong> The host must retrieve the results
+using <code>gl.readPixels()</code>.</li>
+</ol>
+<p>Because <code>gl.readPixels()</code> forces a pipeline stall—blocking
+the CPU until the GPU finishes executing all dispatched
+threads—retrieving millions of elements introduces measurable
+synchronization latency.</p>
+<h2 id="optimizing-for-multi-million-thread-kernels">Optimizing for
+Multi-Million Thread Kernels</h2>
+<p>To maintain high throughput when dispatching millions of threads in
+gpu.js:</p>
+<ul>
+<li><strong>Enable Pipeline Mode:</strong> Use
+<code>kernel.setPipeline(true)</code> when chaining computations. This
+keeps output buffers stored directly on the GPU as textures for the next
+kernel to consume, entirely bypassing host-device data readbacks.</li>
+<li><strong>Align Dimensions to Warp Sizes:</strong> Ensure the
+innermost output dimension is a multiple of 32 or 64. Misaligned outputs
+create partially filled warps at grid edges, leading to thread
+divergence and unutilized compute cycles.</li>
+<li><strong>Minimize Control Flow Divergence:</strong> When writing
+kernel logic, avoid data-dependent <code>if/else</code> branches. If
+threads within the same 32-thread warp take different execution paths,
+the hardware serializes those branches, halving effective throughput
+across that warp.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

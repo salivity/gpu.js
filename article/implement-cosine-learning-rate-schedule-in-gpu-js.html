@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implement Cosine Learning Rate Schedule in GPU.js - gpu.js</title>
+    <meta name="description" content="This article demonstrates how to implement a cosine annealing learning rate schedule within a machine learning orchestration loop using GPU.js. You will explore the mathematical formulation of cosine decay, learn how to integrate dynamic scalar hyperpara">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/implement-cosine-learning-rate-schedule-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Implement Cosine Learning Rate Schedule in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/implement-cosine-learning-rate-schedule-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article demonstrates how to implement a cosine annealing learning rate schedule within a machine learning orchestration loop using GPU.js. You will explore the mathematical formulation of cosine decay, learn how to integrate dynamic scalar hyperpara" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="implement-cosine-learning-rate-schedule-in-gpujs">Implement
+Cosine Learning Rate Schedule in GPU.js</h1>
+<p>This article demonstrates how to implement a cosine annealing
+learning rate schedule within a machine learning orchestration loop
+using GPU.js. You will explore the mathematical formulation of cosine
+decay, learn how to integrate dynamic scalar hyperparameter updates into
+parallelized GPU execution, and implement a clean, high-performance
+training loop in JavaScript.</p>
+<h2 id="understanding-the-cosine-learning-rate-schedule">Understanding
+the Cosine Learning Rate Schedule</h2>
+<p>The cosine annealing schedule adjusts the learning rate <span
+class="math inline">\(\eta_t\)</span> at any given step <span
+class="math inline">\(t\)</span> between a maximum learning rate (<span
+class="math inline">\(\eta_{max}\)</span>) and a minimum target (<span
+class="math inline">\(\eta_{min}\)</span>) across total steps <span
+class="math inline">\(T\)</span>:</p>
+<p><span class="math display">\[\eta_t = \eta_{min} + \frac{1}{2}
+(\eta_{max} - \eta_{min}) \left(1 + \cos\left(\frac{t}{T}
+\pi\right)\right)\]</span></p>
+<p>This approach provides smooth, gradual warm-down transitions without
+requiring abrupt step drops.</p>
+<h2 id="architectural-approach-with-gpujs">Architectural Approach with
+GPU.js</h2>
+<p>When orchestrating a training pipeline with GPU.js, learning rate
+calculations are scalar operations. Computing a single scalar per
+iteration directly inside a massively parallel GPU kernel introduces
+unnecessary dispatch overhead.</p>
+<p>The most efficient architecture uses a hybrid approach:</p>
+<ol type="1">
+<li><strong>CPU Execution:</strong> Compute the dynamic learning rate
+scalar inside the JavaScript orchestration loop per batch or epoch.</li>
+<li><strong>GPU Execution:</strong> Pass the calculated learning rate as
+a dynamic argument to the GPU.js weight-update kernel, which executes
+the element-wise weight and gradient calculations in parallel on the
+GPU.</li>
+</ol>
+<h2 id="step-by-step-implementation">Step-by-Step Implementation</h2>
+<h3 id="1-define-the-weight-update-kernel">1. Define the Weight Update
+Kernel</h3>
+<p>Create a GPU.js kernel that accepts the current weights, calculated
+gradients, and the updated learning rate scalar to perform gradient
+descent updates in parallel.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateWeightsKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(weights<span class="op">,</span> gradients<span class="op">,</span> learningRate) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> weights[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">-</span> (learningRate <span class="op">*</span> gradients[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>])<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000</span>])<span class="op">;</span> <span class="co">// Matches parameter vector length</span></span></code></pre></div>
+<h3 id="2-define-the-cosine-calculation-function">2. Define the Cosine
+Calculation Function</h3>
+<p>Implement a helper function to determine the learning rate for any
+step in the schedule.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getCosineLearningRate</span>(currentStep<span class="op">,</span> totalSteps<span class="op">,</span> baseLr<span class="op">,</span> minLr <span class="op">=</span> <span class="fl">0.0</span>) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (currentStep <span class="op">&gt;=</span> totalSteps) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> minLr<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> decayRatio <span class="op">=</span> currentStep <span class="op">/</span> totalSteps<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cosineDecay <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (<span class="dv">1</span> <span class="op">+</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(<span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">*</span> decayRatio))<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> minLr <span class="op">+</span> (baseLr <span class="op">-</span> minLr) <span class="op">*</span> cosineDecay<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="3-build-the-orchestration-loop">3. Build the Orchestration
+Loop</h3>
+<p>Integrate the scheduler calculation into the main training iteration.
+The loop updates the learning rate at each step and dispatches the
+execution to the GPU kernel.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Hyperparameters</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> totalSteps <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> baseLr <span class="op">=</span> <span class="fl">0.01</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> minLr <span class="op">=</span> <span class="fl">0.0001</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> parameterCount <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize mock weights and gradients</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> weights <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(parameterCount)<span class="op">.</span><span class="fu">fill</span>(<span class="fl">0.5</span>)<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> gradients <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(parameterCount)<span class="op">.</span><span class="fu">fill</span>(<span class="fl">0.01</span>)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="co">// Orchestration Loop</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> step <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> step <span class="op">&lt;</span> totalSteps<span class="op">;</span> step<span class="op">++</span>) {</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 1. Calculate dynamic learning rate on the CPU</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentLr <span class="op">=</span> <span class="fu">getCosineLearningRate</span>(step<span class="op">,</span> totalSteps<span class="op">,</span> baseLr<span class="op">,</span> minLr)<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 2. Dispatch the update kernel to the GPU</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    weights <span class="op">=</span> <span class="fu">updateWeightsKernel</span>(weights<span class="op">,</span> gradients<span class="op">,</span> currentLr)<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 3. Periodic logging</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (step <span class="op">%</span> <span class="dv">100</span> <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> step <span class="op">===</span> totalSteps <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>        <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Step </span><span class="sc">${</span>step<span class="sc">}</span><span class="vs"> | Learning Rate: </span><span class="sc">${</span>currentLr<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">6</span>)<span class="sc">}</span><span class="vs"> | Sample Weight: </span><span class="sc">${</span>weights[<span class="dv">0</span>]<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">5</span>)<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Memory Transfers:</strong> Re-allocating typed arrays on
+each iteration causes GPU-to-CPU transfer bottlenecks. To maximize
+throughput, use <code>updateWeightsKernel.setPipeline(true)</code> when
+chaining multiple operations, keeping the updated weights inside GPU
+memory between iterations.</li>
+<li><strong>Warm Restarts:</strong> To implement Cosine Annealing with
+Warm Restarts (SGDR), reset the <code>currentStep</code> counter back to
+zero periodically according to your restart interval <span
+class="math inline">\(T_i\)</span>.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

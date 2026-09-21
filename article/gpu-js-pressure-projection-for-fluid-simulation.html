@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Pressure Projection for Fluid Simulation - gpu.js</title>
+    <meta name="description" content="Enforcing mass conservation and a zero-divergence velocity field in incompressible fluid simulations relies on the Chorin pressure-projection method. In a Eulerian grid, an intermediate velocity field computed after advection and external forces often vi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-pressure-projection-for-fluid-simulation">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Pressure Projection for Fluid Simulation - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-pressure-projection-for-fluid-simulation" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Enforcing mass conservation and a zero-divergence velocity field in incompressible fluid simulations relies on the Chorin pressure-projection method. In a Eulerian grid, an intermediate velocity field computed after advection and external forces often vi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-pressure-projection-for-fluid-simulation">GPU.js Pressure
+Projection for Fluid Simulation</h1>
+<p>Enforcing mass conservation and a zero-divergence velocity field in
+incompressible fluid simulations relies on the Chorin
+pressure-projection method. In a Eulerian grid, an intermediate velocity
+field computed after advection and external forces often violates
+incompressibility (<span class="math inline">\(\nabla \cdot \mathbf{u}
+\neq 0\)</span>). By formulating and solving a Poisson pressure
+equation, the divergent component of the velocity field is calculated
+and subsequently subtracted. This article explains how to translate this
+mathematical projection into parallelized GPU compute kernels using
+<code>gpu.js</code> via divergence computation, Jacobi iteration, and
+gradient subtraction.</p>
+<h3 id="mathematical-foundation-of-pressure-projection">Mathematical
+Foundation of Pressure Projection</h3>
+<p>The Helmholtz-Hodge decomposition states that any vector field can be
+uniquely resolved into a divergence-free component and a curl-free
+(gradient of a scalar) component:</p>
+<p><span class="math display">\[\mathbf{w} = \mathbf{u} + \nabla
+p\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(\mathbf{w}\)</span> is the
+non-divergence-free intermediate velocity field.</li>
+<li><span class="math inline">\(\mathbf{u}\)</span> is the
+divergence-free velocity field (<span class="math inline">\(\nabla \cdot
+\mathbf{u} = 0\)</span>).</li>
+<li><span class="math inline">\(p\)</span> is the scalar pressure
+field.</li>
+</ul>
+<p>Taking the divergence of both sides yields the Poisson equation for
+pressure:</p>
+<p><span class="math display">\[\nabla^2 p = \nabla \cdot
+\mathbf{w}\]</span></p>
+<p>Once <span class="math inline">\(p\)</span> is solved, the final
+divergence-free velocity is recovered by subtracting the pressure
+gradient:</p>
+<p><span class="math display">\[\mathbf{u} = \mathbf{w} - \nabla
+p\]</span></p>
+<h3 id="step-1-compute-divergence-kernel">Step 1: Compute Divergence
+Kernel</h3>
+<p>The first step evaluates the divergence field across the discrete 2D
+grid. Central differences are applied to determine how much fluid is
+entering or leaving each cell.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDivergence <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(velocity<span class="op">,</span> dx) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Handle boundaries with zero-velocity assumption or clamp</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> left   <span class="op">=</span> (x <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> velocity[y][x <span class="op">-</span> <span class="dv">1</span>][<span class="dv">0</span>] <span class="op">:</span> <span class="op">-</span>velocity[y][x][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> right  <span class="op">=</span> (x <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> velocity[y][x <span class="op">+</span> <span class="dv">1</span>][<span class="dv">0</span>] <span class="op">:</span> <span class="op">-</span>velocity[y][x][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bottom <span class="op">=</span> (y <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> velocity[y <span class="op">-</span> <span class="dv">1</span>][x][<span class="dv">1</span>] <span class="op">:</span> <span class="op">-</span>velocity[y][x][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> top    <span class="op">=</span> (y <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> velocity[y <span class="op">+</span> <span class="dv">1</span>][x][<span class="dv">1</span>] <span class="op">:</span> <span class="op">-</span>velocity[y][x][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Divergence: (du/dx + dv/dy)</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.5</span> <span class="op">*</span> ((right <span class="op">-</span> left) <span class="op">+</span> (top <span class="op">-</span> bottom)) <span class="op">/</span> dx<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ <span class="dt">width</span><span class="op">:</span> N<span class="op">,</span> <span class="dt">height</span><span class="op">:</span> N })</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="step-2-solve-the-pressure-poisson-equation">Step 2: Solve the
+Pressure Poisson Equation</h3>
+<p>The Poisson equation (<span class="math inline">\(\nabla^2 p =
+\text{div}\)</span>) forms a sparse linear system. While conjugate
+gradient methods converge in fewer iterations, the Jacobi iterative
+method maps efficiently to GPU architectures because each cell updates
+simultaneously based exclusively on neighbor values from the previous
+iteration.</p>
+<p>The discrete Laplacian update rule is:</p>
+<p><span class="math display">\[p^{k+1}_{i,j} = \frac{p^k_{i+1,j} +
+p^k_{i-1,j} + p^k_{i,j+1} + p^k_{i,j-1} - (\Delta x^2) \cdot
+\text{div}_{i,j}}{4}\]</span></p>
+<p>In <code>gpu.js</code>, this requires a kernel executed over multiple
+iterations (typically 20 to 80 iterations for visual plausibility).
+Neumann boundary conditions (<span class="math inline">\(\frac{\partial
+p}{\partial n} = 0\)</span>) are enforced at the edges so fluid does not
+artificially escape the domain.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> solveJacobi <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(pressure<span class="op">,</span> divergence<span class="op">,</span> dx) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Neumann boundary conditions: copy neighboring pressure at borders</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pL <span class="op">=</span> (x <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> pressure[y][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pR <span class="op">=</span> (x <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> pressure[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pB <span class="op">=</span> (y <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> pressure[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pT <span class="op">=</span> (y <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> pressure[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> div <span class="op">=</span> divergence[y][x]<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (pL <span class="op">+</span> pR <span class="op">+</span> pB <span class="op">+</span> pT <span class="op">-</span> (div <span class="op">*</span> dx <span class="op">*</span> dx)) <span class="op">*</span> <span class="fl">0.25</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ <span class="dt">width</span><span class="op">:</span> N<span class="op">,</span> <span class="dt">height</span><span class="op">:</span> N })</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>To execute this without memory read/write race conditions, alternate
+the input and output textures using ping-pong buffering between two
+allocated pressure buffers:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> pIn <span class="op">=</span> initialPressureTexture<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> pOut <span class="op">=</span> alternatePressureTexture<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">40</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    pOut <span class="op">=</span> <span class="fu">solveJacobi</span>(pIn<span class="op">,</span> divergenceTexture<span class="op">,</span> dx)<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Swap references for next iteration</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> temp <span class="op">=</span> pIn<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    pIn <span class="op">=</span> pOut<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    pOut <span class="op">=</span> temp<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="step-3-gradient-subtraction-kernel">Step 3: Gradient Subtraction
+Kernel</h3>
+<p>After calculating the pressure field, its spatial gradient <span
+class="math inline">\(\nabla p\)</span> is subtracted from the
+intermediate velocity <span class="math inline">\(\mathbf{w}\)</span> to
+yield the mass-conserving velocity field <span
+class="math inline">\(\mathbf{u}\)</span>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> projectVelocity <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(velocity<span class="op">,</span> pressure<span class="op">,</span> dx) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Enforce boundary clamping on pressure field</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pL <span class="op">=</span> (x <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> pressure[y][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pR <span class="op">=</span> (x <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> pressure[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pB <span class="op">=</span> (y <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> pressure[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pT <span class="op">=</span> (y <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> pressure[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">:</span> pressure[y][x]<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute central difference gradient</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gradX <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (pR <span class="op">-</span> pL) <span class="op">/</span> dx<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gradY <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (pT <span class="op">-</span> pB) <span class="op">/</span> dx<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> u <span class="op">=</span> velocity[y][x][<span class="dv">0</span>] <span class="op">-</span> gradX<span class="op">;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> v <span class="op">=</span> velocity[y][x][<span class="dv">1</span>] <span class="op">-</span> gradY<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [u<span class="op">,</span> v]<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ <span class="dt">width</span><span class="op">:</span> N<span class="op">,</span> <span class="dt">height</span><span class="op">:</span> N })</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])<span class="op">;</span></span></code></pre></div>
+<h3 id="critical-gpujs-considerations">Critical GPU.js
+Considerations</h3>
+<ol type="1">
+<li><strong>Pipeline Mode:</strong> Use <code>.setPipeline(true)</code>
+across intermediate steps. This prevents the GPU from reading back
+textures to CPU memory between the divergence, Jacobi, and gradient
+subtraction steps, maintaining full VRAM residency.</li>
+<li><strong>Floating-Point Precision:</strong> Pressure solves require
+high dynamic range. Ensure <code>gpu.js</code> operates with 32-bit
+float textures enabled (<code>precision: 'single'</code>) in your
+initialization parameters, as the default half-precision or packed
+integers will introduce accumulation drift and compromise mass
+conservation.</li>
+<li><strong>Boundary Enforcements:</strong> Discrepancies between
+boundary checks in the divergence step and the gradient subtraction step
+can artificially introduce divergence at domain borders. Ensure both
+stages mirror identical solid-wall or periodic boundary conditions.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

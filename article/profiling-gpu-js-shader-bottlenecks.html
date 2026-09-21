@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profiling gpu.js Shader Bottlenecks - gpu.js</title>
+    <meta name="description" content="gpu.js accelerates computational tasks by transpiling standard JavaScript into WebGL shader code (GLSL) that executes on the GPU. However, performance degradation often occurs due to synchronization stalls, high data-transfer latency between the host CPU">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/profiling-gpu-js-shader-bottlenecks">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Profiling gpu.js Shader Bottlenecks - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/profiling-gpu-js-shader-bottlenecks" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="gpu.js accelerates computational tasks by transpiling standard JavaScript into WebGL shader code (GLSL) that executes on the GPU. However, performance degradation often occurs due to synchronization stalls, high data-transfer latency between the host CPU" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="profiling-gpujs-shader-bottlenecks">Profiling gpu.js Shader
+Bottlenecks</h1>
+<p>gpu.js accelerates computational tasks by transpiling standard
+JavaScript into WebGL shader code (GLSL) that executes on the GPU.
+However, performance degradation often occurs due to synchronization
+stalls, high data-transfer latency between the host CPU and the device,
+or suboptimal arithmetic logic inside the generated kernel. This guide
+explores the built-in browser profiling utilities, WebGL extensions, and
+external GPU-debugging tools required to diagnose and eliminate
+bottlenecks in gpu.js applications.</p>
+<h2 id="browser-performance-panels">Browser Performance Panels</h2>
+<p>The built-in Performance panel in Chromium-based browsers (Chrome,
+Edge) and Firefox is the primary starting point for high-level
+bottleneck detection:</p>
+<ul>
+<li><strong>Identifying Readback Latency:</strong> A common gpu.js
+performance drop happens when reading data back from the GPU using
+<code>kernel()</code> outputs. Look for prolonged function calls
+associated with <code>gl.readPixels()</code> or buffer reading. If the
+main thread spends significant time in these calls, execution is blocked
+while waiting for the GPU to finish its command queue.</li>
+<li><strong>CPU-to-GPU Texture Transfers:</strong> Inspect the timeline
+for costly <code>texImage2D</code> or <code>texSubImage2D</code>
+operations. This indicates that input arrays are being re-uploaded to
+the GPU repeatedly instead of being cached in texture memory or kept on
+the GPU between multi-kernel pipelines.</li>
+<li><strong>Main Thread vs. Compositor/GPU Thread:</strong> The
+Performance panel splits activity between the JavaScript thread and the
+GPU Process. If the GPU Process shows minimal activity while JavaScript
+thread frames drop, the overhead lies in parameter serialization or
+input preparation, rather than shader execution.</li>
+</ul>
+<h2 id="chromium-tracing-chrometracing">Chromium Tracing
+(<code>chrome://tracing</code>)</h2>
+<p>For lower-level insight than the standard DevTools panel provides,
+navigate to <code>chrome://tracing</code> in Chrome:</p>
+<ol type="1">
+<li>Click <strong>Record</strong> and select <strong>Web
+developer</strong> or manually check <code>gpu</code>,
+<code>gpu.service</code>, and <code>vulkan</code>/<code>gl</code>.</li>
+<li>Run the gpu.js workload in the target tab.</li>
+<li>Stop the trace and analyze the GPU command buffer timeline.</li>
+</ol>
+<p>Look for large gaps between command execution blocks, pipeline
+flushes, or recurring context switches. Tracing displays the actual
+execution timeline of the GPU process, exposing driver-side queue delays
+and synchronization bottlenecks.</p>
+<h2 id="spectorjs-webgl-state-inspector">Spector.js (WebGL State
+Inspector)</h2>
+<p>Spector.js is an open-source WebGL inspection tool created by the
+Babylon.js team, available as a browser extension or an npm package. It
+captures frame commands and exposes the underlying WebGL context
+generated by gpu.js:</p>
+<ul>
+<li><strong>State Inspection:</strong> Capture a single computation pass
+to inspect active blend modes, viewport settings, and bound
+textures.</li>
+<li><strong>Shader Verification:</strong> Spector.js captures the
+generated GLSL fragment shader created by gpu.js. This allows you to
+review the transpiled code for unexpected type conversions, inefficient
+looping constructs, or redundant state switches between kernel
+executions.</li>
+</ul>
+<h2 id="webgl-gpu-timing-extensions">WebGL GPU Timing Extensions</h2>
+<p>Standard JavaScript timing APIs like <code>performance.now()</code>
+only measure when commands are queued on the CPU, not when the GPU
+finishes rendering or computing. To measure actual GPU execution
+time:</p>
+<ul>
+<li><strong><code>EXT_disjoint_timer_query_webgl2</code></strong>: Query
+this WebGL 2 extension to measure the exact nanoseconds spent by the GPU
+executing the draw call without causing a synchronous pipeline
+stall.</li>
+<li><strong>Disjoint Check:</strong> If the
+<code>GPU_DISJOINT_EXT</code> flag returns true, the GPU performed
+internal management (like a context switch or throttling), signaling
+that the measurement should be discarded.</li>
+</ul>
+<h2 id="external-hardware-profilers">External Hardware Profilers</h2>
+<p>When browser-based tools cannot pinpoint hardware limits such as
+memory bandwidth constraints or arithmetic logic unit (ALU) saturation,
+use vendor-specific profiling suites:</p>
+<h3 id="renderdoc">RenderDoc</h3>
+<p>RenderDoc can capture WebGL frames when Chromium is launched with
+specific command-line flags:
+<code>chrome.exe --disable-gpu-sandbox --gpu-startup-dialog</code>
+Attach RenderDoc to the isolated GPU process to step through individual
+draw calls, inspect intermediate render targets, and debug generated
+texture buffers.</p>
+<h3
+id="vendor-specific-profilers-nvidia-nsight-amd-rgp-intel-gpa">Vendor-Specific
+Profilers (NVIDIA Nsight, AMD RGP, Intel GPA)</h3>
+<p>Running Chrome through <strong>NVIDIA Nsight Graphics</strong>,
+<strong>AMD Radeon Developer Tool Suite (RGP)</strong>, or <strong>Intel
+Graphics Performance Analyzers (GPA)</strong> enables deep
+hardware-level analysis:</p>
+<ul>
+<li><strong>ALU vs. Memory Bound:</strong> Identifies whether the gpu.js
+shader is stalling on texture lookups (memory bound) or complex
+trigonometric/mathematical operations (ALU bound).</li>
+<li><strong>Warp/Wavefront Divergence:</strong> Inspects dynamic
+branching (<code>if/else</code> conditions within your gpu.js function)
+that causes execution serialization across GPU thread clusters.</li>
+</ul>
+<h2 id="inspecting-transpiled-glsl-code">Inspecting Transpiled GLSL
+Code</h2>
+<p>A direct method to diagnose inefficient shaders is using the internal
+API of gpu.js to output the generated GLSL string directly to the
+console:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span>])<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(kernel<span class="op">.</span><span class="fu">toString</span>())<span class="op">;</span></span></code></pre></div>
+<p>Analyze the output for:</p>
+<ul>
+<li><strong>Precision Qualifiers:</strong> Ensure <code>highp</code>
+precision is used only where mathematically required, as
+<code>mediump</code> can double arithmetic throughput on mobile
+GPUs.</li>
+<li><strong>Conditional Divergence:</strong> Convert nested branching
+logic into branchless arithmetic or built-in GLSL step functions
+(<code>step()</code>, <code>clamp()</code>, <code>mix()</code>) to avoid
+thread divergence stalls.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

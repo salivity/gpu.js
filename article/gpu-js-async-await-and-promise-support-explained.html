@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Async Await and Promise Support Explained - gpu.js</title>
+    <meta name="description" content="GPU.js does not natively support promise-based syntax or async/await for kernel execution, running all kernel computations synchronously by default. This article explains how GPU.js handles execution threads, why synchronous blocking occurs during GPU-to">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-async-await-and-promise-support-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Async Await and Promise Support Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-async-await-and-promise-support-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js does not natively support promise-based syntax or async/await for kernel execution, running all kernel computations synchronously by default. This article explains how GPU.js handles execution threads, why synchronous blocking occurs during GPU-to" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-async-await-and-promise-support-explained">GPU.js Async
+Await and Promise Support Explained</h1>
+<p>GPU.js does not natively support promise-based syntax or async/await
+for kernel execution, running all kernel computations synchronously by
+default. This article explains how GPU.js handles execution threads, why
+synchronous blocking occurs during GPU-to-CPU data transfer, and the
+practical methods developers use to introduce asynchronous patterns into
+GPU.js workflows.</p>
+<h2 id="native-execution-behavior-in-gpujs">Native Execution Behavior in
+GPU.js</h2>
+<p>When you create and invoke a kernel using GPU.js, the execution call
+behaves like a standard synchronous JavaScript function. The kernel
+function compiles to WebGL shaders, dispatches draw calls to the
+graphics hardware, and immediately reads back the results into
+JavaScript memory.</p>
+<p>Because the kernel function returns the computed array or texture
+directly rather than a <code>Promise</code>, attempting to prepend
+<code>await</code> to a standard kernel call has no functional
+effect:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Native execution is synchronous</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">myKernel</span>(data)<span class="op">;</span> </span></code></pre></div>
+<h2 id="why-gpujs-is-synchronous">Why GPU.js Is Synchronous</h2>
+<p>The synchronous nature of GPU.js stems from the underlying WebGL API.
+To retrieve computed data from the GPU back to the CPU, WebGL relies on
+the <code>gl.readPixels</code> method.</p>
+<p>By default, <code>gl.readPixels</code> stalls the CPU pipeline until
+the GPU completes all queued rendering commands and transfers the pixel
+buffer back to main memory. Because this call blocks the main thread
+until completion, native promise-based resolution is not provided out of
+the box in the core GPU.js API.</p>
+<h2 id="how-to-implement-asyncawait-with-gpujs">How to Implement
+Async/Await with GPU.js</h2>
+<p>Although GPU.js lacks native asynchronous execution, you can
+implement non-blocking asynchronous patterns using two primary
+approaches: wrapping kernels in JavaScript Promises or executing GPU.js
+inside Web Workers.</p>
+<h3 id="1-wrapping-kernels-in-promises">1. Wrapping Kernels in
+Promises</h3>
+<p>You can wrap the kernel execution in a standard JavaScript
+<code>Promise</code> and defer execution using <code>setTimeout</code>
+or <code>setImmediate</code>. This defers the computation to the next
+tick of the event loop, preventing immediate blocking of UI updates:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">runKernelAsync</span>(kernel<span class="op">,</span> <span class="op">...</span>args) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">new</span> <span class="bu">Promise</span>((resolve<span class="op">,</span> reject) <span class="kw">=&gt;</span> {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="pp">setTimeout</span>(() <span class="kw">=&gt;</span> {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>      <span class="cf">try</span> {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>(<span class="op">...</span>args)<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        <span class="fu">resolve</span>(result)<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>      } <span class="cf">catch</span> (error) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        <span class="fu">reject</span>(error)<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span> <span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co">// Consuming with async/await</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="kw">async</span> <span class="kw">function</span> <span class="fu">execute</span>() {</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> <span class="cf">await</span> <span class="fu">runKernelAsync</span>(myKernel<span class="op">,</span> data)<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(result)<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>While this technique allows the use of <code>async/await</code>
+syntax and gives the browser a moment to handle pending layout or paint
+events, the actual computation will still temporarily block the main
+thread once the deferred task begins.</p>
+<h3 id="2-offloading-to-web-workers">2. Offloading to Web Workers</h3>
+<p>For true non-blocking background execution, running GPU.js inside a
+dedicated Web Worker is the recommended solution. Web Workers run in a
+completely separate operating system thread, ensuring heavy mathematical
+computations do not degrade interface responsiveness.</p>
+<p>GPU.js supports headless and worker environments, provided the
+browser supports WebGL inside <code>OffscreenCanvas</code> or via
+headless contexts. By instantiating GPU.js inside the worker script, you
+can message the worker using standard promise-based abstractions from
+the main thread.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

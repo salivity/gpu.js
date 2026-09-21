@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Beamforming Delays on Multi-Mic Arrays with GPU.js - gpu.js</title>
+    <meta name="description" content="This article evaluates how gpu.js can be utilized to calculate acoustic beamforming delays across multi-microphone arrays. By translating standard JavaScript mathematical functions into WebGL-enabled GPU shaders, gpu.js provides the massive parallel proc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/beamforming-delays-on-multi-mic-arrays-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Beamforming Delays on Multi-Mic Arrays with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/beamforming-delays-on-multi-mic-arrays-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article evaluates how gpu.js can be utilized to calculate acoustic beamforming delays across multi-microphone arrays. By translating standard JavaScript mathematical functions into WebGL-enabled GPU shaders, gpu.js provides the massive parallel proc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="beamforming-delays-on-multi-mic-arrays-with-gpujs">Beamforming
+Delays on Multi-Mic Arrays with GPU.js</h1>
+<p>This article evaluates how gpu.js can be utilized to calculate
+acoustic beamforming delays across multi-microphone arrays. By
+translating standard JavaScript mathematical functions into
+WebGL-enabled GPU shaders, gpu.js provides the massive parallel
+processing power necessary to calculate spatial distances, sample
+delays, and phase shifts across multi-dimensional coordinate grids in
+real time.</p>
+<h2 id="understanding-beamforming-delay-calculations">Understanding
+Beamforming Delay Calculations</h2>
+<p>Acoustic beamforming aims to filter sound based on spatial location
+using an array of microphones. In traditional delay-and-sum (DAS)
+beamforming, the system calculates the time difference of arrival (TDOA)
+for an acoustic wave traveling from a designated focal point <span
+class="math inline">\((x, y, z)\)</span> to each individual microphone
+element <span class="math inline">\(m_i\)</span>.</p>
+<p>The mathematical delay <span class="math inline">\(\tau_i\)</span>
+for a given microphone <span class="math inline">\(i\)</span> is
+calculated using Euclidean distance:</p>
+<p><span class="math display">\[\tau_i =
+\frac{\|\mathbf{p}_{\text{focus}} - \mathbf{p}_{m_i}\|}{c}\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(\mathbf{p}_{\text{focus}}\)</span> is
+the 3D coordinate of the sound source or scan point.</li>
+<li><span class="math inline">\(\mathbf{p}_{m_i}\)</span> is the 3D
+coordinate of the <span class="math inline">\(i\)</span>-th
+microphone.</li>
+<li><span class="math inline">\(c\)</span> is the speed of sound in air
+(approximately 343 m/s at room temperature).</li>
+</ul>
+<p>When mapping acoustic energy over a 2D or 3D field (such as in
+acoustic cameras or directional tracking), this delay must be calculated
+for every point in a spatial search grid across every microphone in the
+array. For an array of 64 microphones scanning a modest <span
+class="math inline">\(100 \times 100\)</span> point plane, this equates
+to 640,000 independent geometric calculations per audio block.</p>
+<h2 id="how-gpujs-handles-the-computation">How gpu.js Handles the
+Computation</h2>
+<p>gpu.js is an open-source JavaScript library that compiles simplified
+JavaScript code into WebGL/WebGPU compute shaders. Calculating spatial
+delays across a microphone array is an "embarrassingly parallel"
+problem, meaning every grid point and microphone pair can be evaluated
+independently of the others.</p>
+<p>By offloading this logic to gpu.js:</p>
+<ol type="1">
+<li><strong>Thread Distribution:</strong> Each GPU thread calculates the
+Euclidean distance and corresponding sample delay for a single
+coordinate in the scanning grid.</li>
+<li><strong>Speed Improvements:</strong> Calculations that would
+otherwise block the single-threaded JavaScript runtime or slow down Web
+Workers are distributed across hundreds or thousands of GPU cores.</li>
+<li><strong>Multi-Channel Scaling:</strong> Large microphone arrays
+(e.g., 32, 64, or 128 elements) scale efficiently because GPU hardware
+excels at large-scale matrix operations.</li>
+</ol>
+<h2 id="kernel-implementation-strategy">Kernel Implementation
+Strategy</h2>
+<p>Calculating delays with gpu.js requires defining a GPU kernel that
+accepts the microphone position array, the speed of sound, and the audio
+sample rate as inputs.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to compute sample delays for a 2D grid</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateSampleDelays <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(micX<span class="op">,</span> micY<span class="op">,</span> micZ<span class="op">,</span> numMics<span class="op">,</span> speedOfSound<span class="op">,</span> sampleRate) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Thread coordinates map to the scanning grid</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gridX <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gridY <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gridZ <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span> <span class="co">// Distance plane (e.g., 1 meter away)</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Current microphone index passed via 3rd dimension or loop</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> micIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Euclidean distance calculation</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> dx <span class="op">=</span> gridX <span class="op">-</span> micX[micIndex]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> dy <span class="op">=</span> gridY <span class="op">-</span> micY[micIndex]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> dz <span class="op">=</span> gridZ <span class="op">-</span> micZ[micIndex]<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> distance <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy <span class="op">+</span> dz <span class="op">*</span> dz)<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Convert time delay into discrete audio sample shifts</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> timeDelay <span class="op">=</span> distance <span class="op">/</span> speedOfSound<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> timeDelay <span class="op">*</span> sampleRate<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span><span class="op">,</span> <span class="dv">100</span><span class="op">,</span> <span class="dv">64</span>])<span class="op">;</span> <span class="co">// 100x100 spatial grid for 64 microphones</span></span></code></pre></div>
+<p>Once computed, the resulting delay matrix indicates exactly how many
+samples each microphone channel must be shifted before summing to
+reinforce acoustic energy at every specific coordinate.</p>
+<h2 id="performance-bottlenecks-and-considerations">Performance
+Bottlenecks and Considerations</h2>
+<p>While gpu.js handles the mathematical calculations effectively,
+real-time audio systems must address several architectural
+trade-offs:</p>
+<ul>
+<li><strong>CPU-to-GPU Transfer Overhead:</strong> Transferring
+continuous multichannel audio buffers to GPU memory introduces latency.
+For optimal performance, compute the static delay matrix once on the GPU
+and apply it to incoming audio buffers via Web Audio API or AudioWorklet
+nodes, rather than sending raw audio samples to gpu.js on every
+frame.</li>
+<li><strong>Precision Constraints:</strong> WebGL outputs 32-bit
+floating-point numbers by default. While insufficient for some
+scientific high-precision simulation, 32-bit precision is more than
+adequate for spatial acoustic beamforming delays and phase offsets.</li>
+<li><strong>Fractional Delay Interpolation:</strong> Since sample delays
+rarely fall on integer sample boundaries, beamforming typically requires
+sinc or linear interpolation. Implementing interpolation within a gpu.js
+kernel increases shader complexity but can be executed in parallel
+alongside the geometric delay computation.</li>
+</ul>
+<h2 id="conclusion">Conclusion</h2>
+<p>gpu.js is fully capable of calculating acoustic beamforming delays
+across multi-microphone arrays. Its ability to compile JavaScript to GPU
+shaders eliminates the primary performance bottlenecks associated with
+multi-channel geometric calculations, enabling complex acoustic imaging
+and spatial filtering to run smoothly in web and Node.js
+environments.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

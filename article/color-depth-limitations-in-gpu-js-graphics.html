@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Depth Limitations in GPU.js Graphics - gpu.js</title>
+    <meta name="description" content="This article examines the color depth limitations encountered when rendering visual output through gpu.js. It covers how the library interacts with WebGL rendering contexts, the constraints imposed by standard 8-bit channel configurations, the difference">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/color-depth-limitations-in-gpu-js-graphics">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Color Depth Limitations in GPU.js Graphics - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/color-depth-limitations-in-gpu-js-graphics" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines the color depth limitations encountered when rendering visual output through gpu.js. It covers how the library interacts with WebGL rendering contexts, the constraints imposed by standard 8-bit channel configurations, the difference" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="color-depth-limitations-in-gpujs-graphics">Color Depth
+Limitations in GPU.js Graphics</h1>
+<p>This article examines the color depth limitations encountered when
+rendering visual output through gpu.js. It covers how the library
+interacts with WebGL rendering contexts, the constraints imposed by
+standard 8-bit channel configurations, the difference between
+computational precision and visual output, and how browser canvas
+architectures restrict high-dynamic-range graphics.</p>
+<h3 id="the-standard-8-bit-channel-restriction">The Standard 8-Bit
+Channel Restriction</h3>
+<p>When configuring a gpu.js kernel for visual rendering using the
+<code>{ graphical: true }</code> option, the underlying architecture
+compiles JavaScript code into GLSL fragment shaders executed through
+WebGL. The final render target is an HTML5 <code>&lt;canvas&gt;</code>
+element.</p>
+<p>By default, WebGL canvases utilize standard RGBA color buffers with 8
+bits per channel (RGBA8), resulting in a 32-bit total color depth
+(24-bit true color for RGB plus an 8-bit alpha channel). This limits
+visual rendering to 256 discrete intensity levels per channel, or
+roughly 16.7 million distinct colors.</p>
+<h3 id="normalized-color-clamping">Normalized Color Clamping</h3>
+<p>Graphical output in gpu.js is set inside the kernel using the
+<code>this.color(r, g, b, a)</code> method. This function expects
+normalized floating-point inputs ranging from <code>0.0</code> to
+<code>1.0</code>.</p>
+<p>During the rendering pipeline, the WebGL rasterizer automatically
+quantizes these floating-point values into 8-bit integers:</p>
+<ul>
+<li>Values below <code>0.0</code> are clamped to <code>0</code>.</li>
+<li>Values above <code>1.0</code> are clamped to <code>255</code>.</li>
+<li>Fractional values are mapped across 256 steps.</li>
+</ul>
+<p>This quantization can cause visual artifacts such as color banding in
+low-contrast gradients, subtle shading simulations, and scientific
+visualizations that require fine color granularity.</p>
+<h3 id="computational-precision-vs-render-output">Computational
+Precision vs. Render Output</h3>
+<p>There is a significant difference between the mathematical precision
+gpu.js uses during computation and the depth of its graphical
+display:</p>
+<ul>
+<li><strong>Computation Mode:</strong> When running standard
+non-graphical kernels, gpu.js utilizes 32-bit floating-point textures
+(<code>OES_texture_float</code> in WebGL 1 or default float support in
+WebGL 2). This allows calculations to maintain high single-precision
+numerical accuracy.</li>
+<li><strong>Graphical Mode:</strong> When rendering directly to the
+screen via the canvas context, the data pipeline flattens internal
+calculations into the 8-bit per channel output buffer.</li>
+</ul>
+<p>Even if an internal graphical calculation relies on 32-bit floats,
+the final color written to the screen cannot exceed the bit depth of the
+target framebuffer.</p>
+<h3 id="context-initialization-and-wide-gamut-constraints">Context
+Initialization and Wide-Gamut Constraints</h3>
+<p>Modern displays increasingly support 10-bit color, 16-bit half-float
+formats, and wide color gamuts such as Display P3. However, gpu.js
+encapsulates WebGL context initialization and creates standard WebGL
+contexts configured for the standard sRGB color space.</p>
+<p>Because gpu.js does not expose low-level context flags for modern
+color spaces or 16-bit half-float render buffers
+(<code>EXT_color_buffer_half_float</code>), developers cannot natively
+output 10-bit or 12-bit HDR imagery directly to the canvas through the
+standard library interface.</p>
+<h3 id="handling-color-depth-constraints">Handling Color Depth
+Constraints</h3>
+<p>If an application requires color precision beyond 8 bits per
+channel:</p>
+<ol type="1">
+<li><strong>Decouple Compute from Rendering:</strong> Run gpu.js in
+standard calculation mode to output raw floating-point data matrices
+rather than graphical pixels.</li>
+<li><strong>Custom WebGL Pipeline:</strong> Read the computed matrix
+data and pass it to a custom WebGL 2 context configured with
+floating-point framebuffers or 10-bit canvas contexts where browser
+support allows.</li>
+<li><strong>Dithering:</strong> Implement spatial or temporal dithering
+algorithms inside the gpu.js graphical kernel to break up visible
+banding across gradients within the 8-bit limitation.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

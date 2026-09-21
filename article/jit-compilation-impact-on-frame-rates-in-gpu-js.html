@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JIT Compilation Impact on Frame Rates in GPU.js - gpu.js</title>
+    <meta name="description" content="In gpu.js, JavaScript functions are transpiled into WebGL shaders at runtime to leverage hardware acceleration. The initial execution of a kernel triggers a Just-In-Time (JIT) compilation and resource allocation process known as the warm-up phase. This p">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/jit-compilation-impact-on-frame-rates-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="JIT Compilation Impact on Frame Rates in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/jit-compilation-impact-on-frame-rates-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, JavaScript functions are transpiled into WebGL shaders at runtime to leverage hardware acceleration. The initial execution of a kernel triggers a Just-In-Time (JIT) compilation and resource allocation process known as the warm-up phase. This p" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="jit-compilation-impact-on-frame-rates-in-gpujs">JIT Compilation
+Impact on Frame Rates in GPU.js</h1>
+<p>In gpu.js, JavaScript functions are transpiled into WebGL shaders at
+runtime to leverage hardware acceleration. The initial execution of a
+kernel triggers a Just-In-Time (JIT) compilation and resource allocation
+process known as the warm-up phase. This phase introduces a significant
+processing delay on the first frame, temporarily halting the render loop
+and causing severe frame rate drops. Understanding how this warm-up
+overhead behaves is essential for eliminating runtime stutter and
+ensuring consistent graphical performance in web applications.</p>
+<h3 id="the-jit-compilation-workflow-in-gpujs">The JIT Compilation
+Workflow in gpu.js</h3>
+<p>When a kernel function is defined in gpu.js, it is not immediately
+compiled into machine-level GPU instructions. Instead, compilation
+occurs lazily upon the kernel's first call with actual arguments. During
+this initial invocation, gpu.js executes several computationally heavy
+tasks:</p>
+<ol type="1">
+<li><strong>Abstract Syntax Tree (AST) Parsing:</strong> The JavaScript
+source code of the kernel is parsed into an AST.</li>
+<li><strong>GLSL Transpilation:</strong> The AST is converted into
+OpenGL Shading Language (GLSL) code compatible with WebGL.</li>
+<li><strong>Driver Compilation and Linking:</strong> The generated GLSL
+string is passed to the WebGL context, where the underlying graphics
+driver compiles the vertex and fragment shaders and links them into a
+WebGLProgram.</li>
+<li><strong>Buffer and Texture Allocation:</strong> Input arrays are
+converted into WebGL textures, and framebuffer objects are configured to
+receive output data.</li>
+</ol>
+<h3 id="impact-on-initial-frame-rates">Impact on Initial Frame
+Rates</h3>
+<p>In a typical 60 frames per second (FPS) rendering loop, each frame
+must complete within a strict budget of approximately 16.67
+milliseconds.</p>
+<p>Because JIT compilation occurs synchronously during the initial
+kernel run, the cumulative overhead of code translation, driver-level
+compilation, and memory binding often consumes anywhere from 50 to over
+500 milliseconds, depending on kernel complexity and client
+hardware.</p>
+<p>This latency causes immediate performance side effects:</p>
+<ul>
+<li><strong>Frame Dropping and Freezing:</strong> The browser's main
+thread and graphics pipeline block while waiting for the shader program
+to link and initialize. This results in missing multiple rendering
+cycles, visually perceived as an abrupt stutter or freeze.</li>
+<li><strong>Initial FPS Collapse:</strong> If frame rates are measured
+dynamically, the initial frame registers an instantaneous drop toward
+single digits (e.g., 1–5 FPS) before any parallel GPU execution benefits
+are realized.</li>
+<li><strong>Garbage Collection Pressure:</strong> Initial memory
+allocations and string manipulations during shader generation generate
+temporary objects, potentially triggering an early garbage collection
+pause shortly after execution begins.</li>
+</ul>
+<h3 id="performance-stabilization-in-subsequent-frames">Performance
+Stabilization in Subsequent Frames</h3>
+<p>Once the warm-up phase finishes, the compiled
+<code>WebGLProgram</code> and its pipeline state are cached. Subsequent
+invocations skip AST parsing, code generation, and shader compilation
+entirely.</p>
+<p>From the second frame onward, execution requires only data transfers
+and a draw call. At this point, the per-frame execution time drops
+drastically—often to sub-millisecond levels—and the frame rate rebounds
+to the target 60 FPS or higher.</p>
+<h3 id="mitigating-the-warm-up-overhead">Mitigating the Warm-Up
+Overhead</h3>
+<p>To prevent the warm-up phase from degrading the user experience,
+applications using gpu.js should adopt specific mitigation
+strategies:</p>
+<ul>
+<li><strong>Pre-warming Kernels:</strong> Execute the kernel once with
+dummy or zero-filled data during an application loading screen or setup
+phase. This forces the JIT compilation and pipeline creation to occur
+before real-time rendering begins.</li>
+<li><strong>Persistent Kernel Instances:</strong> Avoid recreating
+kernel instances inside dynamic loops. Reinstantiating kernels destroys
+the internal shader cache, causing the JIT compilation penalty to recur
+repeatedly.</li>
+<li><strong>Pipeline Caching:</strong> Retain input textures and output
+targets where feasible to minimize texture binding latency after the
+initial compilation cycle has completed.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

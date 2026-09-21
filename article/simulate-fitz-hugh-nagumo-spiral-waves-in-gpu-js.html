@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulate FitzHugh-Nagumo Spiral Waves in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to simulate excitable media and generate spiral wave dynamics using the FitzHugh-Nagumo (FHN) reaction-diffusion model accelerated by gpu.js. You will learn the underlying mathematical equations, how to implement finite-differen">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulate-fitz-hugh-nagumo-spiral-waves-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulate FitzHugh-Nagumo Spiral Waves in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulate-fitz-hugh-nagumo-spiral-waves-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to simulate excitable media and generate spiral wave dynamics using the FitzHugh-Nagumo (FHN) reaction-diffusion model accelerated by gpu.js. You will learn the underlying mathematical equations, how to implement finite-differen" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulate-fitzhugh-nagumo-spiral-waves-in-gpujs">Simulate
+FitzHugh-Nagumo Spiral Waves in GPU.js</h1>
+<p>This article explains how to simulate excitable media and generate
+spiral wave dynamics using the FitzHugh-Nagumo (FHN) reaction-diffusion
+model accelerated by gpu.js. You will learn the underlying mathematical
+equations, how to implement finite-difference spatial diffusion on the
+GPU using WebGL shaders, how to create the initial conditions required
+to produce spiral breakups, and how to render the simulation in real
+time directly to an HTML5 canvas.</p>
+<h2 id="the-fitzhugh-nagumo-model">The FitzHugh-Nagumo Model</h2>
+<p>The FitzHugh-Nagumo model is a simplified two-variable reduction of
+the Hodgkin-Huxley model describing electrophysiological excitation. In
+a two-dimensional spatial domain, it functions as a reaction-diffusion
+system:</p>
+<p><span class="math display">\[\frac{\partial u}{\partial t} = D
+\nabla^2 u + u - \frac{u^3}{3} - v\]</span></p>
+<p><span class="math display">\[\frac{\partial v}{\partial t} = \epsilon
+(u + a - b v)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(u\)</span> represents the fast activator
+variable (membrane potential).</li>
+<li><span class="math inline">\(v\)</span> represents the slow inhibitor
+variable (recovery variable).</li>
+<li><span class="math inline">\(D\)</span> is the diffusion coefficient
+of the activator (inhibitor diffusion is typically assumed to be zero or
+negligible).</li>
+<li><span class="math inline">\(\nabla^2\)</span> is the 2D Laplacian
+operator modeling spatial diffusion.</li>
+<li><span class="math inline">\(\epsilon, a,\)</span> and <span
+class="math inline">\(b\)</span> are dimensionless kinetic parameters
+determining excitability and threshold kinetics.</li>
+</ul>
+<h2 id="setting-up-gpujs">Setting Up GPU.js</h2>
+<p><code>gpu.js</code> compiles JavaScript functions into WebGL fragment
+shaders, allowing thousands of grid cells to be updated concurrently on
+the GPU.</p>
+<p>First, include the library in your environment:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdn.jsdelivr.net/npm/gpu.js@latest/dist/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<p>Initialize the GPU context:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span></code></pre></div>
+<h2 id="discretizing-the-spatial-domain">Discretizing the Spatial
+Domain</h2>
+<p>The Laplacian <span class="math inline">\(\nabla^2 u\)</span> is
+computed using a 2D five-point discrete stencil on a regular Cartesian
+grid with grid spacing <span class="math inline">\(h\)</span>:</p>
+<p><span class="math display">\[\nabla^2 u_{i,j} \approx \frac{u_{i+1,j}
++ u_{i-1,j} + u_{i,j+1} + u_{i,j-1} - 4u_{i,j}}{h^2}\]</span></p>
+<p>Using periodic boundary conditions ensures that waves exiting one
+boundary re-enter from the opposite side without artificial boundary
+reflections.</p>
+<h2 id="implementing-the-computation-kernel">Implementing the
+Computation Kernel</h2>
+<p>To advance the state, both variables must be integrated numerically
+using the forward Euler method with a stable time-step <span
+class="math inline">\(dt\)</span>. The state is stored across two 2D
+arrays: one for <span class="math inline">\(u\)</span> and one for <span
+class="math inline">\(v\)</span>.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateFHN <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(u<span class="op">,</span> v<span class="op">,</span> dt<span class="op">,</span> D<span class="op">,</span> eps<span class="op">,</span> a<span class="op">,</span> b<span class="op">,</span> dx) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> w <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> h <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Periodic boundary conditions</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> left <span class="op">=</span> (x <span class="op">===</span> <span class="dv">0</span>) <span class="op">?</span> w <span class="op">-</span> <span class="dv">1</span> <span class="op">:</span> x <span class="op">-</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> right <span class="op">=</span> (x <span class="op">===</span> w <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> <span class="dv">0</span> <span class="op">:</span> x <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> down <span class="op">=</span> (y <span class="op">===</span> <span class="dv">0</span>) <span class="op">?</span> h <span class="op">-</span> <span class="dv">1</span> <span class="op">:</span> y <span class="op">-</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> up <span class="op">=</span> (y <span class="op">===</span> h <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> <span class="dv">0</span> <span class="op">:</span> y <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> u_center <span class="op">=</span> u[y][x]<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> v_center <span class="op">=</span> v[y][x]<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute discrete Laplacian for the activator</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> laplacian <span class="op">=</span> (</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        u[y][left] <span class="op">+</span> </span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>        u[y][right] <span class="op">+</span> </span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>        u[up][x] <span class="op">+</span> </span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>        u[down][x] <span class="op">-</span> </span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>        <span class="fl">4.0</span> <span class="op">*</span> u_center</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    ) <span class="op">/</span> (dx <span class="op">*</span> dx)<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="co">// FitzHugh-Nagumo reaction dynamics</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> du <span class="op">=</span> (D <span class="op">*</span> laplacian <span class="op">+</span> u_center <span class="op">-</span> (u_center <span class="op">*</span> u_center <span class="op">*</span> u_center) <span class="op">/</span> <span class="fl">3.0</span> <span class="op">-</span> v_center) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dv <span class="op">=</span> (eps <span class="op">*</span> (u_center <span class="op">+</span> a <span class="op">-</span> b <span class="op">*</span> v_center)) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Return new u value (run a second kernel or output multi-channel for v)</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> u_center <span class="op">+</span> du<span class="op">;</span></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ width<span class="op">,</span> height })</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>For optimal performance, update <span
+class="math inline">\(v\)</span> using an identical kernel structure
+configured to output the recovery field. Enabling
+<code>.setPipeline(true)</code> ensures that the textures stay directly
+in GPU VRAM between integration steps.</p>
+<h2 id="generating-spiral-waves">Generating Spiral Waves</h2>
+<p>Spiral waves (rotors) do not occur from resting states; they require
+a broken wavefront where an excited wave meets a refractory region.</p>
+<ol type="1">
+<li><strong>Planar Wave Generation</strong>: Excite a vertical stripe of
+the domain by setting <span class="math inline">\(u = 1.0\)</span> for
+<span class="math inline">\(x \in [0, 50]\)</span> while the rest of the
+domain remains in the rest state (<span class="math inline">\(u = -1.2,
+v = -0.6\)</span>).</li>
+<li><strong>Wave Cutting</strong>: Allow the planar wave to propagate
+halfway across the grid. Set the bottom half of the domain (<span
+class="math inline">\(y &lt; height / 2\)</span>) to the refractory
+recovery state (<span class="math inline">\(v = 1.0\)</span>) while
+setting <span class="math inline">\(u = 0.0\)</span>.</li>
+<li><strong>Curling</strong>: The top half of the wave continues
+propagating, while the bottom portion stalls against the refractory
+zone. The free end curls around the singular phase point, initiating a
+self-sustaining spiral wave.</li>
+</ol>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">initializeStates</span>() {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> u <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> v <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> uRow <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> vRow <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Broken wavefront configuration</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (x <span class="op">&gt;</span> width <span class="op">/</span> <span class="dv">4</span> <span class="op">&amp;&amp;</span> x <span class="op">&lt;</span> width <span class="op">/</span> <span class="dv">2</span> <span class="op">&amp;&amp;</span> y <span class="op">&gt;</span> height <span class="op">/</span> <span class="dv">2</span>) {</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>                uRow<span class="op">.</span><span class="fu">push</span>(<span class="fl">1.5</span>)<span class="op">;</span> <span class="co">// Excited</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>                vRow<span class="op">.</span><span class="fu">push</span>(<span class="op">-</span><span class="fl">0.5</span>)<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>            } <span class="cf">else</span> <span class="cf">if</span> (y <span class="op">&lt;=</span> height <span class="op">/</span> <span class="dv">2</span> <span class="op">&amp;&amp;</span> x <span class="op">&gt;</span> width <span class="op">/</span> <span class="dv">4</span> <span class="op">&amp;&amp;</span> x <span class="op">&lt;</span> <span class="dv">3</span> <span class="op">*</span> width <span class="op">/</span> <span class="dv">4</span>) {</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>                uRow<span class="op">.</span><span class="fu">push</span>(<span class="op">-</span><span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>                vRow<span class="op">.</span><span class="fu">push</span>(<span class="fl">1.0</span>)<span class="op">;</span>  <span class="co">// Refractory barrier</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>            } <span class="cf">else</span> {</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>                uRow<span class="op">.</span><span class="fu">push</span>(<span class="op">-</span><span class="fl">1.2</span>)<span class="op">;</span> <span class="co">// Rest state</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>                vRow<span class="op">.</span><span class="fu">push</span>(<span class="op">-</span><span class="fl">0.6</span>)<span class="op">;</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>        u<span class="op">.</span><span class="fu">push</span>(uRow)<span class="op">;</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>        v<span class="op">.</span><span class="fu">push</span>(vRow)<span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> { u<span class="op">,</span> v }<span class="op">;</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="rendering-to-canvas">Rendering to Canvas</h2>
+<p>Use a dedicated rendering kernel to project activator values directly
+into graphical fragment outputs using an HTML canvas:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(u) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> val <span class="op">=</span> (u[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> <span class="fl">2.0</span>) <span class="op">/</span> <span class="fl">4.0</span><span class="op">;</span> <span class="co">// Normalize between 0 and 1</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(val<span class="op">,</span> val <span class="op">*</span> <span class="fl">0.2</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">-</span> val<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(renderKernel<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="execution-loop">Execution Loop</h2>
+<p>Run integration and drawing steps continuously using
+<code>requestAnimationFrame</code>:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> { u<span class="op">,</span> v } <span class="op">=</span> <span class="fu">initializeStates</span>()<span class="op">;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dt <span class="op">=</span> <span class="fl">0.05</span><span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> D <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> eps <span class="op">=</span> <span class="fl">0.08</span><span class="op">;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> a <span class="op">=</span> <span class="fl">0.7</span><span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> b <span class="op">=</span> <span class="fl">0.8</span><span class="op">;</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dx <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">step</span>() {</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Perform multiple reaction-diffusion steps per visual frame</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">8</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> nextU <span class="op">=</span> <span class="fu">updateFHN</span>(u<span class="op">,</span> v<span class="op">,</span> dt<span class="op">,</span> D<span class="op">,</span> eps<span class="op">,</span> a<span class="op">,</span> b<span class="op">,</span> dx)<span class="op">;</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> nextV <span class="op">=</span> <span class="fu">updateRecovery</span>(u<span class="op">,</span> v<span class="op">,</span> dt<span class="op">,</span> eps<span class="op">,</span> a<span class="op">,</span> b)<span class="op">;</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>        u <span class="op">=</span> nextU<span class="op">;</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>        v <span class="op">=</span> nextV<span class="op">;</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">renderKernel</span>(u)<span class="op">;</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a><span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span></code></pre></div>
+<p>This setup provides smooth, high-frame-rate simulations of excitable
+biological tissue, demonstrating spiral drift, tip meander, and wave
+turbulence natively in the browser.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

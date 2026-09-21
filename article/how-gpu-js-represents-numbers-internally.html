@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Represents Numbers Internally - gpu.js</title>
+    <meta name="description" content="This article explores how gpu.js handles numerical data under the hood when executing computational kernels on the graphics card. Because JavaScript runs in a CPU environment with 64-bit floats while WebGL operates in a specialized GPU shading pipeline,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-represents-numbers-internally">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Represents Numbers Internally - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-represents-numbers-internally" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how gpu.js handles numerical data under the hood when executing computational kernels on the graphics card. Because JavaScript runs in a CPU environment with 64-bit floats while WebGL operates in a specialized GPU shading pipeline," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-represents-numbers-internally">How gpu.js Represents
+Numbers Internally</h1>
+<p>This article explores how gpu.js handles numerical data under the
+hood when executing computational kernels on the graphics card. Because
+JavaScript runs in a CPU environment with 64-bit floats while WebGL
+operates in a specialized GPU shading pipeline, gpu.js must translate,
+downcast, and encode numerical data into graphics memory formats.
+Readers will learn about the shift from double precision to single
+precision, the role of GLSL precision qualifiers, and the
+texture-packing techniques used to store and read values via GPU
+framebuffers.</p>
+<h3 id="transition-from-float64-to-float32">Transition from Float64 to
+Float32</h3>
+<p>Standard JavaScript treats all numbers as IEEE 754 double-precision
+64-bit floating-point values (<code>float64</code>). However, consumer
+GPU pipelines and the underlying WebGL standard are primarily optimized
+for single-precision 32-bit floating-point arithmetic
+(<code>float32</code>).</p>
+<p>When passing numerical arrays into a gpu.js kernel, the library casts
+these 64-bit values down to 32-bit floats. Inside the generated GLSL
+(OpenGL Shading Language) fragment shader, values are processed as
+native <code>float</code> types. Because of this conversion,
+calculations requiring double-precision accuracy will encounter
+precision degradation when handled by the GPU.</p>
+<h3 id="precision-qualifiers-in-glsl">Precision Qualifiers in GLSL</h3>
+<p>To maintain consistency and avoid artifacts across diverse mobile and
+desktop hardware, gpu.js configures the WebGL context with the highest
+supported precision qualifiers in its generated shaders:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">precision</span> <span class="dt">highp</span> <span class="dt">float</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="dt">precision</span> <span class="dt">highp</span> <span class="dt">int</span><span class="op">;</span></span></code></pre></div>
+<p>The <code>highp</code> qualifier ensures that the GPU allocates the
+maximum allowable precision for floating-point calculations—typically
+adhering to standard 32-bit IEEE 754 single-precision (with 1 sign bit,
+8 exponent bits, and 23 mantissa bits). On low-power hardware where
+<code>highp</code> is unavailable, WebGL falls back to
+<code>mediump</code> (often 16-bit half-precision), which further
+reduces the numerical range and accuracy of values.</p>
+<h3 id="texture-based-memory-storage-and-packing">Texture-Based Memory
+Storage and Packing</h3>
+<p>GPUs process data through rendering pipelines where outputs are
+written to framebuffers backed by textures rather than standard memory
+addresses. How gpu.js represents numbers in these textures depends on
+the WebGL version and hardware extensions available:</p>
+<ol type="1">
+<li><p><strong>Native Floating-Point Textures (WebGL 2 /
+Extensions):</strong><br />
+In modern environments supporting WebGL 2 or the
+<code>OES_texture_float</code> and <code>EXT_color_buffer_float</code>
+extensions, numbers are stored directly in 32-bit floating-point
+textures (such as <code>R32F</code> or <code>RGBA32F</code>). The GPU
+writes float values directly to color channels without
+modification.</p></li>
+<li><p><strong>RGBA Byte-Packing (WebGL 1 Fallback):</strong><br />
+In baseline WebGL 1 contexts where rendering directly to floating-point
+textures is unsupported, textures only accept 8-bit unsigned integers
+per channel (<code>RGBA8</code>). To store a 32-bit float without loss
+of resolution, gpu.js utilizes bitwise arithmetic and mathematical
+encoding within the fragment shader to split the 32-bit float across the
+four 8-bit color channels (Red, Green, Blue, and Alpha).</p>
+<p>During this encoding process:</p>
+<ul>
+<li>The sign, exponent, and mantissa of the 32-bit float are separated
+and scaled into four separate bytes (<span class="math inline">\(4
+\times 8 = 32\text{ bits}\)</span>).</li>
+<li>The resulting vector is output as
+<code>vec4(r, g, b, a)</code>.</li>
+<li>When transferring data back to the CPU via
+<code>gl.readPixels</code>, gpu.js reconstructs the 32-bit float values
+from the byte array using JavaScript <code>ArrayBuffer</code> and
+<code>DataView</code> structures.</li>
+</ul></li>
+</ol>
+<h3 id="non-floating-point-types">Non-Floating-Point Types</h3>
+<p>While native GLSL supports integers and booleans, gpu.js kernels
+prioritize floating-point arithmetic for universal compatibility.
+Booleans are internally mapped to standard float equivalents
+(<code>1.0</code> for <code>true</code>, <code>0.0</code> for
+<code>false</code>). When integer outputs are requested, values are
+typically calculated as floats within the kernel and either truncated
+via GLSL floor functions or cast back to integers upon CPU
+retrieval.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

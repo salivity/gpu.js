@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Compute-Bound vs Memory-Bound Guide - gpu.js</title>
+    <meta name="description" content="This guide explains how to determine whether a GPU.js kernel is compute-bound or memory-bound to achieve optimal WebGL acceleration in JavaScript applications. By analyzing arithmetic intensity, performing synthetic scaling tests, and measuring data seri">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-compute-bound-vs-memory-bound-guide">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Compute-Bound vs Memory-Bound Guide - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-compute-bound-vs-memory-bound-guide" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide explains how to determine whether a GPU.js kernel is compute-bound or memory-bound to achieve optimal WebGL acceleration in JavaScript applications. By analyzing arithmetic intensity, performing synthetic scaling tests, and measuring data seri" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-compute-bound-vs-memory-bound-guide">GPU.js Compute-Bound
+vs Memory-Bound Guide</h1>
+<p>This guide explains how to determine whether a GPU.js kernel is
+compute-bound or memory-bound to achieve optimal WebGL acceleration in
+JavaScript applications. By analyzing arithmetic intensity, performing
+synthetic scaling tests, and measuring data serialization versus
+execution time, developers can locate the exact hardware bottleneck
+restricting their shader pipelines and apply targeted optimizations.</p>
+<h3 id="understanding-the-bottlenecks-in-gpujs">Understanding the
+Bottlenecks in GPU.js</h3>
+<p>A <strong>compute-bound</strong> algorithm is constrained by the raw
+processing speed of the GPU's arithmetic logic units (ALUs). In this
+state, the GPU spends most of its execution cycles performing
+mathematical operations (like trigonometric functions, exponentiations,
+and matrix multiplications), while memory access latency is fully
+hidden.</p>
+<p>A <strong>memory-bound</strong> algorithm is constrained by data
+transfer speeds. In GPU.js, data is piped to the GPU as WebGL textures.
+If a kernel reads large arrays to perform only simple arithmetic (such
+as array additions or vector scaling), the GPU's execution cores remain
+idle while waiting for texture fetches to complete or for results to be
+read back to the CPU via typed arrays.</p>
+<h3 id="method-1-the-synthetic-load-test-empirical-scaling">Method 1:
+The Synthetic Load Test (Empirical Scaling)</h3>
+<p>The most direct way to identify your bottleneck in GPU.js is to
+artificially alter the arithmetic load inside your kernel while holding
+the input data size constant.</p>
+<ol type="1">
+<li><strong>Add Dummy Math Operations:</strong> Introduce additional,
+non-trivial mathematical calculations inside the kernel that utilize
+existing registers without adding new array reads (for example, looping
+100 times to compute <code>Math.sqrt()</code> or <code>Math.sin()</code>
+on an already loaded variable).</li>
+<li><strong>Measure Execution Time:</strong> Run the kernel using
+<code>performance.now()</code> across multiple iterations.</li>
+</ol>
+<ul>
+<li><strong>Result A (Compute-Bound):</strong> If runtime increases
+substantially when math operations are added, the algorithm is
+compute-bound. The ALUs are already saturated, so any extra work delays
+the pipeline.</li>
+<li><strong>Result B (Memory-Bound):</strong> If runtime remains
+virtually unchanged despite adding dozens of math operations, the
+algorithm is memory-bound. The ALUs have excess idle capacity during
+texture lookups, allowing them to absorb extra computational work for
+free.</li>
+</ul>
+<h3 id="method-2-calculate-operational-intensity">Method 2: Calculate
+Operational Intensity</h3>
+<p>Operational intensity (or arithmetic intensity) measures the ratio of
+floating-point operations (FLOPs) to memory traffic (bytes
+accessed).</p>
+<p><span class="math display">\[\text{Operational Intensity} =
+\frac{\text{Total Operations (FLOPs)}}{\text{Total Memory Transferred
+(Bytes)}}\]</span></p>
+<p>In GPU.js, quantify:</p>
+<ul>
+<li><strong>Memory Accesses:</strong> Count the number of reads from
+input arrays/matrices per thread, multiplied by 4 bytes (for 32-bit
+floats). Account for writes to the output target.</li>
+<li><strong>Math Operations:</strong> Count additions, multiplications,
+divisions, and intrinsic functions within the kernel body.</li>
+</ul>
+<p>Algorithms with low operational intensity (fewer than 4–8 FLOPs per
+float read) are almost universally memory-bound on modern GPU
+architectures. Algorithms with high operational intensity (e.g., dense
+matrix multiplication or iterative fractals) quickly become
+compute-bound.</p>
+<h3
+id="method-3-isolate-host-to-device-and-texture-transfer-times">Method
+3: Isolate Host-to-Device and Texture Transfer Times</h3>
+<p>In GPU.js, memory bottlenecks frequently occur at the interface
+between the CPU and GPU rather than on the GPU chip itself. To detect
+this:</p>
+<ol type="1">
+<li><strong>Measure End-to-End Pipeline:</strong> Profile the complete
+call, including argument passing and <code>.toArray()</code> conversion:
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> start <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">myKernel</span>(inputArray)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> end <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span></code></pre></div></li>
+<li><strong>Measure Warm Kernel Execution:</strong> Keep textures
+resident on the GPU by using pipeline mode
+(<code>kernel.setPipeline(true)</code>). When pipeline mode is enabled,
+the kernel outputs a WebGL texture directly instead of serializing data
+back into a JavaScript array:
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>myKernel<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> start <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> textureResult <span class="op">=</span> <span class="fu">myKernel</span>(inputTexture)<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> end <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span></code></pre></div></li>
+</ol>
+<p>If the execution time drops dramatically when avoiding serialization
+back to JavaScript, the algorithm's primary bottleneck is host-to-device
+memory bus saturation, not GPU compute capacity.</p>
+<h3 id="diagnostic-matrix">Diagnostic Matrix</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Metric / Test</th>
+<th style="text-align: left;">Compute-Bound Indicators</th>
+<th style="text-align: left;">Memory-Bound Indicators</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Adding Math
+Instructions</strong></td>
+<td style="text-align: left;">Sharp increase in total runtime</td>
+<td style="text-align: left;">Negligible change in runtime</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Doubling Input Data
+Size</strong></td>
+<td style="text-align: left;">Linear or superlinear execution
+growth</td>
+<td style="text-align: left;">Execution time scales strictly with
+transfer time</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Pipeline Mode
+(<code>setPipeline(true)</code>)</strong></td>
+<td style="text-align: left;">Minor percentage speedup</td>
+<td style="text-align: left;">Massive speedup by eliminating
+readback</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Arithmetic Intensity</strong></td>
+<td style="text-align: left;">High (&gt;10 FLOPs per byte
+transferred)</td>
+<td style="text-align: left;">Low (&lt;2 FLOPs per byte
+transferred)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="optimization-paths">Optimization Paths</h3>
+<p>Once the bottleneck is established:</p>
+<ul>
+<li><strong>If Compute-Bound:</strong> Reduce algorithmic complexity,
+unroll loops, replace expensive functions (<code>Math.pow</code>,
+<code>Math.sin</code>) with faster algebraic approximations, or
+downsample calculations.</li>
+<li><strong>If Memory-Bound:</strong> Use
+<code>kernel.setPipeline(true)</code> to chain kernels without returning
+to CPU memory, pack data into 4-channel vector formats (RGBA) to
+maximize texture cache efficiency, and maximize data reuse across
+threads using shared coordinates.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

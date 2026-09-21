@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nagel-Schreckenberg Traffic Simulation in gpu.js - gpu.js</title>
+    <meta name="description" content="This guide explains how to implement the Nagel-Schreckenberg traffic flow model using gpu.js to leverage parallel hardware acceleration. You will learn the core mathematical rules governing this cellular automaton, how to map the agent dynamics into GPU">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/nagel-schreckenberg-traffic-simulation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Nagel-Schreckenberg Traffic Simulation in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/nagel-schreckenberg-traffic-simulation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide explains how to implement the Nagel-Schreckenberg traffic flow model using gpu.js to leverage parallel hardware acceleration. You will learn the core mathematical rules governing this cellular automaton, how to map the agent dynamics into GPU" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="nagel-schreckenberg-traffic-simulation-in-gpujs">Nagel-Schreckenberg
+Traffic Simulation in gpu.js</h1>
+<p>This guide explains how to implement the Nagel-Schreckenberg traffic
+flow model using gpu.js to leverage parallel hardware acceleration. You
+will learn the core mathematical rules governing this cellular
+automaton, how to map the agent dynamics into GPU compute shaders, and
+how to execute the simulation loop in JavaScript to observe emergent
+phenomena like phantom traffic jams.</p>
+<hr />
+<h3 id="1-the-nagel-schreckenberg-model-mechanics">1. The
+Nagel-Schreckenberg Model Mechanics</h3>
+<p>The Nagel-Schreckenberg (NaSch) model is a discrete cellular
+automaton that simulates single-lane highway traffic. The road is
+divided into discrete cells of uniform length, where each cell is either
+empty or occupied by a single vehicle. Each vehicle has an integer
+velocity ranging from <span class="math inline">\(0\)</span> to <span
+class="math inline">\(v_{\max}\)</span>.</p>
+<p>At each discrete time step <span class="math inline">\(t \to t +
+1\)</span>, all vehicles update simultaneously according to four
+sequential rules:</p>
+<ol type="1">
+<li><strong>Acceleration</strong>: Drivers attempt to accelerate up to
+the maximum speed limit: <span class="math display">\[v \leftarrow
+\min(v + 1, v_{\max})\]</span></li>
+<li><strong>Slowing Down (Collision Avoidance)</strong>: Drivers
+decelerate to avoid hitting the vehicle ahead. If <span
+class="math inline">\(d\)</span> is the distance in cells to the next
+car: <span class="math display">\[v \leftarrow \min(v, d -
+1)\]</span></li>
+<li><strong>Randomization</strong>: Drivers unpredictably reduce speed
+with probability <span class="math inline">\(p \in [0, 1]\)</span>
+(representing driver hesitation or road imperfections): <span
+class="math display">\[v \leftarrow \max(v - 1, 0) \quad \text{with
+probability } p\]</span></li>
+<li><strong>Motion</strong>: Each vehicle advances by its updated
+velocity: <span class="math display">\[x \leftarrow (x + v) \pmod
+L\]</span> <em>(where <span class="math inline">\(L\)</span> is the
+total road length using periodic boundary conditions)</em></li>
+</ol>
+<hr />
+<h3 id="2-adapting-nasch-for-gpu-execution">2. Adapting NaSch for GPU
+Execution</h3>
+<p>Graphics processing units (GPUs) excel at executing identical logic
+across many data points in parallel. In gpu.js, computations run via
+compiled WebGL fragment shaders.</p>
+<p>In a parallel architecture, the <strong>Lagrangian
+(agent-based)</strong> representation is optimal:</p>
+<ul>
+<li>Instead of mapping a road grid where cells search backward to
+determine if a vehicle enters them, each thread processes a single
+<strong>vehicle</strong>.</li>
+<li>Array 1 stores vehicle positions: <code>positions[i]</code>.</li>
+<li>Array 2 stores vehicle velocities: <code>velocities[i]</code>.</li>
+<li>Thread <code>i</code> evaluates vehicle <code>i</code> by inspecting
+vehicle <code>i + 1</code> (the car directly ahead) to calculate
+distance <span class="math inline">\(d\)</span>.</li>
+</ul>
+<p>Because GPU shaders do not have access to JavaScript’s native
+<code>Math.random()</code>, stochastic deceleration requires a fast
+pseudo-random number generator (PRNG) implemented directly inside the
+kernel using a hash function.</p>
+<hr />
+<h3 id="3-implementation-in-gpujs">3. Implementation in gpu.js</h3>
+<h4 id="setting-up-gpujs">Setting Up gpu.js</h4>
+<p>First, include gpu.js in your project via npm or a CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>Initialize the GPU instance:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span></code></pre></div>
+<h4 id="pseudo-random-number-function-for-the-kernel">Pseudo-Random
+Number Function for the Kernel</h4>
+<p>Since GPU threads execute independently, create a deterministic hash
+based on the vehicle index and the current simulation step:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">pseudoRandom</span>(seed<span class="op">,</span> index) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Classic fractional sine hash suitable for GLSL</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(seed <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> index <span class="op">*</span> <span class="fl">78.233</span>) <span class="op">*</span> <span class="fl">43758.5453</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> x <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(x)<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="kernel-updating-velocities">Kernel: Updating Velocities</h4>
+<p>The velocity update kernel computes acceleration, distance braking,
+and randomization:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateVelocities <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> roadLength<span class="op">,</span> numCars<span class="op">,</span> vMax<span class="op">,</span> pSlow<span class="op">,</span> seed) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Identify the lead car index (periodic boundary)</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> nextCarIndex <span class="op">=</span> (i <span class="op">+</span> <span class="dv">1</span>) <span class="op">%</span> numCars<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Calculate distance to lead car</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> distance <span class="op">=</span> positions[nextCarIndex] <span class="op">-</span> positions[i]<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (distance <span class="op">&lt;=</span> <span class="dv">0</span>) {</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    distance <span class="op">+=</span> roadLength<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 1. Acceleration</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> v <span class="op">=</span> velocities[i]<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (v <span class="op">&lt;</span> vMax) {</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    v <span class="op">+=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 2. Deceleration (avoid collision)</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (v <span class="op">&gt;=</span> distance) {</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    v <span class="op">=</span> distance <span class="op">-</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 3. Randomization</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rand <span class="op">=</span> <span class="fu">pseudoRandom</span>(seed<span class="op">,</span> i)<span class="op">;</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (rand <span class="op">&lt;</span> pSlow <span class="op">&amp;&amp;</span> v <span class="op">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    v <span class="op">-=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> v<span class="op">;</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>  <span class="dt">functions</span><span class="op">:</span> [pseudoRandom]</span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([NUM_CARS])<span class="op">;</span></span></code></pre></div>
+<h4 id="kernel-updating-positions">Kernel: Updating Positions</h4>
+<p>The position kernel advances cars based on the calculated
+velocities:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updatePositions <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> roadLength) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> (positions[i] <span class="op">+</span> velocities[i]) <span class="op">%</span> roadLength<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([NUM_CARS])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="4-running-the-simulation-loop">4. Running the Simulation
+Loop</h3>
+<p>Initialize the vehicle state arrays and execute the two kernels
+sequentially:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> ROAD_LENGTH <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> NUM_CARS <span class="op">=</span> <span class="dv">200</span><span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> V_MAX <span class="op">=</span> <span class="dv">5</span><span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> P_SLOW <span class="op">=</span> <span class="fl">0.3</span><span class="op">;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> TIME_STEPS <span class="op">=</span> <span class="dv">500</span><span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize vehicles evenly spaced on the road</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> positions <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(NUM_CARS)<span class="op">;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> velocities <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(NUM_CARS)<span class="op">;</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> spacing <span class="op">=</span> ROAD_LENGTH <span class="op">/</span> NUM_CARS<span class="op">;</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> NUM_CARS<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  positions[i] <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(i <span class="op">*</span> spacing)<span class="op">;</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>  velocities[i] <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> (V_MAX <span class="op">+</span> <span class="dv">1</span>))<span class="op">;</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="co">// Ensure car positions are strictly sorted</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>positions<span class="op">.</span><span class="fu">sort</span>()<span class="op">;</span></span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a><span class="co">// Simulation loop</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> t <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> t <span class="op">&lt;</span> TIME_STEPS<span class="op">;</span> t<span class="op">++</span>) {</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step A: Calculate velocities on the GPU</span></span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>  velocities <span class="op">=</span> <span class="fu">updateVelocities</span>(</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>    positions<span class="op">,</span></span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>    velocities<span class="op">,</span></span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>    ROAD_LENGTH<span class="op">,</span></span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>    NUM_CARS<span class="op">,</span></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>    V_MAX<span class="op">,</span></span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>    P_SLOW<span class="op">,</span></span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>    t <span class="op">+</span> <span class="dv">1</span> <span class="co">// Seed varies by step</span></span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step B: Calculate new positions on the GPU</span></span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>  positions <span class="op">=</span> <span class="fu">updatePositions</span>(</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>    positions<span class="op">,</span></span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>    velocities<span class="op">,</span></span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>    ROAD_LENGTH</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="5-key-considerations">5. Key Considerations</h3>
+<ul>
+<li><strong>Pipeline Modes</strong>: By default, gpu.js downloads array
+buffers back to the CPU after each call. To maximize performance over
+large iterations, set <code>{ pipeline: true }</code> in your kernel
+options to keep memory directly on the GPU texture buffer between
+steps.</li>
+<li><strong>Order Maintenance</strong>: The NaSch model assumes the
+relative ordering of cars remains invariant. Because car <span
+class="math inline">\(i\)</span> cannot overtake car <span
+class="math inline">\(i + 1\)</span>, maintaining array order allows
+each thread to look strictly at index <code>(i + 1) % NUM_CARS</code>
+without performing costly search operations across the road.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

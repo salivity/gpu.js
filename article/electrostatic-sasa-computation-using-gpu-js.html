@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Electrostatic SASA Computation Using GPU.js - gpu.js</title>
+    <meta name="description" content="Computing the electrostatic solvent-accessible surface area (SASA) of macromolecules is entirely achievable in GPU.js by offloading intensive geometric sampling and electrostatic potential evaluations to the GPU via WebGL or WebGPU. This article outlines">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/electrostatic-sasa-computation-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Electrostatic SASA Computation Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/electrostatic-sasa-computation-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing the electrostatic solvent-accessible surface area (SASA) of macromolecules is entirely achievable in GPU.js by offloading intensive geometric sampling and electrostatic potential evaluations to the GPU via WebGL or WebGPU. This article outlines" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="electrostatic-sasa-computation-using-gpujs">Electrostatic SASA
+Computation Using GPU.js</h1>
+<p>Computing the electrostatic solvent-accessible surface area (SASA) of
+macromolecules is entirely achievable in GPU.js by offloading intensive
+geometric sampling and electrostatic potential evaluations to the GPU
+via WebGL or WebGPU. This article outlines how to implement this
+computational pipeline in JavaScript, detailing the algorithm design,
+GPU kernel decomposition, performance advantages, and technical
+limitations of performing macromolecular electrostatic analysis within a
+browser or Node.js environment.</p>
+<h2 id="the-computational-problem">The Computational Problem</h2>
+<p>Solvent-Accessible Surface Area (SASA) measures the surface area of a
+macromolecule that is reachable by a solvent sphere (typically with a
+radius of 1.4 Å for water). When coupled with electrostatics, each
+accessible surface point is assigned an electrostatic potential derived
+from the partial charges of neighboring atoms.</p>
+<p>This workflow involves two computationally demanding, highly
+parallelizable components:</p>
+<ol type="1">
+<li><strong>Geometric Surface Generation:</strong> Calculating
+accessibility using algorithms such as Shrake-Rupley (sphere
+dot-distribution) or Lee-Richards (sliced circles).</li>
+<li><strong>Electrostatic Evaluation:</strong> Calculating the
+electrostatic potential at each solvent-exposed surface point, typically
+via Coulomb's Law, Debye-Hückel approximations, or boundary-element
+Poisson-Boltzmann methods.</li>
+</ol>
+<h2 id="how-gpujs-handles-the-workload">How GPU.js Handles the
+Workload</h2>
+<p>GPU.js compiles standard JavaScript functions into GLSL shaders
+running on the GPU. Because both surface generation and electrostatic
+evaluations operate as "embarrassingly parallel" point-wise
+computations, they map efficiently to GPU compute kernels.</p>
+<h3 id="1-data-structuring-and-memory-mapping">1. Data Structuring and
+Memory Mapping</h3>
+<p>Macromolecular data (such as PDB structures) must be flattened into
+numeric arrays before passing to GPU kernels:</p>
+<ul>
+<li><strong>Coordinates:</strong> Flattened 1D or 2D arrays containing
+<span class="math inline">\((x, y, z)\)</span> positions of all
+atoms.</li>
+<li><strong>Radii:</strong> Van der Waals radii adjusted by the solvent
+probe radius (<span class="math inline">\(r_{vdw} +
+r_{probe}\)</span>).</li>
+<li><strong>Charges:</strong> Partial atomic charges assigned from
+standard force fields (e.g., AMBER or CHARMM).</li>
+</ul>
+<h3 id="2-surface-accessibility-kernel">2. Surface Accessibility
+Kernel</h3>
+<p>Using the Shrake-Rupley numerical method, each atom is enclosed by a
+test sphere populated by <span class="math inline">\(N\)</span> evenly
+distributed test points (typically <span class="math inline">\(N =
+92\)</span> to <span class="math inline">\(960\)</span> points based on
+the Golden Spiral method).</p>
+<p>The GPU.js kernel can be structured as follows:</p>
+<ul>
+<li><strong>Kernel Dimension:</strong> <span
+class="math inline">\([N_{points}, N_{atoms}]\)</span>.</li>
+<li><strong>Computation:</strong> For each test point on a target atom,
+the kernel computes the Euclidean distance to every other neighboring
+atom.</li>
+<li><strong>Result:</strong> If the distance to any other atom <span
+class="math inline">\(j\)</span> is strictly less than <span
+class="math inline">\((r_j + r_{probe})\)</span>, the point is buried
+(<span class="math inline">\(0\)</span>); otherwise, it is accessible
+(<span class="math inline">\(1\)</span>).</li>
+</ul>
+<h3 id="3-electrostatic-potential-kernel">3. Electrostatic Potential
+Kernel</h3>
+<p>Once accessible points are identified, a second GPU.js kernel
+evaluates the electrostatic potential at each exposed point:</p>
+<ul>
+<li><strong>Input:</strong> Coordinates of accessible surface points and
+atom coordinates with partial charges.</li>
+<li><strong>Computation:</strong> The kernel evaluates a Coulombic
+summation or screened Coulomb potential (Debye-Hückel): <span
+class="math display">\[\Phi(\mathbf{r}) = \sum_{i=1}^{M} \frac{q_i}{4
+\pi \varepsilon_0 \varepsilon_r \|\mathbf{r} - \mathbf{r}_i\|}
+\exp(-\kappa \|\mathbf{r} - \mathbf{r}_i\|)\]</span> where <span
+class="math inline">\(q_i\)</span> represents partial atomic charges,
+<span class="math inline">\(\varepsilon_r\)</span> is the dielectric
+constant, and <span class="math inline">\(\kappa\)</span> represents the
+inverse Debye screening length.</li>
+<li><strong>Result:</strong> A scalar potential value assigned to each
+exposed surface patch.</li>
+</ul>
+<h2 id="limitations-and-practical-considerations">Limitations and
+Practical Considerations</h2>
+<p>While GPU.js enables electrostatic SASA calculations directly within
+JavaScript environments, several constraints must be managed:</p>
+<ul>
+<li><strong>Precision Limits:</strong> WebGL often restricts
+calculations to 32-bit floating-point precision (<code>float32</code>).
+While adequate for geometric accessibility and Coulombic approximations,
+it can introduce rounding artifacts in delicate Poisson-Boltzmann
+solvers.</li>
+<li><strong>Memory Limits and Uniform Buffers:</strong> Passing
+thousands of atom coordinates into a kernel can exceed uniform limits on
+older WebGL configurations. The standard solution is encoding atom data
+into floating-point textures (<code>DataTexture</code>).</li>
+<li><strong>Neighbor Lists:</strong> A brute-force pairwise calculation
+on the GPU runs in <span class="math inline">\(O(N_{atoms} \times
+N_{points} \times N_{atoms})\)</span> time. To scale to large complexes,
+a spatial grid (cell list or voxel grid) should be precomputed on the
+CPU to restrict search radii on the GPU.</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>Electrostatic SASA calculations can be effectively implemented in
+GPU.js by parallelizing the Shrake-Rupley test-point verification and
+electrostatic potential summations across GPU shader pipelines. This
+approach provides real-time, in-browser analysis suitable for web-based
+molecular viewers, structural bioinformatics workflows, and interactive
+drug-discovery platforms without relying on native C/CUDA backends.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

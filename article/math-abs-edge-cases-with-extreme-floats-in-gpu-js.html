@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math.abs Edge Cases with Extreme Floats in gpu.js - gpu.js</title>
+    <meta name="description" content="Using Math.abs() on extreme floating-point values in gpu.js frequently leads to unexpected behavior due to the fundamental differences between JavaScript execution and WebGL shader compilation. While JavaScript natively executes mathematical operations u">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/math-abs-edge-cases-with-extreme-floats-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Math.abs Edge Cases with Extreme Floats in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/math-abs-edge-cases-with-extreme-floats-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Using Math.abs() on extreme floating-point values in gpu.js frequently leads to unexpected behavior due to the fundamental differences between JavaScript execution and WebGL shader compilation. While JavaScript natively executes mathematical operations u" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="mathabs-edge-cases-with-extreme-floats-in-gpujs">Math.abs Edge
+Cases with Extreme Floats in gpu.js</h1>
+<p>Using <code>Math.abs()</code> on extreme floating-point values in
+gpu.js frequently leads to unexpected behavior due to the fundamental
+differences between JavaScript execution and WebGL shader compilation.
+While JavaScript natively executes mathematical operations using 64-bit
+double-precision floats (IEEE 754), gpu.js translates kernel functions
+into GLSL shaders that default to 32-bit single-precision floats. This
+article examines the primary edge cases encountered when applying
+<code>Math.abs</code> to extreme floats in gpu.js, detailing how
+hardware constraints, precision loss, and non-standard driver behaviors
+affect numerical stability.</p>
+<h3 id="1-overflow-to-infinity-precision-downcasting">1. Overflow to
+Infinity (Precision Downcasting)</h3>
+<p>JavaScript allows numbers up to approximately <span
+class="math inline">\(1.79 \times 10^{308}\)</span>. In standard gpu.js
+configurations, numbers passed to or computed within a kernel are
+converted into 32-bit floats, which have an upper finite limit of
+roughly <span class="math inline">\(3.40 \times 10^{38}\)</span>.</p>
+<p>If an input value is less than <span class="math inline">\(-3.40
+\times 10^{38}\)</span>, passing it to a kernel and calling
+<code>Math.abs(x)</code> does not yield a large positive finite float.
+Instead:</p>
+<ul>
+<li>The GPU immediately registers the value as negative infinity
+(<code>-Infinity</code>) prior to or during evaluation.</li>
+<li><code>Math.abs(-Infinity)</code> yields <code>Infinity</code>,
+discarding the mantissa entirely.</li>
+<li>If precision clamping is enabled in certain legacy WebGL
+environments, extreme negative numbers may wrap around or truncate
+abruptly, producing corrupt positive outputs.</li>
+</ul>
+<h3 id="2-flush-to-zero-on-subnormal-numbers-underflow">2. Flush-to-Zero
+on Subnormal Numbers (Underflow)</h3>
+<p>Numbers extremely close to zero (between <span
+class="math inline">\(-1.18 \times 10^{-38}\)</span> and <span
+class="math inline">\(0\)</span>) fall into the subnormal or denormal
+range of 32-bit floats.</p>
+<p>Unlike standard JavaScript engines, many mobile and desktop GPUs
+enforce a "Flush-to-Zero" (FTZ) optimization to maximize throughput.
+When calling <code>Math.abs(x)</code> on an extreme negative subnormal
+value:</p>
+<ul>
+<li>The GPU hardware frequently flushes the number directly to
+<code>+0.0</code> or <code>-0.0</code> before the <code>abs</code>
+operation can retain its fractional significance.</li>
+<li>Downstream calculations that rely on the non-zero magnitude of tiny
+numbers will face zero-division errors (<code>1.0 / Math.abs(x)</code>
+resulting in <code>Infinity</code> instead of an expected large
+scalar).</li>
+</ul>
+<h3 id="3-non-compliant-nan-and-infinity-implementations">3.
+Non-Compliant <code>NaN</code> and <code>Infinity</code>
+Implementations</h3>
+<p>The IEEE 754 standard mandates that <code>Math.abs(-Infinity)</code>
+equals <code>Infinity</code> and <code>Math.abs(NaN)</code> equals
+<code>NaN</code>. However, GLSL implementations vary significantly
+across hardware vendors:</p>
+<ul>
+<li><strong>Sign Bit on NaN</strong>: Passing a negative
+<code>NaN</code> (such as values resulting from invalid negative
+operations) into <code>Math.abs()</code> does not guarantee a
+standardized bit pattern output. Some GPUs may strip the sign bit, while
+others leave the internal representation untouched or propagate an
+implementation-specific quiet <code>NaN</code>.</li>
+<li><strong>Indeterminate Values</strong>: Some older mobile GPUs return
+an arbitrary float or zero instead of <code>Infinity</code> when
+applying <code>Math.abs()</code> to overflowed negative numbers,
+diverging completely from standard JavaScript behavior.</li>
+</ul>
+<h3 id="4-preservation-of-negative-zero--00">4. Preservation of Negative
+Zero (<code>-0.0</code>)</h3>
+<p>JavaScript strictly distinguishes between <code>-0</code> and
+<code>+0</code>, with <code>Math.abs(-0)</code> strictly returning
+<code>+0</code>. In GLSL:</p>
+<ul>
+<li>The expression maps to the native GLSL <code>abs()</code>
+function.</li>
+<li>While <code>abs(-0.0)</code> evaluates to <code>0.0</code>
+mathematically, the underlying IEEE sign bit removal is not uniformly
+guaranteed on all GPU architectures. If the result is subsequently cast
+or packed into low-level byte arrays, the sign bit may persist, leading
+to unexpected parity failures when read back into the CPU context.</li>
+</ul>
+<h3 id="5-resolution-and-step-errors-near-the-limits">5. Resolution and
+Step Errors Near the Limits</h3>
+<p>At the far ends of the 32-bit range (both very large and very small
+exponents), floating-point resolution degrades significantly. Applying
+<code>Math.abs()</code> directly does not alter the scale, but
+intermediate operations surrounding it (such as computing absolute
+differences via <code>Math.abs(a - b)</code>) will encounter severe
+cancellation errors:</p>
+<ul>
+<li>If <code>a</code> and <code>b</code> are both extreme negative
+numbers, computing <code>Math.abs(a - b)</code> inside the GPU kernel
+often produces catastrophic cancellation where the precision between
+consecutive representable numbers is larger than the actual difference,
+collapsing the absolute result to <code>0.0</code>.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

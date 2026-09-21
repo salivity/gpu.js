@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Locality and Cache Usage in GPU.js - gpu.js</title>
+    <meta name="description" content="Designing high-performance algorithms for gpu.js requires a fundamental shift from traditional CPU memory management to the hardware realities of graphics processors operating under the WebGL pipeline. While CPU programming heavily leverages deep, hierar">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/memory-locality-and-cache-usage-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Memory Locality and Cache Usage in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/memory-locality-and-cache-usage-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Designing high-performance algorithms for gpu.js requires a fundamental shift from traditional CPU memory management to the hardware realities of graphics processors operating under the WebGL pipeline. While CPU programming heavily leverages deep, hierar" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="memory-locality-and-cache-usage-in-gpujs">Memory Locality and
+Cache Usage in GPU.js</h1>
+<p>Designing high-performance algorithms for gpu.js requires a
+fundamental shift from traditional CPU memory management to the hardware
+realities of graphics processors operating under the WebGL pipeline.
+While CPU programming heavily leverages deep, hierarchical hardware
+caches to minimize latency for sequential instructions, gpu.js compiles
+JavaScript logic into fragment shaders where memory is represented as
+textures. This article explores how memory access patterns, spatial and
+temporal cache architectures, and WebGL abstraction boundaries dictate
+how you must structure data and algorithmic loops when writing
+GPU-accelerated code in JavaScript.</p>
+<h3
+id="the-architectural-shift-latency-optimization-vs-throughput-caching">The
+Architectural Shift: Latency Optimization vs. Throughput Caching</h3>
+<p>CPUs rely on large L1, L2, and L3 caches coupled with speculative
+execution and hardware prefetchers. When designing a CPU algorithm,
+sequential array iterations exploit these large cache lines, giving high
+performance via temporal and spatial locality.</p>
+<p>GPUs invert this model. They utilize thousands of smaller cores
+designed for raw throughput rather than single-thread latency. Instead
+of relying on massive caches to speed up stalled memory requests, GPUs
+use massive multithreading to switch between workgroups (warps or
+wavefronts) when one group is waiting on data from global video memory
+(VRAM). As a result, per-thread cache is miniscule compared to a CPU,
+meaning traditional assumptions about variable reuse inside a single
+execution thread do not yield the same performance benefits.</p>
+<h3 id="the-texture-memory-abstraction-in-gpujs">The Texture Memory
+Abstraction in GPU.js</h3>
+<p>Because gpu.js runs on top of WebGL, it stores input arrays and
+matrices as 2D floating-point or RGBA textures in VRAM. This abstraction
+alters how spatial locality works:</p>
+<ol type="1">
+<li><strong>2D Spatial Locality over 1D Contiguity:</strong> Traditional
+caches fetch contiguous 1D blocks of linear memory. GPUs feature
+dedicated texture sampling hardware optimized for 2D spatial locality.
+When a thread samples a texture coordinate, neighboring texels along
+both the X and Y axes are pulled into the texture cache simultaneously.
+Algorithms that process matrices or images benefit more from accessing
+2D localized patches than long, horizontal 1D strides.</li>
+<li><strong>Read-Only Restrictions:</strong> In WebGL, a texture cannot
+be read from and written to within the same pipeline pass. Unlike CPU
+code where an algorithm can update an array in place (taking advantage
+of hot data in L1/L2 cache), gpu.js requires creating an entirely new
+output buffer. Algorithms must be designed as pure functions without
+in-place mutations.</li>
+</ol>
+<h3 id="coalesced-access-vs-thread-level-locality">Coalesced Access vs.
+Thread-Level Locality</h3>
+<p>In CPU programming, spatial locality means that <em>Thread A</em>
+accesses <code>array[i]</code> and then immediately accesses
+<code>array[i + 1]</code>.</p>
+<p>In gpu.js, optimal memory access is dictated by <em>coalesced
+reads</em> across parallel threads executing in lockstep:</p>
+<ul>
+<li><strong>Coalesced Reads:</strong> If thread index
+<code>this.thread.x</code> reads from
+<code>data[this.thread.y][this.thread.x]</code>, adjacent threads in the
+execution block read adjacent columns in memory. The GPU's memory
+controller bundles these simultaneous requests into a single memory
+transaction.</li>
+<li><strong>Strided/Divergent Reads:</strong> If threads index memory
+along the Y-axis (e.g.,
+<code>data[this.thread.x][this.thread.y]</code>), adjacent threads
+request disparate rows that sit far apart in the underlying texture
+buffer. This forces the memory controller to execute multiple serialized
+memory transactions, degrading throughput and thrashing the small GPU
+texture cache.</li>
+</ul>
+<h3 id="temporal-locality-and-recomputation">Temporal Locality and
+Recomputation</h3>
+<p>Temporal locality relies on reusing recently fetched data before it
+is evicted from the cache. In gpu.js, temporal locality is frequently
+weaker than on the CPU because the high volume of parallel threads
+rapidly evicts data from the relatively small GPU caches.</p>
+<p>When designing algorithms for gpu.js:</p>
+<ul>
+<li><strong>Avoid Repeated Global Lookups:</strong> Repeatedly reading
+the same texture coordinates inside nested loops across multiple threads
+can cause severe cache thrashing.</li>
+<li><strong>Math vs. Memory:</strong> Fetching data from VRAM is often
+significantly more expensive than performing arithmetic. In many cases,
+recalculating a value mathematically inside the kernel is faster than
+reading a precomputed lookup table stored in an array.</li>
+</ul>
+<h3 id="multi-pass-kernels-and-pipeline-latency">Multi-Pass Kernels and
+Pipeline Latency</h3>
+<p>Complex algorithms (such as iterative solvers or Fast Fourier
+Transforms) must be broken into multiple passes using
+<code>kernel.combineKernels()</code> or chained kernel runs.</p>
+<p>Each pass incurs an operational boundary:</p>
+<ul>
+<li>Intermediate results are flushed to a WebGL framebuffer (a texture
+in VRAM).</li>
+<li>The subsequent pass must reload that texture into the texture
+cache.</li>
+<li>This eliminates inter-pass temporal caching.</li>
+</ul>
+<p>To maximize efficiency, consolidate as many operations into a single
+kernel as possible to keep intermediate values stored directly inside
+GPU registers rather than writing out to textures.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

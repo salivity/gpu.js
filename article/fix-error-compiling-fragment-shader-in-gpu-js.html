@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Error Compiling Fragment Shader in GPU.js - gpu.js</title>
+    <meta name="description" content="The "Error compiling fragment shader" in GPU.js occurs when the library fails to convert your JavaScript kernel function into valid WebGL OpenGL Shading Language (GLSL) code that the graphics card can compile. This guide breaks down the mechanics behind">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/fix-error-compiling-fragment-shader-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Fix Error Compiling Fragment Shader in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/fix-error-compiling-fragment-shader-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The "Error compiling fragment shader" in GPU.js occurs when the library fails to convert your JavaScript kernel function into valid WebGL OpenGL Shading Language (GLSL) code that the graphics card can compile. This guide breaks down the mechanics behind" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="fix-error-compiling-fragment-shader-in-gpujs">Fix Error
+Compiling Fragment Shader in GPU.js</h1>
+<p>The "Error compiling fragment shader" in GPU.js occurs when the
+library fails to convert your JavaScript kernel function into valid
+WebGL OpenGL Shading Language (GLSL) code that the graphics card can
+compile. This guide breaks down the mechanics behind this error, details
+the common JavaScript patterns that trigger it, and provides actionable
+steps to fix your kernel functions.</p>
+<h3 id="why-the-error-occurs">Why the Error Occurs</h3>
+<p>GPU.js works by transpiling JavaScript functions into WebGL fragment
+shaders behind the scenes. Unlike JavaScript, GLSL is a strictly typed,
+low-level language designed specifically for parallel graphics
+processors. When you define a kernel, GPU.js parses your JavaScript code
+into an Abstract Syntax Tree (AST) and generates equivalent GLSL code.
+If your JavaScript code contains operations, data types, or syntax
+structures that cannot be translated into valid GLSL, the browser's
+WebGL context throws a shader compilation failure.</p>
+<h3 id="common-causes">Common Causes</h3>
+<h4 id="1-unsupported-javascript-syntax-and-objects">1. Unsupported
+JavaScript Syntax and Objects</h4>
+<p>GLSL does not support general JavaScript objects, standard library
+methods, or dynamic memory manipulation. Using any of the following
+inside a kernel function will break compilation:</p>
+<ul>
+<li>Array manipulation methods such as <code>.push()</code>,
+<code>.pop()</code>, <code>.slice()</code>, or <code>.map()</code>.</li>
+<li>Complex objects, dictionaries, or custom class instances.</li>
+<li>Strings, regular expressions, and DOM operations.</li>
+<li>Recursive functions or <code>while</code> loops with
+non-deterministic exit conditions.</li>
+</ul>
+<p>Kernel functions must rely strictly on simple loops, conditional
+statements, and mathematical operations.</p>
+<h4 id="2-strict-type-incompatibilities">2. Strict Type
+Incompatibilities</h4>
+<p>JavaScript is dynamically typed, while GLSL requires explicit, rigid
+types. In GLSL, operations between integers (<code>int</code>) and
+floating-point numbers (<code>float</code>) cannot be mixed without
+explicit casting. If your logic introduces ambiguous numeric types—such
+as passing a float where an integer index is expected—the generated GLSL
+code will fail type validation on the GPU.</p>
+<h4 id="3-out-of-scope-variables-and-closures">3. Out-of-Scope Variables
+and Closures</h4>
+<p>Kernel functions execute in an isolated environment on the GPU. They
+cannot access external JavaScript variables through normal closures. If
+a kernel references a variable declared outside its local scope, GPU.js
+will fail to generate valid code. Any external data must be passed
+strictly as arguments to the kernel or declared via the
+<code>constants</code> configuration object.</p>
+<h4 id="4-unsupported-math-functions">4. Unsupported Math Functions</h4>
+<p>While GPU.js implements many <code>Math</code> methods (such as
+<code>Math.sin</code>, <code>Math.cos</code>, <code>Math.floor</code>,
+and <code>Math.sqrt</code>), it does not support every standard
+JavaScript math operation. Referencing an unmapped math function will
+lead to invalid GLSL generation.</p>
+<h3 id="how-to-fix-and-debug-the-error">How to Fix and Debug the
+Error</h3>
+<ol type="1">
+<li><strong>Inspect the Console Output:</strong> Look directly above or
+below the error message in the browser developer console. GPU.js
+typically outputs the raw generated GLSL code along with the line number
+where the WebGL compiler failed.</li>
+<li><strong>Isolate Kernel Logic:</strong> Comment out portions of your
+kernel code line-by-line until the compilation succeeds. This isolates
+the exact statement causing the transpile failure.</li>
+<li><strong>Pass Inputs Explicitly:</strong> Ensure all arrays and
+textures passed to the kernel have uniform dimensions and types. Avoid
+heterogeneous arrays containing mixed numbers, strings, or objects.</li>
+<li><strong>Use Mode Fallbacks for Debugging:</strong> Initialize GPU.js
+with <code>{ mode: 'cpu' }</code> temporarily. If the code runs under
+the CPU fallback, the issue is strictly a WebGL translation error rather
+than a logical syntax error in your JavaScript.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

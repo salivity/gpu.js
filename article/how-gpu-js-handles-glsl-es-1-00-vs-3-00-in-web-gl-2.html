@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles GLSL ES 1.00 vs 3.00 in WebGL2 - gpu.js</title>
+    <meta name="description" content="GPU.js bridges the architectural gap between WebGL1 (GLSL ES 1.00) and WebGL2 (GLSL ES 3.00) by analyzing JavaScript functions, generating an Abstract Syntax Tree (AST), and compiling them dynamically into the appropriate shading language version. When r">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-glsl-es-1-00-vs-3-00-in-web-gl-2">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles GLSL ES 1.00 vs 3.00 in WebGL2 - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-glsl-es-1-00-vs-3-00-in-web-gl-2" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js bridges the architectural gap between WebGL1 (GLSL ES 1.00) and WebGL2 (GLSL ES 3.00) by analyzing JavaScript functions, generating an Abstract Syntax Tree (AST), and compiling them dynamically into the appropriate shading language version. When r" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-glsl-es-100-vs-300-in-webgl2">How GPU.js
+Handles GLSL ES 1.00 vs 3.00 in WebGL2</h1>
+<p>GPU.js bridges the architectural gap between WebGL1 (GLSL ES 1.00)
+and WebGL2 (GLSL ES 3.00) by analyzing JavaScript functions, generating
+an Abstract Syntax Tree (AST), and compiling them dynamically into the
+appropriate shading language version. When running on WebGL2, GPU.js
+automatically takes advantage of GLSL ES 3.00's modern features—such as
+enhanced type handling, updated storage qualifiers, and native integer
+arithmetic—while maintaining backward compatibility with GLSL ES 1.00
+environments through an abstracted compiler pipeline.</p>
+<h3 id="kernel-class-separation">Kernel Class Separation</h3>
+<p>GPU.js separates context handling into dedicated kernel classes:
+<code>WebGLKernel</code> for WebGL1 and <code>WebGL2Kernel</code> for
+WebGL2. When initialized, the library queries the host environment for
+WebGL2 support. If available, <code>WebGL2Kernel</code> is chosen,
+automatically directing the internal code generator to prepend the
+<code>#version 300 es</code> directive to the generated vertex and
+fragment shaders. If WebGL2 is not supported, it instantiates
+<code>WebGLKernel</code>, omitting the version directive to default to
+GLSL ES 1.00.</p>
+<h3 id="input-and-output-variable-declarations">Input and Output
+Variable Declarations</h3>
+<p>One of the primary syntactic differences between GLSL ES 1.00 and
+3.00 involves input, output, and varying parameters. GPU.js handles
+these mapping differences directly in the string generation phase:</p>
+<ul>
+<li><strong>Inputs:</strong> GLSL ES 1.00 uses the
+<code>attribute</code> keyword for vertex inputs and
+<code>varying</code> to pass data from vertex to fragment stages. In
+<code>WebGL2Kernel</code>, the compiler replaces these with the
+standardized <code>in</code> qualifier.</li>
+<li><strong>Outputs:</strong> GLSL ES 1.00 fragment shaders rely on the
+built-in <code>gl_FragColor</code> or extensions like
+<code>WEBGL_draw_buffers</code> for output. GLSL ES 3.00 deprecates
+<code>gl_FragColor</code>, requiring explicit output declarations.
+GPU.js dynamically declares custom output variables (e.g.,
+<code>out vec4 outColor;</code>) and routes returned kernel values
+through this custom output variable in GLSL ES 3.00, while writing to
+<code>gl_FragColor</code> in GLSL ES 1.00.</li>
+</ul>
+<h3 id="texture-sampling-functions">Texture Sampling Functions</h3>
+<p>Texture access syntax changed significantly between GLSL ES 1.00 and
+3.00.</p>
+<ul>
+<li>In GLSL ES 1.00, texture fetching uses explicit, type-dependent
+functions such as <code>texture2D()</code> and
+<code>textureCube()</code>.</li>
+<li>In GLSL ES 3.00, these functions are unified into the overloaded
+<code>texture()</code> function, alongside the introduction of
+<code>texelFetch()</code> for non-normalized, direct integer
+coordinates.</li>
+</ul>
+<p>GPU.js inspects the active backend during compilation. When compiling
+for WebGL2, the AST translator emits <code>texture()</code> calls
+instead of <code>texture2D()</code>, ensuring compatibility with the
+strict typing rules of GLSL ES 3.00.</p>
+<h3 id="native-integer-arithmetic-and-bitwise-operations">Native Integer
+Arithmetic and Bitwise Operations</h3>
+<p>GLSL ES 1.00 lacks native integer operations, true integer types in
+many operations, and bitwise operators. To execute bitwise code on
+WebGL1, GPU.js must emulate operations mathematically using
+floating-point approximations.</p>
+<p>Under <code>WebGL2Kernel</code>, GPU.js leverages GLSL ES 3.00’s
+native signed (<code>int</code>) and unsigned (<code>uint</code>)
+integers. The AST compiler maps JavaScript bitwise operators
+(<code>&amp;</code>, <code>|</code>, <code>^</code>,
+<code>&lt;&lt;</code>, <code>&gt;&gt;</code>) directly to native GLSL
+bitwise operators, resulting in faster execution and exact binary
+precision without requiring emulation layers.</p>
+<h3 id="floating-point-textures-and-precision">Floating-Point Textures
+and Precision</h3>
+<p>WebGL1 often requires extensions (such as
+<code>OES_texture_float</code>) to read and write high-precision
+floating-point textures, requiring conditional precision qualifiers
+(<code>precision highp float;</code>). In WebGL2, 32-bit and 16-bit
+floating-point textures are integrated natively into the core
+specification. GPU.js adjusts its internal framebuffer and texture
+allocation settings based on the kernel type, ensuring that internal
+lookup arrays and output buffers utilize IEEE 754-compliant
+floating-point formats natively when compiling under GLSL ES 3.00.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

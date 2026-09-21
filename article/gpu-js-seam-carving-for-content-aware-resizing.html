@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Seam Carving for Content-Aware Resizing - gpu.js</title>
+    <meta name="description" content="Seam carving for content-aware image resizing can be implemented across multiple passes in gpu.js by decomposing the algorithm into discrete parallel and sequential stages. While inherently parallel operations like energy map calculation and image recons">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-seam-carving-for-content-aware-resizing">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Seam Carving for Content-Aware Resizing - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-seam-carving-for-content-aware-resizing" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Seam carving for content-aware image resizing can be implemented across multiple passes in gpu.js by decomposing the algorithm into discrete parallel and sequential stages. While inherently parallel operations like energy map calculation and image recons" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-seam-carving-for-content-aware-resizing">GPU.js Seam
+Carving for Content-Aware Resizing</h1>
+<p>Seam carving for content-aware image resizing can be implemented
+across multiple passes in gpu.js by decomposing the algorithm into
+discrete parallel and sequential stages. While inherently parallel
+operations like energy map calculation and image reconstruction map
+naturally to WebGL shaders, the dynamic programming and backtracking
+phases require iterative multi-pass kernel invocations. This article
+explains how each phase of the seam carving pipeline functions across
+passes in gpu.js, details the architectural trade-offs, and evaluates
+overall execution efficiency.</p>
+<h3 id="energy-map-generation-pass-1">Energy Map Generation (Pass
+1)</h3>
+<p>The first step of seam carving calculates the energy of every pixel,
+commonly using gradient magnitude operators such as Sobel or
+dual-gradient edge detection. Because each pixel's energy depends
+strictly on its local neighbors, this phase is embarrassingly
+parallel.</p>
+<p>In gpu.js, this is created as a 2D kernel taking the source image
+texture as input:</p>
+<ul>
+<li>The kernel samples the adjacent horizontal and vertical pixels.</li>
+<li>It calculates the derivatives in both directions (<span
+class="math inline">\(dx\)</span> and <span
+class="math inline">\(dy\)</span>).</li>
+<li>It outputs an energy matrix texture representing gradient
+magnitude.</li>
+</ul>
+<p>This pass executes in a single GPU dispatch and achieves optimal
+hardware utilization.</p>
+<h3 id="cumulative-minimum-energy-map-iterative-multi-pass">Cumulative
+Minimum Energy Map (Iterative Multi-Pass)</h3>
+<p>Seam carving identifies the optimal path (the seam with the lowest
+total energy) using dynamic programming. The cumulative minimum energy
+for a pixel at <span class="math inline">\((x, y)\)</span> depends on
+the minimum values of the three adjacent pixels from the row above it:
+<span class="math inline">\((x-1, y-1)\)</span>, <span
+class="math inline">\((x, y-1)\)</span>, and <span
+class="math inline">\((x+1, y-1)\)</span>.</p>
+<p>Because row <span class="math inline">\(y\)</span> strictly depends
+on row <span class="math inline">\(y-1\)</span>, the entire grid cannot
+be computed in a single GPU pass. Instead, it must be executed as an
+iterative multi-pass routine:</p>
+<ol type="1">
+<li>The first row initializes with the raw energy values.</li>
+<li>A GPU kernel is dispatched for row <span
+class="math inline">\(1\)</span> to row <span
+class="math inline">\(H-1\)</span>, where <span
+class="math inline">\(H\)</span> is the image height.</li>
+<li>Each pass takes the previous row's cumulative results and updates
+the current row.</li>
+</ol>
+<p>In gpu.js, ping-pong framebuffers (using the
+<code>pipeline: true</code> option) allow passing textures sequentially
+back into the kernel without incurring expensive CPU-GPU memory
+readbacks. However, launching <span class="math inline">\(H\)</span>
+separate kernel dispatches does introduce small draw-call overheads in
+the WebGL context.</p>
+<h3 id="seam-backtracking-and-extraction">Seam Backtracking and
+Extraction</h3>
+<p>Once the bottom row of the cumulative energy map is reached, the
+algorithm traces backward from the minimum value on the bottom row to
+the top row to determine the path of the seam.</p>
+<p>Backtracking is strictly sequential along the vertical axis. There
+are two primary approaches in a gpu.js architecture:</p>
+<ul>
+<li><strong>CPU Backtracking:</strong> Read the cumulative energy
+texture back to the CPU via standard array conversion and trace the path
+using a fast single-threaded loop. While this introduces a synchronous
+readback bottleneck (<code>readPixels</code>), the CPU can execute the
+<span class="math inline">\(H\)</span>-step traversal in fractions of a
+millisecond.</li>
+<li><strong>GPU Reduction Pass:</strong> Maintain the state on the GPU
+by running single-pixel update passes from the bottom up. Because this
+requires <span class="math inline">\(H\)</span> serial passes with very
+low thread occupancy (1 thread active per row), it often underperforms
+compared to a direct CPU readback.</li>
+</ul>
+<p>For practical web implementations, reading the cumulative map to the
+CPU for seam extraction is generally the preferred trade-off.</p>
+<h3 id="seam-removal-and-texture-compaction-final-pass">Seam Removal and
+Texture Compaction (Final Pass)</h3>
+<p>After the seam's coordinates are identified, the targeted pixels must
+be removed, shifting the remaining pixels horizontally to reduce the
+image width by one pixel.</p>
+<p>This step runs efficiently as a single GPU kernel pass:</p>
+<ul>
+<li>The kernel dimensions are set to <span class="math inline">\((W-1,
+H)\)</span>.</li>
+<li>The seam coordinates are passed as an input vector.</li>
+<li>For each output coordinate <span class="math inline">\((x,
+y)\)</span>, if <span class="math inline">\(x\)</span> is less than the
+seam index for row <span class="math inline">\(y\)</span>, the original
+pixel at <span class="math inline">\((x, y)\)</span> is sampled. If
+<span class="math inline">\(x\)</span> is equal to or greater than the
+seam index, the pixel at <span class="math inline">\((x+1, y)\)</span>
+is sampled.</li>
+<li>The output is written to a newly allocated texture of width <span
+class="math inline">\(W-1\)</span>.</li>
+</ul>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<p>Implementing seam carving in gpu.js provides substantial acceleration
+over pure CPU approaches for high-resolution images during the energy
+calculation and pixel-shifting phases. However, resizing an image by
+<span class="math inline">\(N\)</span> pixels requires repeating this
+entire cycle <span class="math inline">\(N\)</span> times.</p>
+<p>To maximize throughput in gpu.js:</p>
+<ul>
+<li>Enable <code>pipeline: true</code> on all intermediate kernels to
+prevent unnecessary texture-to-array serialization.</li>
+<li>Batch seam identification techniques (such as computing multiple
+non-intersecting seams per energy cycle) to reduce the total number of
+dynamic programming iterations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

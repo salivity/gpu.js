@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Can You Pass Nested Objects to GPU.js Kernels? - gpu.js</title>
+    <meta name="description" content="GPU.js allows developers to accelerate complex JavaScript computations through WebGL shaders, but it strictly limits the data types that can be supplied to a kernel function. This article explores whether object literals with nested properties can be pas">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/can-you-pass-nested-objects-to-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Can You Pass Nested Objects to GPU.js Kernels? - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/can-you-pass-nested-objects-to-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js allows developers to accelerate complex JavaScript computations through WebGL shaders, but it strictly limits the data types that can be supplied to a kernel function. This article explores whether object literals with nested properties can be pas" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="can-you-pass-nested-objects-to-gpujs-kernels">Can You Pass
+Nested Objects to GPU.js Kernels?</h1>
+<p>GPU.js allows developers to accelerate complex JavaScript
+computations through WebGL shaders, but it strictly limits the data
+types that can be supplied to a kernel function. This article explores
+whether object literals with nested properties can be passed as kernel
+arguments, explains the underlying WebGL limitations that prevent it,
+and details the standard workarounds used to feed structured data into
+GPU-accelerated code.</p>
+<p>The short answer is no. GPU.js does not support passing JavaScript
+object literals with nested properties directly into a kernel function.
+If you attempt to pass an object like
+<code>{ settings: { threshold: 0.5, scale: 2 } }</code>, GPU.js will
+fail during compilation or execution because WebGL shaders cannot parse
+dynamic, nested JavaScript object structures.</p>
+<p>GPU.js works by transpiling JavaScript functions into WebGL shader
+code (GLSL). GLSL is a strictly typed, low-level shading language
+designed to execute on the GPU. In GLSL, function inputs (uniforms) must
+map to fixed hardware types, such as integers, floats, vectors,
+matrices, or sampler textures. Because the GPU has no JavaScript
+runtime, it lacks memory pointers, dynamic heaps, and mechanisms to
+traverse nested object hierarchies.</p>
+<p>To supply values contained in nested objects to your GPU.js kernels,
+use one of the following alternatives:</p>
+<p><strong>1. Flattening into Primitive Arguments</strong> Extract the
+individual nested values in JavaScript before invoking the kernel, and
+pass them as flat, primitive scalar types (integers or floats).</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Instead of passing: { config: { speed: 1.5, factor: 3 } }</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> speed <span class="op">=</span> config<span class="op">.</span><span class="at">speed</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> factor <span class="op">=</span> config<span class="op">.</span><span class="at">factor</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(speed<span class="op">,</span> factor) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> speed <span class="op">+</span> factor<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(speed<span class="op">,</span> factor)<span class="op">;</span></span></code></pre></div>
+<p><strong>2. Flattening into Flat Arrays or TypedArrays</strong> If
+your nested object holds sequences of numerical data, convert the nested
+hierarchy into a flat 1D or 2D array or a <code>Float32Array</code>.
+GPU.js natively supports standard arrays and typed arrays, mapping them
+directly to GPU memory buffers.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Instead of passing: [{ pos: { x: 1, y: 2 } }, { pos: { x: 3, y: 4 } }]</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co">// Flatten to: [1, 2, 3, 4]</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> flattenedPositions <span class="op">=</span> [<span class="dv">1</span><span class="op">,</span> <span class="dv">2</span><span class="op">,</span> <span class="dv">3</span><span class="op">,</span> <span class="dv">4</span>]<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> index <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> positions[index]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> positions[index <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> x <span class="op">+</span> y<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">2</span>])<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(flattenedPositions)<span class="op">;</span></span></code></pre></div>
+<p><strong>3. Packing Data into Textures</strong> For larger datasets,
+pack your structured values into custom image textures or use GPU.js
+input textures via <code>gpu.createKernelMap</code> or
+<code>gpu.mode = 'gpu'</code>. Each pixel in a texture can store four
+floating-point values (RGBA), serving as an efficient container for
+uniform structured records.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

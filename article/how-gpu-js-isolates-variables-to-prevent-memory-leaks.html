@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Isolates Variables to Prevent Memory Leaks - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js isolates kernel variables to protect the browser’s global execution context from memory leaks. By transpiling JavaScript functions into low-level shader code, leveraging isolated execution contexts, and enforcing strict">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-isolates-variables-to-prevent-memory-leaks">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Isolates Variables to Prevent Memory Leaks - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-isolates-variables-to-prevent-memory-leaks" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js isolates kernel variables to protect the browser’s global execution context from memory leaks. By transpiling JavaScript functions into low-level shader code, leveraging isolated execution contexts, and enforcing strict" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-isolates-variables-to-prevent-memory-leaks">How GPU.js
+Isolates Variables to Prevent Memory Leaks</h1>
+<p>This article explains how GPU.js isolates kernel variables to protect
+the browser’s global execution context from memory leaks. By transpiling
+JavaScript functions into low-level shader code, leveraging isolated
+execution contexts, and enforcing strict scope encapsulation during
+execution, GPU.js prevents internal variables from binding to the
+browser's global <code>window</code> object.</p>
+<h2 id="transpilation-to-webgl-shaders">Transpilation to WebGL
+Shaders</h2>
+<p>The primary mechanism GPU.js uses to isolate kernel variables is
+source-to-source compilation (transpilation). When you pass a JavaScript
+function into <code>gpu.createKernel()</code>, GPU.js does not execute
+the function directly within the JavaScript runtime. Instead, it parses
+the function's Abstract Syntax Tree (AST) and converts the logic into
+WebGL Shading Language (GLSL).</p>
+<p>Because GLSL executes on the Graphics Processing Unit (GPU) rather
+than the CPU, the kernel runs in an entirely foreign environment. The
+GPU execution context operates without access to the browser
+environment, the Document Object Model (DOM), or the global JavaScript
+scope (<code>window</code>). Any variable initialized within the kernel
+function becomes a local GPU register or shader variable, making it
+physically impossible for it to register on the JavaScript global
+scope.</p>
+<h2 id="ast-parsing-and-scope-validation">AST Parsing and Scope
+Validation</h2>
+<p>During the AST traversal, GPU.js analyzes variable declarations,
+assignments, and references. In standard JavaScript, assigning a value
+to an undeclared variable in non-strict mode automatically attaches that
+variable to the <code>window</code> object.</p>
+<p>GPU.js prevents this through strict AST validation:</p>
+<ul>
+<li><strong>Static Variable Analysis:</strong> The compiler tracks
+variable declarations within the local block scope of the kernel
+function.</li>
+<li><strong>Symbol Resolution:</strong> Any variable assignment that
+does not correspond to an explicit local declaration or a registered
+kernel constant triggers a compilation error before execution can
+occur.</li>
+<li><strong>Parameter Binding:</strong> External inputs are passed
+explicitly through uniform variables (such as textures or vectors)
+rather than read directly from the global runtime environment.</li>
+</ul>
+<p>This validation phase acts as a static sandbox, eliminating
+undeclared variable mutations that lead to global pollution.</p>
+<h2 id="cpu-fallback-isolation-via-encapsulation">CPU Fallback Isolation
+via Encapsulation</h2>
+<p>When WebGL is unavailable, GPU.js falls back to CPU-based execution.
+To maintain consistent behavior and prevent leakage into
+<code>window</code>, the library isolates CPU execution using
+encapsulated function closures.</p>
+<p>In CPU mode, GPU.js wraps the kernel logic inside an isolated closure
+evaluated under strict mode (<code>'use strict';</code>). In strict
+mode, assigning a value to an undeclared variable throws a
+<code>ReferenceError</code> instead of creating an implicit property on
+the global <code>window</code> object. Furthermore, internal loops and
+intermediate calculation buffers are scoped strictly within the
+instantiated kernel instance, ensuring garbage collection can reclaim
+the allocated memory once execution finishes.</p>
+<h2 id="texture-based-memory-management">Texture-Based Memory
+Management</h2>
+<p>Memory allocated during GPU operations is stored in WebGL textures
+and framebuffers rather than JavaScript heap allocations. GPU.js manages
+these resources through explicit lifecycle handlers. By abstracting
+memory into WebGL texture handles and providing <code>.destroy()</code>
+methods, GPU.js decouples memory management from JavaScript's standard
+garbage collection lifecycle, ensuring references do not remain bound to
+global execution contexts.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

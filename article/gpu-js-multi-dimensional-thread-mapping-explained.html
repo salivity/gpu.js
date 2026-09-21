@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Multi-Dimensional Thread Mapping Explained - gpu.js</title>
+    <meta name="description" content="This article explores the internal mechanics of GPU.js, detailing how the library translates high-level multi-dimensional kernel coordinates into low-level hardware workgroups and fragment shader coordinates. It covers the abstraction layer, the mathemat">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-multi-dimensional-thread-mapping-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Multi-Dimensional Thread Mapping Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-multi-dimensional-thread-mapping-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores the internal mechanics of GPU.js, detailing how the library translates high-level multi-dimensional kernel coordinates into low-level hardware workgroups and fragment shader coordinates. It covers the abstraction layer, the mathemat" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-multi-dimensional-thread-mapping-explained">GPU.js
+Multi-Dimensional Thread Mapping Explained</h1>
+<p>This article explores the internal mechanics of GPU.js, detailing how
+the library translates high-level multi-dimensional kernel coordinates
+into low-level hardware workgroups and fragment shader coordinates. It
+covers the abstraction layer, the mathematical formulas used to fold and
+unfold logical dimensions across 2D framebuffers, and how work is
+distributed across actual GPU hardware execution units.</p>
+<h3 id="the-logical-thread-model">The Logical Thread Model</h3>
+<p>In GPU.js, developers define execution domains using logical thread
+dimensions—such as 1D arrays, 2D matrices, or 3D volumes—via the
+<code>setOutput([x, y, z])</code> method. Inside the kernel function,
+developers access their current execution index using
+<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code>.</p>
+<p>Under the hood, physical graphics pipelines do not execute arbitrary
+3D JavaScript grids directly. Instead, GPU.js compiles the JavaScript
+kernel into a hardware-compatible shading language—primarily WebGL GLSL
+(fragment shaders) or, when supported, compute shaders (WebGPU / WebGL
+2.0 Compute).</p>
+<h3 id="emulating-thread-grids-with-the-webgl-rasterizer">Emulating
+Thread Grids with the WebGL Rasterizer</h3>
+<p>Because WebGL 1.0 and 2.0 lack universal access to generic compute
+shaders, GPU.js relies primarily on fragment shaders rendered across an
+off-screen framebuffer (FBO). The execution is driven by drawing a
+full-screen quad composed of two triangles across a 2D rendering
+viewport.</p>
+<ol type="1">
+<li><p><strong>Packing Logical Dimensions into a 2D Canvas:</strong> The
+hardware viewport is inherently two-dimensional. If the kernel's logical
+output is 1D or 3D, GPU.js computes a 2D texture width and height large
+enough to accommodate the total number of threads (<span
+class="math inline">\(X \times Y \times Z\)</span>). It balances
+dimensions to avoid exceeding the hardware-specific
+<code>MAX_TEXTURE_SIZE</code> limitation.</p></li>
+<li><p><strong>Index Recovery from <code>gl_FragCoord</code>:</strong>
+Each pixel rendered corresponds to a distinct logical thread invocation.
+In the compiled GLSL fragment shader, GPU.js generates boilerplate code
+that converts the native 2D pixel coordinate
+(<code>gl_FragCoord.xy</code>) into a flat 1D global index, and
+subsequently into the logical <code>x</code>, <code>y</code>, and
+<code>z</code> indices.</p>
+<p>The flat index calculation inside the generated GLSL is
+essentially:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> flatIndex <span class="op">=</span> <span class="bu">floor</span><span class="op">(</span><span class="bu">gl_FragCoord</span><span class="op">.</span><span class="fu">y</span><span class="op">)</span> <span class="op">*</span> uTexSize<span class="op">.</span><span class="fu">x</span> <span class="op">+</span> <span class="bu">floor</span><span class="op">(</span><span class="bu">gl_FragCoord</span><span class="op">.</span><span class="fu">x</span><span class="op">);</span></span></code></pre></div>
+<p>From this global index, GPU.js calculates the multi-dimensional
+positions:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// For 3D setups with dimensions (outX, outY, outZ)</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> threadZ <span class="op">=</span> <span class="bu">floor</span><span class="op">(</span>flatIndex <span class="op">/</span> <span class="op">(</span>outX <span class="op">*</span> outY<span class="op">));</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> remainder <span class="op">=</span> flatIndex <span class="op">-</span> <span class="op">(</span>threadZ <span class="op">*</span> outX <span class="op">*</span> outY<span class="op">);</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> threadY <span class="op">=</span> <span class="bu">floor</span><span class="op">(</span>remainder <span class="op">/</span> outX<span class="op">);</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> threadX <span class="op">=</span> <span class="bu">mod</span><span class="op">(</span>remainder<span class="op">,</span> outX<span class="op">);</span></span></code></pre></div>
+<p>These calculated variables are then bound to
+<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code> before executing the body of your
+kernel.</p></li>
+</ol>
+<h3 id="dispatching-to-compute-shaders-webgpu--compute-mode">Dispatching
+to Compute Shaders (WebGPU / Compute Mode)</h3>
+<p>When configured to use WebGPU or experimental WebGL compute contexts,
+GPU.js bypasses the rasterization pipeline and maps thread blocks
+directly to hardware compute workgroups.</p>
+<ol type="1">
+<li><p><strong>Workgroup Sizing:</strong> GPU hardware organizes
+execution units into local groups of threads (e.g., Warps on NVIDIA,
+Wavefronts on AMD). GPU.js defines a fixed local workgroup layout (such
+as <code>[8, 8, 1]</code> or <code>[16, 16, 1]</code>, depending on
+dimensionality) within the shader metadata.</p></li>
+<li><p><strong>Workgroup Dispatch Mapping:</strong> GPU.js calculates
+the number of workgroups to dispatch by dividing the total requested
+output dimensions by the local workgroup size, rounding up: <span
+class="math display">\[\text{Workgroups}_x = \lceil \text{Output}_x /
+\text{WorkgroupSize}_x \rceil\]</span> <span
+class="math display">\[\text{Workgroups}_y = \lceil \text{Output}_y /
+\text{WorkgroupSize}_y \rceil\]</span> <span
+class="math display">\[\text{Workgroups}_z = \lceil \text{Output}_z /
+\text{WorkgroupSize}_z \rceil\]</span></p></li>
+<li><p><strong>Global ID Resolution:</strong> Inside the compute shader,
+the multi-dimensional thread identity is derived directly from built-in
+hardware variables:</p>
+<ul>
+<li><strong>WebGPU:</strong> <code>@builtin(global_invocation_id)</code>
+provides <code>vec3&lt;u32&gt;</code>, directly providing <span
+class="math inline">\(x\)</span>, <span
+class="math inline">\(y\)</span>, and <span
+class="math inline">\(z\)</span>.</li>
+<li><strong>GLSL Compute:</strong> <code>gl_GlobalInvocationID</code>
+maps directly to the thread coordinates.</li>
+</ul>
+<p>A bounds check is injected at the start of the compute shader to
+discard any out-of-bounds invocations caused by workgroups that extend
+past the requested output boundary.</p></li>
+</ol>
+<h3 id="hardware-level-execution">Hardware-Level Execution</h3>
+<p>At the physical silicon layer:</p>
+<ul>
+<li>In <strong>rasterization mode</strong>, the GPU's rasterizer splits
+the 2D quad into small blocks (often 2x2 pixel quads) and distributes
+them across Streaming Multiprocessors (SMs) or Compute Units (CUs). Each
+pixel executes the compiled fragment shader concurrently.</li>
+<li>In <strong>compute mode</strong>, the hardware dispatcher assigns
+entire workgroups directly to available compute units. Local workgroup
+threads run concurrently in lockstep, sharing cache and registers until
+the entire grid is evaluated.</li>
+</ul>
+<p>Through these translation layers, GPU.js transforms intuitive
+multi-dimensional spatial arrays into flat memory textures and hardware
+thread dispatches without requiring the programmer to manage GPU memory
+geometry or hardware-specific coordinate spaces.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

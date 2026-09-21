@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js vs WebGPU: Compute Shader Comparison - gpu.js</title>
+    <meta name="description" content="This article explores the conceptual differences between gpu.js, a JavaScript-to-shader transpilation library, and native WebGPU compute shaders. While both technologies aim to run parallel computational workloads on the client GPU, they fundamentally di">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-vs-web-gpu-compute-shader-comparison">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js vs WebGPU: Compute Shader Comparison - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-vs-web-gpu-compute-shader-comparison" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores the conceptual differences between gpu.js, a JavaScript-to-shader transpilation library, and native WebGPU compute shaders. While both technologies aim to run parallel computational workloads on the client GPU, they fundamentally di" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-vs-webgpu-compute-shader-comparison">GPU.js vs WebGPU:
+Compute Shader Comparison</h1>
+<p>This article explores the conceptual differences between gpu.js, a
+JavaScript-to-shader transpilation library, and native WebGPU compute
+shaders. While both technologies aim to run parallel computational
+workloads on the client GPU, they fundamentally diverge in architectural
+design, memory models, hardware abstraction, and developer control.</p>
+<h3 id="core-abstraction-vs-native-hardware-access">Core Abstraction vs.
+Native Hardware Access</h3>
+<p>The most fundamental contrast lies in their architectural level and
+design intent.</p>
+<p><code>gpu.js</code> is an abstraction library designed to simplify
+GPGPU (General-Purpose computing on Graphics Processing Units) for web
+developers. It allows developers to write standard JavaScript functions,
+which it parses at runtime using abstract syntax tree (AST) analysis and
+converts into WebGL fragment shaders. It abstracts away graphics
+concepts entirely, presenting the illusion of a multi-threaded
+JavaScript execution engine.</p>
+<p>In contrast, WebGPU is a native browser API developed by the W3C to
+expose modern GPU capabilities (Vulkan, Metal, and Direct3D 12) directly
+to the web. Rather than hiding the GPU's nature, WebGPU provides
+first-class, explicit primitives for compute pipelines. It does not
+transpile JavaScript; instead, developers write native compute shaders
+in WebGPU Shading Language (WGSL) and orchestrate execution via command
+buffers, pipelines, and bind groups.</p>
+<h3
+id="pipeline-exploitation-vs-dedicated-compute-architecture">Pipeline
+Exploitation vs. Dedicated Compute Architecture</h3>
+<p>Because <code>gpu.js</code> is historically built on top of WebGL 1
+and WebGL 2, it does not have access to native compute pipelines. WebGL
+is inherently a rasterization engine designed for drawing triangles to a
+screen. To perform calculations:</p>
+<ul>
+<li><code>gpu.js</code> encodes input arrays into 2D textures.</li>
+<li>It renders a full-screen quad to trigger the fragment shader for
+every pixel.</li>
+<li>It interprets each pixel as an array element, running the compiled
+JS logic inside the fragment stage.</li>
+<li>It reads the results back into JavaScript by reading pixel data from
+the framebuffer.</li>
+</ul>
+<p>WebGPU compute shaders bypass the rasterization pipeline completely.
+A compute pass in WebGPU does not use vertices, fragments, framebuffers,
+or render targets. Instead, it dispatches an arbitrary, multidimensional
+grid of threads (workgroups) that run directly on the GPU’s compute
+units. This eliminates the CPU and GPU overhead inherent in faking
+compute workloads through raster graphics.</p>
+<h3 id="memory-models-and-data-sharing">Memory Models and Data
+Sharing</h3>
+<p>The contrast in memory architecture represents the largest functional
+gap between the two approaches.</p>
+<p>In <code>gpu.js</code>, memory is restricted to what WebGL textures
+allow. Data structures must be flattened to fit into texture channels
+(RGBA). Furthermore, threads (fragment invocations) are completely
+isolated: a single fragment cannot read what an adjacent fragment is
+computing, nor can it share scratchpad memory. This severely restricts
+algorithms to "embarrassingly parallel" problems where outputs are
+entirely independent.</p>
+<p>WebGPU introduces a modern memory model:</p>
+<ul>
+<li><strong>Storage Buffers:</strong> Structured, linear memory buffers
+supporting arbitrary data structures, structs, and arrays without
+texture packing hacks.</li>
+<li><strong>Shared Workgroup Memory:</strong> WebGPU exposes on-chip
+high-speed cache (<code>var&lt;workgroup&gt;</code>), enabling threads
+within the same workgroup to share intermediate states, cooperate on
+tasks, and perform efficient reductions.</li>
+<li><strong>Atomic Operations:</strong> WebGPU provides native atomic
+instructions for thread-safe read-modify-write operations on shared
+data, enabling locks, counters, and histograms that are impossible in
+<code>gpu.js</code>.</li>
+</ul>
+<h3 id="execution-control-and-synchronization">Execution Control and
+Synchronization</h3>
+<p>In <code>gpu.js</code>, execution is essentially a black box. The
+developer calls the kernel, and the library manages draw calls, texture
+binding, and synchronous or asynchronous readbacks. There is no
+fine-grained mechanism to coordinate how or when threads execute
+relative to one another.</p>
+<p>WebGPU provides deterministic control over thread topology:</p>
+<ul>
+<li>Computations are organized explicitly into
+<strong>workgroups</strong> and <strong>local workgroup sizes</strong>
+defined directly in WGSL (e.g.,
+<code>@workgroup_size(x, y, z)</code>).</li>
+<li>Developers explicitly manage synchronization points using barriers
+(such as <code>workgroupBarrier()</code>), which freeze execution until
+all threads in a workgroup catch up, preventing race conditions during
+parallel processing.</li>
+</ul>
+<h3 id="ergonomics-vs-performance-and-predictability">Ergonomics vs.
+Performance and Predictability</h3>
+<p><code>gpu.js</code> prioritizes developer convenience over raw
+efficiency. It lowers the barrier to entry by removing the need to learn
+shader languages or GPU state machines. However, this convenience
+introduces substantial overhead: JavaScript AST parsing, texture
+serialization/deserialization, and reliance on WebGL pipeline
+workarounds that limit peak hardware utilization.</p>
+<p>WebGPU prioritizes predictability, hardware parity, and maximum
+throughput at the expense of higher code complexity. Setting up a WebGPU
+compute task requires managing device adapters, pipeline layouts, bind
+group layouts, and asynchronous buffer mapping. In return, it unlocks
+the true computational ceiling of modern GPU hardware, providing a
+viable foundation for browser-based machine learning (such as WebLLM and
+ONNX Runtime Web), physics simulations, and massive data processing
+pipelines.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

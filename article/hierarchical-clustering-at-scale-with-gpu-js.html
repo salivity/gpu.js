@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hierarchical Clustering at Scale with GPU.js - gpu.js</title>
+    <meta name="description" content="Hierarchical clustering dendrogram distances can be evaluated using gpu.js, but only to a specific practical limit. While gpu.js dramatically accelerates the compute-intensive pairwise distance matrix calculation across thousands of data points, it faces">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/hierarchical-clustering-at-scale-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Hierarchical Clustering at Scale with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/hierarchical-clustering-at-scale-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Hierarchical clustering dendrogram distances can be evaluated using gpu.js, but only to a specific practical limit. While gpu.js dramatically accelerates the compute-intensive pairwise distance matrix calculation across thousands of data points, it faces" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="hierarchical-clustering-at-scale-with-gpujs">Hierarchical
+Clustering at Scale with GPU.js</h1>
+<p>Hierarchical clustering dendrogram distances can be evaluated using
+gpu.js, but only to a specific practical limit. While gpu.js
+dramatically accelerates the compute-intensive pairwise distance matrix
+calculation across thousands of data points, it faces severe bottlenecks
+with truly massive datasets due to WebGL texture memory constraints,
+data transfer overheads, and the inherently sequential nature of linkage
+algorithms.</p>
+<h3 id="accelerating-the-pairwise-distance-matrix">Accelerating the
+Pairwise Distance Matrix</h3>
+<p>The initial and most computationally intensive phase of hierarchical
+clustering is calculating the pairwise distance matrix between all data
+points. For a dataset with <span class="math inline">\(N\)</span>
+samples and <span class="math inline">\(D\)</span> dimensions, this step
+requires <span class="math inline">\(O(N^2 \cdot D)\)</span>
+operations.</p>
+<p>This stage maps naturally to gpu.js. By writing a custom 2D kernel,
+you can assign each GPU thread to calculate the Euclidean, Manhattan, or
+Cosine distance between point <span class="math inline">\(i\)</span> and
+point <span class="math inline">\(j\)</span>. Because distance
+calculations are embarrassingly parallel and require no inter-thread
+communication, gpu.js yields speedups of 10x to 100x compared to native
+JavaScript loops when <span class="math inline">\(N\)</span> is in the
+low-to-mid thousands.</p>
+<h3 id="the-dendrogram-and-linkage-bottleneck">The Dendrogram and
+Linkage Bottleneck</h3>
+<p>Once distances are computed, constructing a dendrogram requires
+iterative linkage (such as Ward, single, or complete linkage). The
+algorithm must repeatedly:</p>
+<ol type="1">
+<li>Identify the minimum distance in the matrix.</li>
+<li>Merge the two corresponding clusters.</li>
+<li>Update the distance matrix with the new cluster distances.</li>
+<li>Record the branch height for the dendrogram.</li>
+</ol>
+<p>This iterative process is <span class="math inline">\(O(N^3)\)</span>
+in naive implementations or <span class="math inline">\(O(N^2 \log
+N)\)</span> with priority queues, and it is inherently sequential.
+gpu.js does not support atomic operations, arbitrary inter-thread
+synchronization, or complex dynamic data structures like heaps.
+Consequently, each merge step requires either dispatching multiple
+parallel reduction kernels or passing the updated matrix back to the
+CPU. The CPU-GPU bandwidth latency quickly degrades performance, making
+GPU-accelerated linkage inefficient compared to optimized C++ or
+WebAssembly routines.</p>
+<h3 id="memory-limits-and-webgl-texture-restrictions">Memory Limits and
+WebGL Texture Restrictions</h3>
+<p>The primary obstacle to processing "big datasets" directly in gpu.js
+is memory representation. gpu.js encodes arrays as WebGL textures under
+the hood.</p>
+<p>WebGL implementations generally enforce a maximum texture dimension
+(often 4,096 to 16,384 pixels on modern hardware). If <span
+class="math inline">\(N\)</span> exceeds the maximum texture size, a
+flat 2D <span class="math inline">\(N \times N\)</span> matrix cannot be
+allocated without manual, complex tiling mechanisms. Moreover, a dataset
+of 100,000 points produces a distance matrix containing 10 billion
+floating-point values, demanding roughly 40 GB of VRAM. WebGL and
+browser environments will crash long before reaching this volume.</p>
+<h3 id="practical-implementation-architecture">Practical Implementation
+Architecture</h3>
+<p>To utilize gpu.js effectively for hierarchical clustering, a hybrid
+approach is mandatory:</p>
+<ul>
+<li><strong>Medium Datasets (<span class="math inline">\(N &lt;
+10,000\)</span>):</strong> Run the pairwise distance calculation kernel
+in gpu.js. Read the resulting matrix back into typed arrays (such as
+<code>Float32Array</code>) and execute the dendrogram linkage and tree
+construction on the CPU using an optimized priority-queue-based linkage
+implementation.</li>
+<li><strong>Large Datasets (<span class="math inline">\(N &gt;
+50,000\)</span>):</strong> gpu.js becomes unviable. The <span
+class="math inline">\(O(N^2)\)</span> memory footprint cannot fit into
+WebGL textures, and the pipeline requires specialized distributed
+algorithms, out-of-core memory streaming, or approximate nearest
+neighbor hierarchies (such as HDBSCAN) written in native frameworks with
+direct CUDA or WebGPU access.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

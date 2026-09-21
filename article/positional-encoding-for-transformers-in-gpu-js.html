@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Positional Encoding for Transformers in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement positional encoding addition for transformer tokens using GPU.js to leverage WebGL-based hardware acceleration. You will learn how positional encodings represent sequence order in token matrices, how to map 2D tenso">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/positional-encoding-for-transformers-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Positional Encoding for Transformers in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/positional-encoding-for-transformers-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement positional encoding addition for transformer tokens using GPU.js to leverage WebGL-based hardware acceleration. You will learn how positional encodings represent sequence order in token matrices, how to map 2D tenso" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="positional-encoding-for-transformers-in-gpujs">Positional
+Encoding for Transformers in GPU.js</h1>
+<p>This article explains how to implement positional encoding addition
+for transformer tokens using GPU.js to leverage WebGL-based hardware
+acceleration. You will learn how positional encodings represent sequence
+order in token matrices, how to map 2D tensor operations to a GPU.js
+kernel, and how to efficiently combine token embeddings with precomputed
+positional encodings directly on the GPU.</p>
+<hr />
+<h3 id="understanding-the-operation">Understanding the Operation</h3>
+<p>In transformer architectures, token embeddings do not natively
+contain sequence order information. To inject this information, a
+positional encoding matrix of the exact same shape as the token
+embedding matrix is added element-wise:</p>
+<p><span class="math display">\[\text{Output}[i][j] =
+\text{Embedding}[i][j] + \text{PositionalEncoding}[i][j]\]</span></p>
+<p>Given:</p>
+<ul>
+<li><strong>Sequence Length (<span
+class="math inline">\(S\)</span>):</strong> The number of tokens in the
+input sequence.</li>
+<li><strong>Embedding Dimension (<span
+class="math inline">\(D\)</span>):</strong> The size of the vector
+representing each token.</li>
+</ul>
+<p>Both input matrices have the shape <code>[S, D]</code>. The resulting
+matrix also has the shape <code>[S, D]</code>.</p>
+<hr />
+<h3 id="gpujs-thread-indexing-for-2d-matrices">GPU.js Thread Indexing
+for 2D Matrices</h3>
+<p>GPU.js maps multi-dimensional arrays to GPU threads using
+<code>this.thread</code>. When processing a 2D matrix of shape
+<code>[S, D]</code> (where rows represent tokens and columns represent
+embedding dimensions):</p>
+<ul>
+<li><code>this.thread.x</code> indexes the columns (dimension index,
+ranging from <code>0</code> to <code>D - 1</code>).</li>
+<li><code>this.thread.y</code> indexes the rows (token/sequence
+position, ranging from <code>0</code> to <code>S - 1</code>).</li>
+</ul>
+<p>The kernel access pattern corresponds to
+<code>matrix[this.thread.y][this.thread.x]</code>.</p>
+<hr />
+<h3 id="implementation">Implementation</h3>
+<p>The following code sets up the GPU instance, creates the addition
+kernel, and executes the positional encoding addition:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span> <span class="co">// Use &lt;script src=&quot;gpu-browser.min.js&quot;&gt; in browser environments</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"> * Creates a reusable GPU kernel for positional encoding addition.</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{number}</span><span class="co"> seqLength - Number of tokens in sequence (rows).</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{number}</span><span class="co"> embeddingDim - Dimension of each token vector (columns).</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createPositionalEncodingKernel</span>(seqLength<span class="op">,</span> embeddingDim) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">function</span> (tokens<span class="op">,</span> posEncodings) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// embedding dimension index</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span> <span class="co">// token index</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> tokens[row][col] <span class="op">+</span> posEncodings[row][col]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    }<span class="op">,</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    {</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>      <span class="dt">output</span><span class="op">:</span> [embeddingDim<span class="op">,</span> seqLength]<span class="op">,</span> <span class="co">// [width, height] -&gt; [x, y]</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>      <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span> <span class="co">// Keeps output as a GPU texture for subsequent layers</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="co">// Example usage:</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> seqLength <span class="op">=</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> embeddingDim <span class="op">=</span> <span class="dv">6</span><span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="co">// Sample token embedding matrix [4, 6]</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tokenEmbeddings <span class="op">=</span> [</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.12</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.45</span><span class="op">,</span> <span class="fl">0.88</span><span class="op">,</span> <span class="fl">0.23</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.11</span><span class="op">,</span> <span class="fl">0.54</span>]<span class="op">,</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.91</span><span class="op">,</span> <span class="fl">0.33</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.72</span><span class="op">,</span> <span class="fl">0.05</span><span class="op">,</span> <span class="fl">0.62</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.18</span>]<span class="op">,</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>  [<span class="op">-</span><span class="fl">0.04</span><span class="op">,</span> <span class="fl">0.77</span><span class="op">,</span> <span class="fl">0.19</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.83</span><span class="op">,</span> <span class="fl">0.41</span><span class="op">,</span> <span class="fl">0.30</span>]<span class="op">,</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.65</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.29</span><span class="op">,</span> <span class="fl">0.44</span><span class="op">,</span> <span class="fl">0.99</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.55</span><span class="op">,</span> <span class="fl">0.12</span>]</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>]<span class="op">;</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a><span class="co">// Sample precomputed positional encodings [4, 6] (typically generated via sine/cosine functions)</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> positionalEncodings <span class="op">=</span> [</span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.00</span><span class="op">,</span> <span class="fl">1.00</span><span class="op">,</span> <span class="fl">0.00</span><span class="op">,</span> <span class="fl">1.00</span><span class="op">,</span> <span class="fl">0.00</span><span class="op">,</span> <span class="fl">1.00</span>]<span class="op">,</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.84</span><span class="op">,</span> <span class="fl">0.54</span><span class="op">,</span> <span class="fl">0.09</span><span class="op">,</span> <span class="fl">0.99</span><span class="op">,</span> <span class="fl">0.01</span><span class="op">,</span> <span class="fl">1.00</span>]<span class="op">,</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.90</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.41</span><span class="op">,</span> <span class="fl">0.19</span><span class="op">,</span> <span class="fl">0.98</span><span class="op">,</span> <span class="fl">0.02</span><span class="op">,</span> <span class="fl">0.99</span>]<span class="op">,</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>  [<span class="fl">0.14</span><span class="op">,</span> <span class="op">-</span><span class="fl">0.98</span><span class="op">,</span> <span class="fl">0.29</span><span class="op">,</span> <span class="fl">0.95</span><span class="op">,</span> <span class="fl">0.03</span><span class="op">,</span> <span class="fl">0.99</span>]</span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>]<span class="op">;</span></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a><span class="co">// Instantiate and run kernel</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> addPositionalEncoding <span class="op">=</span> <span class="fu">createPositionalEncodingKernel</span>(seqLength<span class="op">,</span> embeddingDim)<span class="op">;</span></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> outputTexture <span class="op">=</span> <span class="fu">addPositionalEncoding</span>(tokenEmbeddings<span class="op">,</span> positionalEncodings)<span class="op">;</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert GPU texture back to standard JavaScript array (for verification/debugging)</span></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalEmbeddings <span class="op">=</span> outputTexture<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(finalEmbeddings)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="key-optimizations">Key Optimizations</h3>
+<ol type="1">
+<li><strong>Pipeline Mode (<code>pipeline: true</code>):</strong>
+Setting <code>pipeline: true</code> keeps the output matrix in GPU
+memory as a texture rather than transferring it back to the CPU via
+JavaScript arrays. This prevents expensive CPU-GPU data transfers when
+piping the result directly into multi-head self-attention kernels.</li>
+<li><strong>Fixed Output Dimensions:</strong> The output dimensions are
+specified as <code>[width, height]</code>, which corresponds to
+<code>[embeddingDim, seqLength]</code>. Transposing these dimensions in
+the configuration will cause memory corruption or mismatched dimension
+reads.</li>
+<li><strong>Precomputing Encodings:</strong> In standard Transformer
+models (such as "Attention Is All You Need"), sinusoidal positional
+encodings are deterministic. Precompute them once on initialization or
+compile them into static constants to avoid dynamic recalculations
+during the forward pass.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

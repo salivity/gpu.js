@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profiling GPU Memory Bandwidth in gpu.js - gpu.js</title>
+    <meta name="description" content="Profiling GPU memory bandwidth saturation during heavy matrix operations in gpu.js involves tracking the balance between data movement and arithmetic throughput. Because browser-based WebGL environments do not expose hardware performance counters directl">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/profiling-gpu-memory-bandwidth-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Profiling GPU Memory Bandwidth in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/profiling-gpu-memory-bandwidth-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Profiling GPU memory bandwidth saturation during heavy matrix operations in gpu.js involves tracking the balance between data movement and arithmetic throughput. Because browser-based WebGL environments do not expose hardware performance counters directl" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="profiling-gpu-memory-bandwidth-in-gpujs">Profiling GPU Memory
+Bandwidth in gpu.js</h1>
+<p>Profiling GPU memory bandwidth saturation during heavy matrix
+operations in gpu.js involves tracking the balance between data movement
+and arithmetic throughput. Because browser-based WebGL environments do
+not expose hardware performance counters directly to JavaScript,
+measuring memory bandwidth requires combining high-resolution
+client-side timings with native GPU profilers like NVIDIA Nsight or
+RenderDoc. This guide outlines how to calculate theoretical memory
+usage, measure effective bandwidth in gpu.js, and capture low-level
+saturation metrics through native diagnostic tools.</p>
+<h2 id="the-memory-bandwidth-bottleneck-in-matrix-operations">The Memory
+Bandwidth Bottleneck in Matrix Operations</h2>
+<p>In gpu.js, matrix multiplication (<span class="math inline">\(C = A
+\times B\)</span>) maps computations to a WebGL fragment shader,
+treating matrices as textures. Naive matrix multiplication requires
+fetching an entire row of matrix <span class="math inline">\(A\)</span>
+and a column of matrix <span class="math inline">\(B\)</span> for every
+output element in <span class="math inline">\(C\)</span>.</p>
+<p>For two <span class="math inline">\(N \times N\)</span> 32-bit float
+matrices:</p>
+<ul>
+<li><strong>Naive Reads:</strong> <span class="math inline">\(2 \times
+N^3 \times 4\)</span> bytes.</li>
+<li><strong>Writes:</strong> <span class="math inline">\(N^2 \times
+4\)</span> bytes.</li>
+</ul>
+<p>When <span class="math inline">\(N = 2048\)</span>, naive operations
+pull approximately 68.7 GB of data across the GPU memory bus to produce
+only 16.7 MB of output. If the GPU's memory bus cannot feed the
+Execution Units (EUs) or Streaming Multiprocessors (SMs) fast enough,
+execution stalls, causing memory bandwidth saturation.</p>
+<h2 id="1-measuring-effective-bandwidth-in-javascript">1. Measuring
+Effective Bandwidth in JavaScript</h2>
+<p>To isolate memory bandwidth bottlenecks from CPU-to-GPU data
+transmission, measure the execution step separately from data upload and
+readback.</p>
+<p>Enable pipelining in gpu.js to retain intermediate results in VRAM as
+textures:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Pipeline mode prevents readback to CPU</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matMult <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b<span class="op">,</span> size) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> size<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> b[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">2048</span><span class="op">,</span> <span class="dv">2048</span>])</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> size <span class="op">=</span> <span class="dv">2048</span><span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> a <span class="op">=</span> <span class="fu">generateMatrix</span>(size)<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> b <span class="op">=</span> <span class="fu">generateMatrix</span>(size)<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="co">// Warm-up execution to compile shaders and allocate textures</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="fu">matMult</span>(a<span class="op">,</span> b<span class="op">,</span> size)<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co">// Timed execution</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> start <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> resultTexture <span class="op">=</span> <span class="fu">matMult</span>(a<span class="op">,</span> b<span class="op">,</span> size)<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="co">// Force WebGL pipeline flush without pulling the entire array</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>resultTexture<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span> </span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> end <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> durationSeconds <span class="op">=</span> (end <span class="op">-</span> start) <span class="op">/</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> totalBytesTransferred <span class="op">=</span> ((<span class="dv">2</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(size<span class="op">,</span> <span class="dv">3</span>) <span class="op">*</span> <span class="dv">4</span>) <span class="op">+</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(size<span class="op">,</span> <span class="dv">2</span>) <span class="op">*</span> <span class="dv">4</span>))<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> effectiveBandwidthGBs <span class="op">=</span> (totalBytesTransferred <span class="op">/</span> durationSeconds) <span class="op">/</span> <span class="fl">1e9</span><span class="op">;</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Effective Bandwidth: </span><span class="sc">${</span>effectiveBandwidthGBs<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs"> GB/s`</span>)<span class="op">;</span></span></code></pre></div>
+<p>If the achieved throughput plateaus well below your GPU's advertised
+peak bandwidth (e.g., 500 GB/s on an RTX 3070), the kernel is
+constrained either by texture cache misses or latency stalls from
+non-coalesced texture lookups.</p>
+<h2 id="2-low-level-profiling-via-native-hardware-counters">2. Low-Level
+Profiling via Native Hardware Counters</h2>
+<p>Browser sandboxing hides hardware memory bus metrics. To capture
+metrics like VRAM throughput, DRAM read/write utilization, and cache-hit
+rates, you must attach an external profiler to the browser process.</p>
+<h3 id="launching-chrome-for-profiling">Launching Chrome for
+Profiling</h3>
+<p>Launch Google Chrome with GPU sandboxing disabled and developer flags
+enabled:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="ex">chrome.exe</span> <span class="at">--disable-gpu-sandbox</span> <span class="at">--enable-privileged-webgl-extension</span> <span class="at">--disable-direct-composition</span></span></code></pre></div>
+<h3 id="profiling-with-nvidia-nsight-systems--graphics">Profiling with
+NVIDIA Nsight Systems / Graphics</h3>
+<ol type="1">
+<li>Open <strong>NVIDIA Nsight Graphics</strong> or <strong>Nsight
+Systems</strong>.</li>
+<li>Target the specific Chrome GPU process running your gpu.js script
+(found via Chrome’s Task Manager: <code>Shift + Esc</code>).</li>
+<li>Run a <strong>Trace</strong> during the matrix multiplication
+loop.</li>
+<li>Inspect the following counters:
+<ul>
+<li><strong>VRAM Throughput % (DRAM Bandwidth):</strong> Values
+consistently above 80–90% indicate memory bus saturation.</li>
+<li><strong>L2 Cache Hit Rate:</strong> Low hit rates indicate that
+threads are constantly falling back to main VRAM rather than leveraging
+on-chip cache.</li>
+<li><strong>SM/Compute Throughput vs. Memory Throughput:</strong> If SM
+throughput is low (e.g., 20%) while Memory Throughput is high (e.g.,
+85%), your matrix kernel is entirely memory-bound.</li>
+</ul></li>
+</ol>
+<h3 id="profiling-with-renderdoc">Profiling with RenderDoc</h3>
+<ol type="1">
+<li>Launch Chrome through <strong>RenderDoc</strong> targeting the
+executable with the argument <code>--gpu-startup-dialog</code>.</li>
+<li>Attach RenderDoc to the spawned child GPU process PID.</li>
+<li>Capture the frame containing the gpu.js draw call (typically a
+<code>glDrawArrays</code> or <code>glDrawElements</code> call rendering
+a full-screen quad).</li>
+<li>Review the <strong>Resource Inspector</strong> to view texture
+layout, texture formats (<code>RGBA32F</code> vs. packed 8-bit
+channels), and memory bandwidth utilization per draw call.</li>
+</ol>
+<h2 id="3-resolving-memory-bandwidth-saturation">3. Resolving Memory
+Bandwidth Saturation</h2>
+<p>If profiling confirms memory bandwidth saturation, implement these
+architectural fixes:</p>
+<ul>
+<li><strong>Pack Matrix Channels:</strong> gpu.js processes
+floating-point data. WebGL often handles <code>RGBA</code> floats more
+efficiently than single-channel textures. Packing 4 float elements per
+pixel reduces the required texture fetch calls by 75%.</li>
+<li><strong>Sub-Matrix Tiling:</strong> Restructure the kernel
+computation to process matrix blocks that fit directly into the L1/L2
+texture cache, avoiding continuous high-latency roundtrips to global
+VRAM.</li>
+<li><strong>Eliminate Pipeline Extraction:</strong> Never call
+<code>.toArray()</code> in intermediate operations. Chain kernels using
+<code>kernel.setPipeline(true)</code> to keep memory allocations
+resident on the GPU.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

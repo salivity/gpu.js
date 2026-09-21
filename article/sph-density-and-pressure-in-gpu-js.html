@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPH Density and Pressure in GPU.js - gpu.js</title>
+    <meta name="description" content="This article demonstrates how to implement the core density and pressure calculation steps of a Smoothed Particle Hydrodynamics (SPH) fluid simulation using gpu.js. By translating particle-particle interaction mathematics into WebGL kernels via gpu.js, y">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/sph-density-and-pressure-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="SPH Density and Pressure in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/sph-density-and-pressure-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article demonstrates how to implement the core density and pressure calculation steps of a Smoothed Particle Hydrodynamics (SPH) fluid simulation using gpu.js. By translating particle-particle interaction mathematics into WebGL kernels via gpu.js, y" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="sph-density-and-pressure-in-gpujs">SPH Density and Pressure in
+GPU.js</h1>
+<p>This article demonstrates how to implement the core density and
+pressure calculation steps of a Smoothed Particle Hydrodynamics (SPH)
+fluid simulation using gpu.js. By translating particle-particle
+interaction mathematics into WebGL kernels via gpu.js, you can offload
+expensive <span class="math inline">\(O(N^2)\)</span> neighbor
+evaluations or fixed-radius lookups to the GPU, enabling real-time
+performance inside the browser or Node.js environments.</p>
+<hr />
+<h2 id="1-mathematical-formulation">1. Mathematical Formulation</h2>
+<p>Smoothed Particle Hydrodynamics models fluids as discrete particles
+carrying mass, velocity, density, and pressure. Evaluating fluid
+mechanics requires estimating continuous field quantities from
+surrounding neighbor particles using a smoothing kernel function <span
+class="math inline">\(W(r, h)\)</span>, where <span
+class="math inline">\(r\)</span> is the distance between particles and
+<span class="math inline">\(h\)</span> is the smoothing radius (support
+radius).</p>
+<h3 id="density-calculation-poly6-kernel">Density Calculation (Poly6
+Kernel)</h3>
+<p>The density <span class="math inline">\(\rho_i\)</span> at particle
+<span class="math inline">\(i\)</span> is calculated by summing the mass
+contributions of all neighboring particles within radius <span
+class="math inline">\(h\)</span>:</p>
+<p><span class="math display">\[\rho_i = \sum_{j} m_j W(|\mathbf{r}_i -
+\mathbf{r}_j|, h)\]</span></p>
+<p>A standard kernel for density estimation in 2D is the Poly6
+kernel:</p>
+<p><span class="math display">\[W(r, h) = \frac{4}{\pi h^8} (h^2 -
+r^2)^3 \quad \text{for } 0 \le r \le h\]</span></p>
+<h3 id="pressure-calculation-equation-of-state">Pressure Calculation
+(Equation of State)</h3>
+<p>Once density is computed, particle pressure <span
+class="math inline">\(P_i\)</span> is derived using an Equation of State
+(EOS), such as the ideal gas state equation with a rest density
+offset:</p>
+<p><span class="math display">\[P_i = k (\rho_i - \rho_0)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(k\)</span> is the fluid stiffness
+parameter.</li>
+<li><span class="math inline">\(\rho_0\)</span> is the target rest
+density.</li>
+<li>Negative pressures are typically clamped to zero (<span
+class="math inline">\(P_i = \max(0, P_i)\)</span>) to prevent particles
+from clustering unnaturally.</li>
+</ul>
+<hr />
+<h2 id="2-setting-up-gpujs">2. Setting Up GPU.js</h2>
+<p>Initialize the <code>GPU</code> instance and configure the simulation
+constants.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span> <span class="co">// Or window.GPU in the browser</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> NUM_PARTICLES <span class="op">=</span> <span class="dv">2048</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> H <span class="op">=</span> <span class="fl">16.0</span><span class="op">;</span>                    <span class="co">// Smoothing radius</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> H2 <span class="op">=</span> H <span class="op">*</span> H<span class="op">;</span>                 <span class="co">// Precomputed h^2</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> REST_DENSITY <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> STIFFNESS <span class="op">=</span> <span class="fl">200.0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> MASS <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="co">// Poly6 normalization constant for 2D: 4 / (PI * h^8)</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> POLY6_FACTOR <span class="op">=</span> <span class="fl">4.0</span> <span class="op">/</span> (<span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(H<span class="op">,</span> <span class="dv">8</span>))<span class="op">;</span></span></code></pre></div>
+<hr />
+<h2 id="3-implementing-the-density-kernel">3. Implementing the Density
+Kernel</h2>
+<p>In gpu.js, the density calculation evaluates each particle in
+parallel along the thread index <code>this.thread.x</code>. Each thread
+iterates through every other particle to determine if it falls within
+distance <span class="math inline">\(h\)</span>.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateDensity <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> count<span class="op">,</span> mass<span class="op">,</span> h2<span class="op">,</span> poly6Factor) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> px <span class="op">=</span> positions[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> py <span class="op">=</span> positions[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> density <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> count<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dx <span class="op">=</span> px <span class="op">-</span> positions[j][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dy <span class="op">=</span> py <span class="op">-</span> positions[j][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> distSq <span class="op">=</span> dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (distSq <span class="op">&lt;</span> h2) {</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> diff <span class="op">=</span> h2 <span class="op">-</span> distSq<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>            <span class="co">// W(r, h) = poly6Factor * (h^2 - r^2)^3</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>            density <span class="op">+=</span> mass <span class="op">*</span> poly6Factor <span class="op">*</span> (diff <span class="op">*</span> diff <span class="op">*</span> diff)<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> density<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([NUM_PARTICLES])</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Keeps output on GPU memory for subsequent passes</span></span></code></pre></div>
+<hr />
+<h2 id="4-implementing-the-pressure-kernel">4. Implementing the Pressure
+Kernel</h2>
+<p>Because pressure is an explicit function of local density, its
+calculation does not require neighbor iteration. It can be computed in
+an independent kernel using the output of the density kernel.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculatePressure <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(densities<span class="op">,</span> restDensity<span class="op">,</span> stiffness) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> density <span class="op">=</span> densities[i]<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// P = k * (rho - rho0)</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> pressure <span class="op">=</span> stiffness <span class="op">*</span> (density <span class="op">-</span> restDensity)<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Clamp negative pressures to avoid unnatural attraction</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (pressure <span class="op">&lt;</span> <span class="fl">0.0</span>) {</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        pressure <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> pressure<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([NUM_PARTICLES])</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h2 id="5-fused-density-pressure-implementation">5. Fused
+Density-Pressure Implementation</h2>
+<p>To optimize memory bandwidth and reduce kernel invocation overhead,
+density and pressure can be calculated within a single unified kernel
+that outputs a 2D vector <code>[density, pressure]</code>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateDensityAndPressure <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> count<span class="op">,</span> mass<span class="op">,</span> h2<span class="op">,</span> poly6Factor<span class="op">,</span> restDensity<span class="op">,</span> stiffness) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> px <span class="op">=</span> positions[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> py <span class="op">=</span> positions[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> density <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> count<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dx <span class="op">=</span> px <span class="op">-</span> positions[j][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dy <span class="op">=</span> py <span class="op">-</span> positions[j][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> distSq <span class="op">=</span> dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (distSq <span class="op">&lt;</span> h2) {</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> diff <span class="op">=</span> h2 <span class="op">-</span> distSq<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>            density <span class="op">+=</span> mass <span class="op">*</span> poly6Factor <span class="op">*</span> (diff <span class="op">*</span> diff <span class="op">*</span> diff)<span class="op">;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> pressure <span class="op">=</span> stiffness <span class="op">*</span> (density <span class="op">-</span> restDensity)<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (pressure <span class="op">&lt;</span> <span class="fl">0.0</span>) {</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>        pressure <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Output: index 0 = density, index 1 = pressure</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [density<span class="op">,</span> pressure]<span class="op">;</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([NUM_PARTICLES])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h2 id="6-execution-loop">6. Execution Loop</h2>
+<p>Prepare flat coordinate data and execute the calculation
+pipeline:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize particle positions [ [x0, y0], [x1, y1], ... ]</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> positions <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(NUM_PARTICLES <span class="op">*</span> <span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> NUM_PARTICLES<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>    positions[i <span class="op">*</span> <span class="dv">2</span>] <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">200</span><span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    positions[i <span class="op">*</span> <span class="dv">2</span> <span class="op">+</span> <span class="dv">1</span>] <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">200</span><span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Convert flat array to array of pairs for gpu.js input</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> particleCoords <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> NUM_PARTICLES<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    particleCoords<span class="op">.</span><span class="fu">push</span>([positions[i <span class="op">*</span> <span class="dv">2</span>]<span class="op">,</span> positions[i <span class="op">*</span> <span class="dv">2</span> <span class="op">+</span> <span class="dv">1</span>]])<span class="op">;</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a><span class="co">// Execute density and pressure computation</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> fluidState <span class="op">=</span> <span class="fu">calculateDensityAndPressure</span>(</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    particleCoords<span class="op">,</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    NUM_PARTICLES<span class="op">,</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>    MASS<span class="op">,</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    H2<span class="op">,</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>    POLY6_FACTOR<span class="op">,</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    REST_DENSITY<span class="op">,</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>    STIFFNESS</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="co">// Access results: fluidState[i][0] is density, fluidState[i][1] is pressure</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Particle 0 - Density: </span><span class="sc">${</span>fluidState[<span class="dv">0</span>][<span class="dv">0</span>]<span class="sc">}</span><span class="vs">, Pressure: </span><span class="sc">${</span>fluidState[<span class="dv">0</span>][<span class="dv">1</span>]<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span></code></pre></div>
+<p>Using <code>.setPipeline(true)</code> allows these calculated fields
+to remain on the GPU texture memory, where they can be piped directly
+into force and integration kernels (such as Navier-Stokes pressure
+gradient and viscosity evaluation) without CPU round-trips.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

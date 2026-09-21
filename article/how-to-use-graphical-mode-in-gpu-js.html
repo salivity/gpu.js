@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How to Use Graphical Mode in GPU.js - gpu.js</title>
+    <meta name="description" content="GPU.js is a JavaScript acceleration library that compiles user-written functions into WebGL shaders, allowing complex computations to run on the graphics processor. While typically used for processing data matrices and returning numerical arrays, GPU.js">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-to-use-graphical-mode-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How to Use Graphical Mode in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-to-use-graphical-mode-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js is a JavaScript acceleration library that compiles user-written functions into WebGL shaders, allowing complex computations to run on the graphics processor. While typically used for processing data matrices and returning numerical arrays, GPU.js" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-to-use-graphical-mode-in-gpujs">How to Use Graphical Mode in
+GPU.js</h1>
+<p>GPU.js is a JavaScript acceleration library that compiles
+user-written functions into WebGL shaders, allowing complex computations
+to run on the graphics processor. While typically used for processing
+data matrices and returning numerical arrays, GPU.js includes a feature
+called graphical mode that enables direct visual rendering to an HTML
+<code>&lt;canvas&gt;</code> element. This article explains what
+graphical mode is, how it functions internally, and how to activate and
+implement it using the <code>setGraphical(true)</code> method.</p>
+<h3 id="what-is-graphical-mode-in-gpujs">What is Graphical Mode in
+GPU.js?</h3>
+<p>By default, a GPU.js kernel operates as a compute shader. It
+processes input data and outputs a 1D, 2D, or 3D array of numerical
+values back to the CPU memory. While useful for general-purpose
+computing (GPGPU), converting these arrays back into visual elements via
+standard DOM or 2D canvas operations creates a performance bottleneck
+due to continuous data transfer between the CPU and GPU.</p>
+<p>Graphical mode alters the kernel's execution model so that it acts as
+a fragment shader. Instead of returning raw numbers to JavaScript, the
+kernel outputs colors directly to a WebGL rendering context tied to an
+HTML <code>&lt;canvas&gt;</code>. This eliminates the overhead of
+copying pixel data back to the CPU, allowing for high-performance
+rendering of fractals, cellular automata, image filters, and particle
+systems directly in the browser.</p>
+<h3 id="activating-graphical-mode-with-setgraphicaltrue">Activating
+Graphical Mode with <code>setGraphical(true)</code></h3>
+<p>To activate graphical mode, you chain the
+<code>.setGraphical(true)</code> method to your kernel creation call.
+Once enabled, two main differences occur in how the kernel is written
+and accessed:</p>
+<ol type="1">
+<li><strong>Pixel Coloring (<code>this.color</code>)</strong>: Rather
+than returning a numeric value, the kernel function uses the built-in
+<code>this.color(r, g, b, a)</code> method. The arguments are normalized
+floating-point numbers between <code>0.0</code> and <code>1.0</code>
+representing the red, green, blue, and alpha channels of the current
+pixel.</li>
+<li><strong>Accessing the Canvas</strong>: The kernel object exposes a
+<code>.canvas</code> property, which references the WebGL canvas element
+rendered by the GPU. You can append this canvas directly to the
+DOM.</li>
+</ol>
+<h3 id="implementation-example">Implementation Example</h3>
+<p>The following example demonstrates how to configure, activate, and
+render a basic color gradient using graphical mode:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// 1. Define the kernel function and chain .setGraphical(true)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Determine color based on the current thread (pixel) coordinates</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> r <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> g <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Set pixel color (r, g, b, a) with values from 0.0 to 1.0</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(r<span class="op">,</span> g<span class="op">,</span> b<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">500</span><span class="op">,</span> <span class="dv">500</span>])</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="co">// 2. Execute the kernel to render the image</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="fu">renderKernel</span>()<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co">// 3. Append the generated canvas element to the document body</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(renderKernel<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="key-considerations">Key Considerations</h3>
+<ul>
+<li><strong>Coordinate System</strong>: In graphical mode,
+<code>this.thread.x</code> runs from left to right, and
+<code>this.thread.y</code> runs from bottom to top, matching standard
+WebGL texture coordinates rather than typical top-to-bottom screen
+space.</li>
+<li><strong>Canvas Resizing</strong>: The output dimensions specified in
+<code>.setOutput([width, height])</code> determine the internal pixel
+resolution of the canvas. Changing the visual size via CSS can cause
+standard pixel scaling.</li>
+<li><strong>Animation Loops</strong>: For animations, you do not need to
+append the canvas repeatedly. You can invoke the kernel within a
+<code>requestAnimationFrame</code> loop, and the canvas updates
+automatically on each draw call.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

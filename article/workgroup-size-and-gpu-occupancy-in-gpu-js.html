@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workgroup Size and GPU Occupancy in gpu.js - gpu.js</title>
+    <meta name="description" content="This article examines how configuring workgroup and thread grid sizes impacts GPU occupancy and execution efficiency in gpu.js. It details the relationship between hardware compute units and kernel dimensions, outlines the trade-offs between undersubscri">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/workgroup-size-and-gpu-occupancy-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Workgroup Size and GPU Occupancy in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/workgroup-size-and-gpu-occupancy-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how configuring workgroup and thread grid sizes impacts GPU occupancy and execution efficiency in gpu.js. It details the relationship between hardware compute units and kernel dimensions, outlines the trade-offs between undersubscri" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="workgroup-size-and-gpu-occupancy-in-gpujs">Workgroup Size and
+GPU Occupancy in gpu.js</h1>
+<p>This article examines how configuring workgroup and thread grid sizes
+impacts GPU occupancy and execution efficiency in gpu.js. It details the
+relationship between hardware compute units and kernel dimensions,
+outlines the trade-offs between undersubscribing and oversubscribing
+hardware resources, and explains how to balance these parameters to
+maximize throughput in browser-based GPU computing.</p>
+<hr />
+<h3
+id="understanding-thread-grids-and-workgroups-in-gpujs">Understanding
+Thread Grids and Workgroups in gpu.js</h3>
+<p>In gpu.js, the total problem space is defined using the
+<code>.setOutput([x, y, z])</code> method. This configuration forms the
+overall thread grid, specifying the total number of parallel kernel
+invocations across one, two, or three dimensions. Under the hood, gpu.js
+executes these threads via WebGL fragment shaders or WebGPU compute
+passes, depending on the operational mode and hardware support.</p>
+<p>In compute-oriented architectures like WebGPU, this large grid is
+divided into smaller, discrete clusters known as workgroups (or thread
+blocks). Each workgroup is dispatched to an individual Streaming
+Multiprocessor (SM) or Compute Unit (CU) on the GPU, where threads
+execute synchronously in smaller hardware batches, typically called
+warps (NVIDIA, 32 threads) or wavefronts (AMD, 32 or 64 threads).</p>
+<h3 id="what-is-gpu-occupancy">What Is GPU Occupancy?</h3>
+<p>GPU occupancy refers to the ratio of active warps or wavefronts on a
+compute unit relative to the maximum theoretical number of warps that
+the hardware can support simultaneously. High occupancy allows the GPU's
+hardware scheduler to hide memory latency: when one group of threads
+stalls waiting for data from VRAM, the processor instantly switches
+execution to another active group, maintaining continuous arithmetic
+throughput.</p>
+<h3 id="the-impact-of-workgroup-size-on-occupancy">The Impact of
+Workgroup Size on Occupancy</h3>
+<p>The local workgroup size directly dictates how efficiently an SM's
+resources are allocated:</p>
+<ul>
+<li><strong>Workgroups That Are Too Small:</strong> If a workgroup
+contains fewer threads than the native warp or wavefront size (for
+example, setting a workgroup size of 8 or 16 on a GPU with 32-thread
+warps), the hardware scheduler cannot fully populate execution lanes.
+This leads to underutilization, wasted clock cycles, and poor
+occupancy.</li>
+<li><strong>Workgroups That Are Too Large:</strong> Each workgroup
+consumes a finite pool of hardware resources, primarily registers and
+shared local memory. When a workgroup requests too many resources, fewer
+workgroups can reside concurrently on a single compute unit. This
+creates a bottleneck that limits the total number of active in-flight
+threads.</li>
+<li><strong>Non-Multiple Alignments:</strong> Choosing dimensions that
+are not clean multiples of 32 or 64 causes edge-case padding, where
+partial warps run with deactivated threads. This lowers the effective
+computational density.</li>
+</ul>
+<h3 id="the-impact-of-the-global-grid-size-setoutput">The Impact of the
+Global Grid Size (<code>setOutput</code>)</h3>
+<p>While workgroup size governs local execution efficiency, the global
+output dimensions determine whether the GPU can achieve full
+saturation:</p>
+<ul>
+<li><strong>Grid Undersubscription:</strong> If the output array
+specified in <code>setOutput()</code> is small (e.g., a few hundred
+elements), the total number of generated workgroups will be insufficient
+to occupy all physical compute units on modern GPUs. Many SMs remain
+completely idle, resulting in low global occupancy.</li>
+<li><strong>Grid Saturation:</strong> A sufficiently large grid ensures
+that every compute unit has a full queue of workgroups waiting to be
+processed. Once an active workgroup finishes, the scheduler immediately
+assigns a new one without idle time.</li>
+</ul>
+<h3 id="webgl-fallback-vs-webgpu-compute-modes">WebGL Fallback vs.
+WebGPU Compute Modes</h3>
+<p>The degree of control over occupancy in gpu.js depends heavily on the
+underlying backend:</p>
+<ol type="1">
+<li><strong>WebGL Mode (Default):</strong> gpu.js emulates
+general-purpose computation by rendering textured quads across a 2D
+viewport. The browser and the underlying graphics driver implicitly
+manage thread scheduling, rasterization, and block allocation. In this
+mode, developers influence occupancy primarily through output dimension
+shape and texture coordinate alignment rather than explicit workgroup
+control.</li>
+<li><strong>WebGPU Mode:</strong> When compute pipelines are active,
+workgroup dimensions are defined more explicitly. Developers must align
+the local sizes with the target device's hardware limits
+(<code>maxComputeWorkgroupSizeX/Y/Z</code> and
+<code>maxComputeInvocationsPerWorkgroup</code>) to maintain high
+occupancy.</li>
+</ol>
+<h3 id="optimization-guidelines">Optimization Guidelines</h3>
+<p>To maintain high GPU occupancy when developing kernels in gpu.js:</p>
+<ul>
+<li><strong>Target Multiples of 32 or 64:</strong> Ensure that both the
+local execution dimensions and the total output dimensions align with
+common warp/wavefront boundaries to prevent partial-execution
+penalties.</li>
+<li><strong>Keep Kernel Register Pressure Low:</strong> Minimize complex
+local variable declarations within kernel functions. Lower register
+usage per thread allows the GPU to fit more concurrent workgroups onto
+each compute unit.</li>
+<li><strong>Benchmark Problem Sizes:</strong> For small workloads where
+the overhead of dispatching workgroups outweighs execution time,
+consider batching inputs into larger combined grids to keep the compute
+units fully occupied.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

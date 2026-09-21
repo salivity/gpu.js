@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculating MFCCs with GPU.js for Speech Recognition - gpu.js</title>
+    <meta name="description" content="This article provides a practical guide on accelerating the calculation of Mel-Frequency Cepstral Coefficients (MFCCs) using gpu.js. MFCC extraction is a vital preprocessing pipeline in speech recognition systems that converts raw audio waveforms into co">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/calculating-mfc-cs-with-gpu-js-for-speech-recognition">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Calculating MFCCs with GPU.js for Speech Recognition - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/calculating-mfc-cs-with-gpu-js-for-speech-recognition" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides a practical guide on accelerating the calculation of Mel-Frequency Cepstral Coefficients (MFCCs) using gpu.js. MFCC extraction is a vital preprocessing pipeline in speech recognition systems that converts raw audio waveforms into co" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="calculating-mfccs-with-gpujs-for-speech-recognition">Calculating
+MFCCs with GPU.js for Speech Recognition</h1>
+<p>This article provides a practical guide on accelerating the
+calculation of Mel-Frequency Cepstral Coefficients (MFCCs) using gpu.js.
+MFCC extraction is a vital preprocessing pipeline in speech recognition
+systems that converts raw audio waveforms into compact acoustic
+representations mirroring human hearing. By offloading
+resource-intensive linear algebra operations—such as windowing, discrete
+Fourier transforms, filterbank integration, and Discrete Cosine
+Transforms (DCT)—to the GPU via WebGL through gpu.js, you can achieve
+near real-time audio feature extraction directly in the browser or
+Node.js environments.</p>
+<hr />
+<h3 id="understanding-the-mfcc-pipeline">Understanding the MFCC
+Pipeline</h3>
+<p>Calculating MFCCs involves five sequential mathematical
+transformations:</p>
+<ol type="1">
+<li><strong>Pre-emphasis and Framing:</strong> Boosting high frequencies
+and splitting the continuous signal into overlapping frames (typically
+20–40 ms).</li>
+<li><strong>Windowing:</strong> Multiplying each frame by a window
+function (such as a Hamming window) to minimize spectral leakage.</li>
+<li><strong>Fast Fourier Transform (FFT) / Power Spectrum:</strong>
+Converting time-domain frames into frequency-domain representations to
+compute spectral power.</li>
+<li><strong>Mel Filterbank Processing:</strong> Mapping linear
+frequencies to the non-linear Mel scale using overlapping triangular
+filters.</li>
+<li><strong>Log Dynamic Compression and DCT:</strong> Taking the
+logarithm of filterbank energies and applying a Type-II Discrete Cosine
+Transform to decorrelate the filter energies and yield the final
+cepstral coefficients.</li>
+</ol>
+<hr />
+<h3 id="setting-up-gpujs">Setting Up GPU.js</h3>
+<p>Install <code>gpu.js</code> in your project:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>Initialize the runtime in JavaScript:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-1-gpu-accelerated-framing-and-windowing">Step 1:
+GPU-Accelerated Framing and Windowing</h3>
+<p>Before applying the Fourier transform, raw audio frames must be
+scaled by a Hamming window function:</p>
+<p><span class="math display">\[w(n) = 0.54 - 0.46 \cos\left(\frac{2\pi
+n}{N - 1}\right)\]</span></p>
+<p>You can parallelize the windowing step across all samples in all
+frames simultaneously using a 2D gpu.js kernel.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> applyWindowKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (audioData<span class="op">,</span> frameStep<span class="op">,</span> frameSize) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sampleIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> rawIndex <span class="op">=</span> frameIdx <span class="op">*</span> frameStep <span class="op">+</span> sampleIdx<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Hamming window weight calculation</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pi <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hamming <span class="op">=</span> <span class="fl">0.54</span> <span class="op">-</span> <span class="fl">0.46</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>((<span class="fl">2.0</span> <span class="op">*</span> pi <span class="op">*</span> sampleIdx) <span class="op">/</span> (frameSize <span class="op">-</span> <span class="fl">1.0</span>))<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> audioData[rawIndex] <span class="op">*</span> hamming<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([frameSize<span class="op">,</span> numFrames])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-2-computing-the-power-spectrum">Step 2: Computing the Power
+Spectrum</h3>
+<p>While radix-2 FFTs require multistage butterfly networks, computing
+the standard Discrete Fourier Transform (DFT) power spectrum directly is
+embarrassingly parallel and highly efficient on modern GPUs for standard
+speech frame sizes (e.g., <span class="math inline">\(N =
+512\)</span>).</p>
+<p>The power spectrum <span class="math inline">\(P(k)\)</span> for
+frequency bin <span class="math inline">\(k\)</span> is given by:</p>
+<p><span class="math display">\[P(k) = \frac{1}{N} \left|
+\sum_{n=0}^{N-1} x(n) e^{-i 2\pi k n / N} \right|^2\]</span></p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> powerSpectrumKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (windowedFrames<span class="op">,</span> frameSize) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> k <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// Frequency bin index (0 to frameSize / 2)</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pi <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> real <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> imag <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> n <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> n <span class="op">&lt;</span> frameSize<span class="op">;</span> n<span class="op">++</span>) {</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> angle <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> pi <span class="op">*</span> k <span class="op">*</span> n) <span class="op">/</span> frameSize<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> sample <span class="op">=</span> windowedFrames[frameIdx][n]<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        real <span class="op">+=</span> sample <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(angle)<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        imag <span class="op">-=</span> sample <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(angle)<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (real <span class="op">*</span> real <span class="op">+</span> imag <span class="op">*</span> imag) <span class="op">/</span> frameSize<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([frameSize <span class="op">/</span> <span class="dv">2</span> <span class="op">+</span> <span class="dv">1</span><span class="op">,</span> numFrames])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-3-applying-the-mel-filterbank">Step 3: Applying the Mel
+Filterbank</h3>
+<p>The Mel scale models the human ear's frequency resolution:</p>
+<p><span class="math display">\[m = 2595 \log_{10}\left(1 +
+\frac{f}{700}\right)\]</span></p>
+<p>Precompute a static 2D weight matrix representing <span
+class="math inline">\(M\)</span> triangular filters (typically <span
+class="math inline">\(M = 26\)</span> to <span
+class="math inline">\(40\)</span>) across the <span
+class="math inline">\((N/2 + 1)\)</span> spectral bins on the CPU, and
+pass it to the GPU kernel to obtain the log energy outputs.</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> melFilterbankKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (powerSpectra<span class="op">,</span> melFilters<span class="op">,</span> numBins) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> filterIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// Filter index</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span>  <span class="co">// Frame index</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> energy <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> bin <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> bin <span class="op">&lt;</span> numBins<span class="op">;</span> bin<span class="op">++</span>) {</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        energy <span class="op">+=</span> powerSpectra[frameIdx][bin] <span class="op">*</span> melFilters[filterIdx][bin]<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Floor energy to prevent log(0)</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (energy <span class="op">&lt;</span> <span class="fl">1e-6</span>) {</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        energy <span class="op">=</span> <span class="fl">1e-6</span><span class="op">;</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log</span>(energy)<span class="op">;</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([numFilters<span class="op">,</span> numFrames])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-4-discrete-cosine-transform-dct-ii">Step 4: Discrete Cosine
+Transform (DCT-II)</h3>
+<p>The final step converts the log filterbank energies into orthogonal
+cepstral coefficients using a DCT-II kernel. Standard speech recognition
+pipelines retain the first 12–13 coefficients:</p>
+<p><span class="math display">\[C_m = \sum_{k=0}^{M-1} E_k \cos\left(
+\frac{\pi m (k + 0.5)}{M} \right)\]</span></p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dctKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (logMelEnergies<span class="op">,</span> numFilters<span class="op">,</span> numCoeffs) {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> m <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// Coefficient index (0 to numCoeffs - 1)</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pi <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> numFilters<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> angle <span class="op">=</span> (pi <span class="op">*</span> m <span class="op">*</span> (k <span class="op">+</span> <span class="fl">0.5</span>)) <span class="op">/</span> numFilters<span class="op">;</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> logMelEnergies[frameIdx][k] <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(angle)<span class="op">;</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([numCoeffs<span class="op">,</span> numFrames])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="execution-and-memory-optimization">Execution and Memory
+Optimization</h3>
+<p>To achieve maximum throughput with gpu.js:</p>
+<ol type="1">
+<li><strong>Keep Data on the GPU:</strong> Use
+<code>pipeline: true</code> on your intermediate kernels
+(<code>applyWindowKernel</code>, <code>powerSpectrumKernel</code>, and
+<code>melFilterbankKernel</code>). This keeps intermediate calculations
+stored directly as WebGL textures in VRAM, eliminating expensive
+GPU-to-CPU data transfer overhead.</li>
+<li><strong>Execute Sequentially:</strong>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> windowed <span class="op">=</span> <span class="fu">applyWindowKernel</span>(audioData<span class="op">,</span> frameStep<span class="op">,</span> frameSize)<span class="op">;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> powerSpectra <span class="op">=</span> <span class="fu">powerSpectrumKernel</span>(windowed<span class="op">,</span> frameSize)<span class="op">;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> logMelEnergies <span class="op">=</span> <span class="fu">melFilterbankKernel</span>(powerSpectra<span class="op">,</span> melFilters<span class="op">,</span> frameSize <span class="op">/</span> <span class="dv">2</span> <span class="op">+</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> mfccFeatures <span class="op">=</span> <span class="fu">dctKernel</span>(logMelEnergies<span class="op">,</span> numFilters<span class="op">,</span> <span class="dv">13</span>)<span class="op">;</span></span></code></pre></div></li>
+<li><strong>Extract Result:</strong> Call <code>.toArray()</code> on the
+final kernel result (<code>mfccFeatures</code>) only when the final
+matrix of MFCC vectors is needed for downstream inference or model
+input.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

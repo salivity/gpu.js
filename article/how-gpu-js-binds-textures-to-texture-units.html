@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Binds Textures to Texture Units - gpu.js</title>
+    <meta name="description" content="This article explains how gpu.js binds textures to specific WebGL texture units prior to kernel execution. By translating JavaScript arrays and texture objects into GPU-compatible memory, the library manages texture slots, activates target texture units,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-binds-textures-to-texture-units">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Binds Textures to Texture Units - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-binds-textures-to-texture-units" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how gpu.js binds textures to specific WebGL texture units prior to kernel execution. By translating JavaScript arrays and texture objects into GPU-compatible memory, the library manages texture slots, activates target texture units," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-binds-textures-to-texture-units">How gpu.js Binds
+Textures to Texture Units</h1>
+<p>This article explains how gpu.js binds textures to specific WebGL
+texture units prior to kernel execution. By translating JavaScript
+arrays and texture objects into GPU-compatible memory, the library
+manages texture slots, activates target texture units, binds WebGL
+texture handles, and sets corresponding sampler uniforms so that the
+generated GLSL fragment shader can access input data during shader
+dispatch.</p>
+<h3 id="argument-parsing-and-texture-allocation">Argument Parsing and
+Texture Allocation</h3>
+<p>When a kernel function is invoked in gpu.js, the runtime evaluates
+each passed argument. If an argument is an array or typed array, gpu.js
+either packs it into a newly created <code>WebGLTexture</code> or reuses
+an existing texture buffer. If the argument is already a gpu.js
+<code>Texture</code> instance, it retains its existing GPU texture
+handle.</p>
+<p>The kernel maintains an internal registry of texture arguments. Each
+texture is assigned a sequential index corresponding to an available
+hardware texture unit, starting from index <code>0</code> up to the
+hardware limit determined by
+<code>gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS</code>.</p>
+<h3 id="activating-the-texture-unit">Activating the Texture Unit</h3>
+<p>WebGL requires a texture unit to be designated as "active" before a
+texture can be bound to it. Internally, gpu.js iterates through the list
+of texture arguments prior to running the draw call. For each texture
+argument at index <code>i</code>, it calls the standard WebGL API:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">activeTexture</span>(gl<span class="op">.</span><span class="at">TEXTURE0</span> <span class="op">+</span> i)<span class="op">;</span></span></code></pre></div>
+<p>This sets the hardware context's active texture slot to
+<code>TEXTURE0</code>, <code>TEXTURE1</code>, and so forth, preparing it
+to receive binding instructions.</p>
+<h3 id="binding-the-webgltexture-object">Binding the WebGLTexture
+Object</h3>
+<p>Once the specific texture unit is marked active, gpu.js binds the
+actual underlying <code>WebGLTexture</code> reference to the
+<code>gl.TEXTURE_2D</code> target:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">bindTexture</span>(gl<span class="op">.</span><span class="at">TEXTURE_2D</span><span class="op">,</span> texture<span class="op">.</span><span class="at">texture</span>)<span class="op">;</span></span></code></pre></div>
+<p>Because <code>gl.activeTexture</code> precedes this call, the texture
+object is linked specifically to <code>gl.TEXTURE0 + i</code>. gpu.js
+also ensures the appropriate texture parameters (such as
+<code>gl.CLAMP_TO_EDGE</code> and <code>gl.NEAREST</code> filtering) are
+set to avoid unwanted interpolation when reading raw numerical data.</p>
+<h3 id="linking-samplers-via-uniforms">Linking Samplers via
+Uniforms</h3>
+<p>To enable the compiled GLSL shader to read from the bound unit,
+gpu.js updates the uniform sampler declared inside the shader source.
+During kernel compilation, gpu.js generates variable declarations such
+as <code>uniform sampler2D user_variableName;</code>.</p>
+<p>Before the draw command, gpu.js passes the integer index
+<code>i</code> (not the enum <code>gl.TEXTURE0 + i</code>) to the
+sampler's uniform location:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> location <span class="op">=</span> gl<span class="op">.</span><span class="fu">getUniformLocation</span>(program<span class="op">,</span> <span class="st">&#39;user_&#39;</span> <span class="op">+</span> argumentName)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">uniform1i</span>(location<span class="op">,</span> i)<span class="op">;</span></span></code></pre></div>
+<p>This tells the shader sampler to fetch data from the texture unit
+configured at index <code>i</code>.</p>
+<h3 id="shader-dispatch">Shader Dispatch</h3>
+<p>With all input textures bound to their respective units and all
+sampler uniforms updated, gpu.js sets the WebGL viewport to match the
+output kernel dimensions and invokes <code>gl.drawArrays</code> or
+<code>gl.drawElements</code>. As the GPU processes fragments, the shader
+uses <code>texture2D</code> lookups referencing the bound units to read
+input elements in parallel.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

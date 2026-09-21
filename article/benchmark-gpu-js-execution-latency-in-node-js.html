@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmark GPU.js Execution Latency in Node.js - gpu.js</title>
+    <meta name="description" content="This article details how to accurately measure the execution latency of GPU.js kernels deployed inside a Node.js microservice. Benchmarking GPU compute on the server requires isolating pipeline compilation, accounting for CPU-to-GPU data transfer overhea">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/benchmark-gpu-js-execution-latency-in-node-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Benchmark GPU.js Execution Latency in Node.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/benchmark-gpu-js-execution-latency-in-node-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article details how to accurately measure the execution latency of GPU.js kernels deployed inside a Node.js microservice. Benchmarking GPU compute on the server requires isolating pipeline compilation, accounting for CPU-to-GPU data transfer overhea" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="benchmark-gpujs-execution-latency-in-nodejs">Benchmark GPU.js
+Execution Latency in Node.js</h1>
+<p>This article details how to accurately measure the execution latency
+of GPU.js kernels deployed inside a Node.js microservice. Benchmarking
+GPU compute on the server requires isolating pipeline compilation,
+accounting for CPU-to-GPU data transfer overhead, utilizing
+high-resolution timers, and profiling under typical service concurrency.
+The following guide provides the methodology and code necessary to
+establish reliable performance metrics for your GPU-accelerated
+workloads.</p>
+<hr />
+<h3 id="key-latency-factors-in-gpujs">Key Latency Factors in GPU.js</h3>
+<p>When measuring GPU.js performance in a Node.js environment, the total
+latency consists of three distinct phases:</p>
+<ol type="1">
+<li><strong>Kernel Compilation:</strong> On the first run, GPU.js
+transpiles your JavaScript function into GLSL and compiles the shader.
+This initial run introduces substantial overhead and must be excluded
+from steady-state measurements.</li>
+<li><strong>Memory Transfer (CPU to GPU):</strong> Transferring
+JavaScript arrays or typed arrays from CPU system memory to GPU texture
+memory takes measurable time, scaling with input payload size.</li>
+<li><strong>Execution &amp; Readback (GPU to CPU):</strong> The actual
+compute time on the GPU cores, followed by downloading the output buffer
+back into a Node.js-accessible array or typed array.</li>
+</ol>
+<h3 id="step-1-use-high-resolution-timers">Step 1: Use High-Resolution
+Timers</h3>
+<p>Do not rely on <code>Date.now()</code> because it lacks precision and
+is subject to system clock drift. Instead, use the Node.js built-in
+<code>perf_hooks</code> module or
+<code>process.hrtime.bigint()</code>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { <span class="bu">performance</span> } <span class="im">from</span> <span class="st">&#39;node:perf_hooks&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co">// or</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> start <span class="op">=</span> <span class="bu">process</span><span class="op">.</span><span class="fu">hrtime</span><span class="op">.</span><span class="fu">bigint</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// ... execution ...</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> end <span class="op">=</span> <span class="bu">process</span><span class="op">.</span><span class="fu">hrtime</span><span class="op">.</span><span class="fu">bigint</span>()<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> durationMs <span class="op">=</span> <span class="bu">Number</span>(end <span class="op">-</span> start) <span class="op">/</span> <span class="fl">1e6</span><span class="op">;</span></span></code></pre></div>
+<h3 id="step-2-implement-a-warm-up-routine">Step 2: Implement a Warm-Up
+Routine</h3>
+<p>Always trigger a warm-up cycle during service startup to compile the
+kernel before routing live traffic or running benchmarks.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;headlessgl&#39;</span> })<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span>])<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Warm-up iteration to force shader compilation</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dummyDataA <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="dv">1024</span>)<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dummyDataB <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="dv">1024</span>)<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(dummyDataA<span class="op">,</span> dummyDataB)<span class="op">;</span></span></code></pre></div>
+<h3 id="step-3-isolate-memory-transfer-and-compute">Step 3: Isolate
+Memory Transfer and Compute</h3>
+<p>To optimize microservice latency, identify whether bottlenecks stem
+from array conversions or raw shader execution. Set
+<code>pipeline: true</code> if you plan to chain kernels without reading
+data back to the CPU between steps.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { <span class="bu">performance</span> } <span class="im">from</span> <span class="st">&#39;node:perf_hooks&#39;</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">benchmarkKernel</span>(kernel<span class="op">,</span> inputA<span class="op">,</span> inputB<span class="op">,</span> iterations <span class="op">=</span> <span class="dv">100</span>) {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> latencies <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> iterations<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> start <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Executes kernel and synchronizes result back to CPU</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>(inputA<span class="op">,</span> inputB)<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> end <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>        latencies<span class="op">.</span><span class="fu">push</span>(end <span class="op">-</span> start)<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fu">calculateMetrics</span>(latencies)<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">calculateMetrics</span>(samples) {</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    samples<span class="op">.</span><span class="fu">sort</span>((a<span class="op">,</span> b) <span class="kw">=&gt;</span> a <span class="op">-</span> b)<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sum <span class="op">=</span> samples<span class="op">.</span><span class="fu">reduce</span>((acc<span class="op">,</span> val) <span class="kw">=&gt;</span> acc <span class="op">+</span> val<span class="op">,</span> <span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> mean <span class="op">=</span> sum <span class="op">/</span> samples<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> p50 <span class="op">=</span> samples[<span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(samples<span class="op">.</span><span class="at">length</span> <span class="op">*</span> <span class="fl">0.50</span>)]<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> p95 <span class="op">=</span> samples[<span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(samples<span class="op">.</span><span class="at">length</span> <span class="op">*</span> <span class="fl">0.95</span>)]<span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> p99 <span class="op">=</span> samples[<span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(samples<span class="op">.</span><span class="at">length</span> <span class="op">*</span> <span class="fl">0.99</span>)]<span class="op">;</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> { mean<span class="op">,</span> p50<span class="op">,</span> p95<span class="op">,</span> p99<span class="op">,</span> <span class="dt">min</span><span class="op">:</span> samples[<span class="dv">0</span>]<span class="op">,</span> <span class="dt">max</span><span class="op">:</span> samples[samples<span class="op">.</span><span class="at">length</span> <span class="op">-</span> <span class="dv">1</span>] }<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="step-4-account-for-microservice-concurrency">Step 4: Account for
+Microservice Concurrency</h3>
+<p>Node.js executes JavaScript on a single thread, while
+<code>headlessgl</code> offloads rendering calls to the system's GPU
+driver. Concurrent requests within a microservice can cause GPU command
+queue contention:</p>
+<ul>
+<li><strong>Measure Event Loop Lag:</strong> High compute times or
+synchronous array allocations block the event loop. Use
+<code>perf_hooks.monitorEventLoopDelay()</code> during benchmarking to
+observe if kernel invocations starve incoming HTTP or RPC requests.</li>
+<li><strong>Batching:</strong> Instead of invoking kernels per incoming
+microservice request, benchmark dynamic request batching (e.g.,
+aggregating inputs across a 5ms window) to maximize GPU thread occupancy
+and amortize PCIe transfer overhead.</li>
+</ul>
+<h3 id="step-5-benchmark-output-types">Step 5: Benchmark Output
+Types</h3>
+<p>Transferring raw numbers back to JavaScript arrays creates heavy
+garbage collection pressure. Set
+<code>kernel.setOutputOrder('gl')</code> or return typed arrays to
+reduce readback latency:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> fastKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">10000</span>])</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPrecision</span>(<span class="st">&#39;single&#39;</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Keeps output on GPU as a texture</span></span></code></pre></div>
+<p>Profile with <code>.setPipeline(true)</code> against
+<code>.setPipeline(false)</code> to isolate the cost of moving results
+from VRAM back into the V8 heap.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

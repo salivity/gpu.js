@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel RNN Forward Propagation in GPU.js - gpu.js</title>
+    <meta name="description" content="Parallelizing recurrent neural network (RNN) forward propagation across time steps in GPU.js requires overcoming the inherently sequential temporal dependency $ht = f(W{hh}h{t-1} + W{xh}xt + b)$. While standard non-linear RNNs enforce step-by-step state">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-rnn-forward-propagation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel RNN Forward Propagation in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-rnn-forward-propagation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Parallelizing recurrent neural network (RNN) forward propagation across time steps in GPU.js requires overcoming the inherently sequential temporal dependency $ht = f(W{hh}h{t-1} + W{xh}xt + b)$. While standard non-linear RNNs enforce step-by-step state" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-rnn-forward-propagation-in-gpujs">Parallel RNN Forward
+Propagation in GPU.js</h1>
+<p>Parallelizing recurrent neural network (RNN) forward propagation
+across time steps in GPU.js requires overcoming the inherently
+sequential temporal dependency <span class="math inline">\(h_t =
+f(W_{hh}h_{t-1} + W_{xh}x_t + b)\)</span>. While standard non-linear
+RNNs enforce step-by-step state propagation, you can achieve massive
+parallelism across time by separating linear input projections from
+recurrent updates, reformulating linear recurrences into parallel prefix
+scans, and parallelizing across batch and feature dimensions
+simultaneously. This article demonstrates how to decouple these
+operations and implement them efficiently using GPU.js kernels.</p>
+<hr />
+<h3 id="the-fundamental-dependency-problem">The Fundamental Dependency
+Problem</h3>
+<p>In a standard RNN cell, the hidden state at time step <span
+class="math inline">\(t\)</span> strictly depends on the hidden state at
+<span class="math inline">\(t-1\)</span>:</p>
+<p><span class="math display">\[h_t = \tanh(W_{xh}x_t + W_{hh}h_{t-1} +
+b)\]</span></p>
+<p>Because the non-linear activation (<span
+class="math inline">\(\tanh\)</span>) wraps the sum of both the current
+input and the previous hidden state, step <span
+class="math inline">\(t\)</span> cannot be computed until step <span
+class="math inline">\(t-1\)</span> completes. To optimize this on the
+GPU using GPU.js, computation must be divided into operations that are
+independent across time and operations that can be reduced
+logarithmically.</p>
+<hr />
+<h3 id="strategy-1-pre-computing-input-transformations">Strategy 1:
+Pre-computing Input Transformations</h3>
+<p>The matrix multiplication <span
+class="math inline">\(W_{xh}x_t\)</span> for all time steps <span
+class="math inline">\(t \in [1, T]\)</span> is completely independent of
+the recurrent state. Instead of computing this sequentially inside a
+loop, you can concatenate all inputs across time into a single matrix
+and compute the entire sequence projection in parallel with a single 2D
+or 3D GPU.js kernel.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Parallel dense projection across all time steps and batch items</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Inputs: X [sequence_length, batch_size, input_dim]</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Weights: W_xh [hidden_dim, input_dim]</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> precomputeInputKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(X<span class="op">,</span> W_xh<span class="op">,</span> bias<span class="op">,</span> seqLen<span class="op">,</span> inputDim) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hiddenIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> batchIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> timeIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> bias[hiddenIdx]<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> inputDim<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> W_xh[hiddenIdx][i] <span class="op">*</span> X[timeIdx][batchIdx][i]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([HIDDEN_DIM<span class="op">,</span> BATCH_SIZE<span class="op">,</span> SEQUENCE_LENGTH])<span class="op">;</span></span></code></pre></div>
+<p>Executing this kernel computes all time-step input transformations
+concurrently across GPU threads, removing the <span
+class="math inline">\(W_{xh}x_t\)</span> bottleneck from the temporal
+loop.</p>
+<hr />
+<h3
+id="strategy-2-parallelizing-via-associative-scans-linear-rnns">Strategy
+2: Parallelizing via Associative Scans (Linear RNNs)</h3>
+<p>If the recurrence relation is strictly linear (such as in Quasi-RNNs,
+S4, or Linear Recurrent Units), the sequential update can be written
+as:</p>
+<p><span class="math display">\[h_t = A_t h_{t-1} + B_t x_t\]</span></p>
+<p>Because matrix/scalar multiplication and addition are associative,
+this recurrence can be framed as a parallel prefix scan (Blelloch scan).
+This reduces the sequential time complexity from <span
+class="math inline">\(O(T)\)</span> to <span
+class="math inline">\(O(\log T)\)</span> steps across the time
+dimension.</p>
+<p>In GPU.js, a multi-pass parallel scan works as follows:</p>
+<ol type="1">
+<li><strong>Upsweep (Reduction Phase):</strong> Compute intermediate
+cumulative products of the transition coefficients <span
+class="math inline">\(A_t\)</span> across pairs of time steps in
+parallel.</li>
+<li><strong>Downsweep Phase:</strong> Distribute the computed
+accumulated states back down the tree to resolve all time steps
+simultaneously.</li>
+</ol>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Example: Parallel prefix step across the temporal dimension</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> parallelScanStepKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(H<span class="op">,</span> A<span class="op">,</span> offset<span class="op">,</span> seqLen) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> featureIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (t <span class="op">&gt;=</span> offset) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> H[featureIdx][t] <span class="op">+</span> A[featureIdx][t] <span class="op">*</span> H[featureIdx][t <span class="op">-</span> offset]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> H[featureIdx][t]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([SEQUENCE_LENGTH<span class="op">,</span> HIDDEN_DIM])<span class="op">;</span></span></code></pre></div>
+<p>By iteratively doubling <code>offset</code> (<span
+class="math inline">\(1, 2, 4, 8, \dots\)</span>) through separate
+kernel calls, all <span class="math inline">\(T\)</span> time steps are
+fully evaluated in <span class="math inline">\(\log_2(T)\)</span> GPU
+iterations instead of <span class="math inline">\(T\)</span> sequential
+iterations.</p>
+<hr />
+<h3
+id="strategy-3-pipelined-sequential-execution-with-maximum-inner-parallelism">Strategy
+3: Pipelined Sequential Execution with Maximum Inner Parallelism</h3>
+<p>For standard non-linear RNNs (LSTM, GRU, Vanilla RNN) where
+associative scans cannot bypass the non-linearity, true cross-time
+parallelization is mathematically restricted. In this scenario, the
+optimal GPU.js pipeline parallelizes the spatial dimensions (hidden
+units and batch items) at each time step while driving the temporal loop
+from JavaScript:</p>
+<ol type="1">
+<li><strong>Precompute:</strong> Run the 3D tensor kernel for all <span
+class="math inline">\(W_{xh} X\)</span> combinations.</li>
+<li><strong>Step Loop:</strong> Execute a reusable kernel for the state
+update:</li>
+</ol>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rnnStepKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(precomputedInputs<span class="op">,</span> h_prev<span class="op">,</span> W_hh<span class="op">,</span> timeStep<span class="op">,</span> hiddenDim) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Retrieve the pre-computed W_xh * x_t value</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> precomputedInputs[timeStep][bIdx][hIdx]<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute recurrent dot product</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> hiddenDim<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> W_hh[hIdx][i] <span class="op">*</span> h_prev[bIdx][i]<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply non-linearity</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">tanh</span>(sum)<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([HIDDEN_DIM<span class="op">,</span> BATCH_SIZE])</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Keeps texture in GPU memory to prevent CPU-GPU stalls</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="co">// Execution loop over time</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentH <span class="op">=</span> initialHiddenState<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> t <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> t <span class="op">&lt;</span> SEQUENCE_LENGTH<span class="op">;</span> t<span class="op">++</span>) {</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    currentH <span class="op">=</span> <span class="fu">rnnStepKernel</span>(precomputedInputs<span class="op">,</span> currentH<span class="op">,</span> W_hh<span class="op">,</span> t<span class="op">,</span> HIDDEN_DIM)<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="summary-of-performance-considerations-in-gpujs">Summary of
+Performance Considerations in GPU.js</h3>
+<ul>
+<li><strong>Memory Pipeline:</strong> Always enable
+<code>.setPipeline(true)</code> on sequential step kernels to prevent
+GPU.js from reading framebuffers back to the CPU between time
+steps.</li>
+<li><strong>Dimensional Locality:</strong> Map the fastest-moving index
+(<code>this.thread.x</code>) to the hidden dimension size to maintain
+coalesced memory reads inside the dot-product loops.</li>
+<li><strong>Architecture Choice:</strong> If full parallelization across
+time is required, transition the network design from standard
+tanh/sigmoid recurrent units to linear recurrent layers that natively
+support prefix scans.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

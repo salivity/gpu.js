@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Security: Preventing Malicious Shader Payloads - gpu.js</title>
+    <meta name="description" content="This article examines how the gpu.js library and the browser runtime environment protect graphics hardware from malicious shader payloads. It covers the defensive layers involved, including JavaScript Abstract Syntax Tree (AST) validation, strict languag">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-security-preventing-malicious-shader-payloads">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Security: Preventing Malicious Shader Payloads - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-security-preventing-malicious-shader-payloads" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the gpu.js library and the browser runtime environment protect graphics hardware from malicious shader payloads. It covers the defensive layers involved, including JavaScript Abstract Syntax Tree (AST) validation, strict languag" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-security-preventing-malicious-shader-payloads">GPU.js
+Security: Preventing Malicious Shader Payloads</h1>
+<p>This article examines how the gpu.js library and the browser runtime
+environment protect graphics hardware from malicious shader payloads. It
+covers the defensive layers involved, including JavaScript Abstract
+Syntax Tree (AST) validation, strict language constraints, and the
+reliance on browser-level WebGL sandboxing to intercept exploits
+targeting underlying GPU drivers.</p>
+<h2 id="javascript-ast-parsing-and-strict-code-generation">JavaScript
+AST Parsing and Strict Code Generation</h2>
+<p>GPU.js does not accept raw OpenGL Shading Language (GLSL) code from
+users. Instead, it takes standard JavaScript functions and transpiles
+them into GLSL kernels. This architecture provides the first line of
+defense:</p>
+<ul>
+<li><strong>AST-Based Extraction:</strong> GPU.js uses an internal
+parser to read JavaScript functions into an Abstract Syntax Tree.
+Because the library constructs GLSL solely by traversing verified AST
+nodes, attackers cannot simply inject arbitrary, unparsed GLSL strings
+or malicious formatting tricks designed to trigger parser bugs in driver
+compilers.</li>
+<li><strong>Limited Syntax Support:</strong> The transpiler only
+recognizes a strictly defined mathematical subset of JavaScript.
+Features such as dynamic memory allocation, pointers, arbitrary object
+manipulation, and direct hardware calls are excluded from the kernel
+compilation pipeline. Any unsupported or potentially hazardous syntax
+causes the compilation to fail before any shader reaches the GPU.</li>
+</ul>
+<h2 id="enforcement-of-webgl-sandboxing">Enforcement of WebGL
+Sandboxing</h2>
+<p>While GPU.js structures and validates the shader, it ultimately runs
+on top of WebGL within the browser. GPU.js relies on the host browser’s
+security boundary to shield graphics hardware from low-level driver
+exploits:</p>
+<ul>
+<li><strong>GLSL Validation Pipelines:</strong> WebGL implementations do
+not pass raw shader code directly to host graphics drivers. Browsers use
+translation and validation engines—such as Google's ANGLE (Almost Native
+Graphics Layer Engine)—to parse, validate, and sanitize the GLSL output.
+If a GPU.js kernel produces instructions that trigger illegal memory
+offsets or violate GLSL specifications, the browser rejects the shader
+before it interacts with native drivers.</li>
+<li><strong>Process Isolation:</strong> Modern web browsers execute
+WebGL code inside isolated GPU sub-processes. Even if a malformed shader
+exploits an unpatched vulnerability in an AMD, NVIDIA, or Intel driver
+and causes a crash, the operating system sandboxes the failure. The
+crash affects only the isolated GPU process, which the browser restarts,
+preventing full host-system compromise.</li>
+</ul>
+<h2 id="mitigation-of-resource-exhaustion-and-infinite-loops">Mitigation
+of Resource Exhaustion and Infinite Loops</h2>
+<p>Malicious shader payloads often attempt Denial of Service (DoS)
+attacks by locking up the graphics processing pipeline with infinite
+loops:</p>
+<ul>
+<li><strong>Loop Unrolling Controls:</strong> GPU.js enforces structured
+iteration logic when parsing loops, disallowing dynamic syntax patterns
+that lead to unconstrained hardware execution.</li>
+<li><strong>Timeout and Recovery (TDR):</strong> WebGL platforms mandate
+Timeout Detection and Recovery (TDR) mechanisms supported by operating
+systems like Windows and Linux. If a compute-heavy or malicious kernel
+produced by GPU.js monopolizes the graphics pipeline for more than a few
+seconds, the OS driver automatically terminates the execution context,
+resetting the graphics context rather than freezing the machine.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

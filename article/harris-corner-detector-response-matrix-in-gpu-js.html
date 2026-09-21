@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Harris Corner Detector Response Matrix in GPU.js - gpu.js</title>
+    <meta name="description" content="This guide explains how to construct the Harris corner detector response matrix on the GPU using GPU.js and spatial derivative kernels. By leveraging hardware acceleration via WebGL/GPU kernels, you can compute image gradients, accumulate the local struc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/harris-corner-detector-response-matrix-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Harris Corner Detector Response Matrix in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/harris-corner-detector-response-matrix-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide explains how to construct the Harris corner detector response matrix on the GPU using GPU.js and spatial derivative kernels. By leveraging hardware acceleration via WebGL/GPU kernels, you can compute image gradients, accumulate the local struc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="harris-corner-detector-response-matrix-in-gpujs">Harris Corner
+Detector Response Matrix in GPU.js</h1>
+<p>This guide explains how to construct the Harris corner detector
+response matrix on the GPU using GPU.js and spatial derivative kernels.
+By leveraging hardware acceleration via WebGL/GPU kernels, you can
+compute image gradients, accumulate the local structure tensor
+components, and evaluate the corner response values across an entire
+image in parallel.</p>
+<hr />
+<h3 id="1-mathematical-foundation">1. Mathematical Foundation</h3>
+<p>The Harris corner detector identifies interest points by measuring
+intensity variations in local windows. The process consists of three
+main mathematical stages:</p>
+<ol type="1">
+<li><p><strong>Spatial Derivatives (<span class="math inline">\(I_x,
+I_y\)</span>):</strong> Convolving the grayscale image with horizontal
+and vertical derivative kernels (such as Sobel operators): <span
+class="math display">\[K_x = \begin{bmatrix} -1 &amp; 0 &amp; 1 \\ -2
+&amp; 0 &amp; 2 \\ -1 &amp; 0 &amp; 1 \end{bmatrix}, \quad K_y =
+\begin{bmatrix} -1 &amp; -2 &amp; -1 \\ 0 &amp; 0 &amp; 0 \\ 1 &amp; 2
+&amp; 1 \end{bmatrix}\]</span></p></li>
+<li><p><strong>Structure Tensor Components:</strong> For each pixel,
+compute the gradient products: <span class="math display">\[I_{xx} =
+I_x^2, \quad I_{yy} = I_y^2, \quad I_{xy} = I_x \cdot I_y\]</span> These
+values are then smoothed over a local neighborhood window <span
+class="math inline">\(W\)</span> (typically via a Gaussian or box
+filter) to form the structure tensor <span
+class="math inline">\(M\)</span>: <span class="math display">\[M =
+\sum_{(u,v) \in W} \begin{bmatrix} I_{xx}(u,v) &amp; I_{xy}(u,v) \\
+I_{xy}(u,v) &amp; I_{yy}(u,v) \end{bmatrix} = \begin{bmatrix} A &amp; C
+\\ C &amp; B \end{bmatrix}\]</span></p></li>
+<li><p><strong>Corner Response Measure (<span
+class="math inline">\(R\)</span>):</strong> The response score evaluates
+the eigenvalues of <span class="math inline">\(M\)</span> without
+explicit eigenvalue decomposition: <span class="math display">\[R =
+\det(M) - k \cdot (\operatorname{trace}(M))^2 = (AB - C^2) - k \cdot (A
++ B)^2\]</span> Here, <span class="math inline">\(k\)</span> is an
+empirical sensitivity parameter typically chosen between <span
+class="math inline">\(0.04\)</span> and <span
+class="math inline">\(0.06\)</span>. High positive values of <span
+class="math inline">\(R\)</span> designate corner candidates.</p></li>
+</ol>
+<hr />
+<h3 id="2-implementation-in-gpujs">2. Implementation in GPU.js</h3>
+<p>Below is a complete implementation using GPU.js to execute these
+steps sequentially using WebGL-backed compute shaders.</p>
+<h4 id="step-1-initialize-gpujs-and-gradient-kernels">Step 1: Initialize
+GPU.js and Gradient Kernels</h4>
+<p>First, calculate the directional gradients <span
+class="math inline">\(I_x\)</span> and <span
+class="math inline">\(I_y\)</span> using Sobel kernels.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Compute Ix and Iy using Sobel operators</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeGradients <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(image<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Handle borders</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> x <span class="op">&gt;=</span> width <span class="op">-</span> <span class="dv">1</span> <span class="op">||</span> y <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> y <span class="op">&gt;=</span> height <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Horizontal gradient (Sobel X)</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gx <span class="op">=</span> (</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">2</span> <span class="op">*</span> image[y][x <span class="op">-</span> <span class="dv">1</span>]     <span class="op">+</span> <span class="dv">2</span> <span class="op">*</span> image[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>]</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Vertical gradient (Sobel Y)</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gy <span class="op">=</span> (</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">-</span> <span class="dv">2</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">-</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>         <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="dv">2</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">+</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>]</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [gx<span class="op">,</span> gy]<span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Retain texture on GPU memory</span></span></code></pre></div>
+<h4 id="step-2-compute-local-structure-tensor-components">Step 2:
+Compute Local Structure Tensor Components</h4>
+<p>Using the gradient output, compute the local sum of squares and
+cross-products over a <span class="math inline">\(3 \times 3\)</span> or
+<span class="math inline">\(5 \times 5\)</span> window.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Compute smoothed products: A = &lt;Ix^2&gt;, B = &lt;Iy^2&gt;, C = &lt;Ix * Iy&gt;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeStructureTensor <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(gradients<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">&lt;=</span> <span class="dv">1</span> <span class="op">||</span> x <span class="op">&gt;=</span> width <span class="op">-</span> <span class="dv">2</span> <span class="op">||</span> y <span class="op">&lt;=</span> <span class="dv">1</span> <span class="op">||</span> y <span class="op">&gt;=</span> height <span class="op">-</span> <span class="dv">2</span>) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> a <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> <span class="co">// Ix^2</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> b <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> <span class="co">// Iy^2</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> c <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> <span class="co">// Ix * Iy</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 3x3 box window aggregation</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> dy <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> dy <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> dy<span class="op">++</span>) {</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> dx <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> dx <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> dx<span class="op">++</span>) {</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> grad <span class="op">=</span> gradients[y <span class="op">+</span> dy][x <span class="op">+</span> dx]<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> ix <span class="op">=</span> grad[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> iy <span class="op">=</span> grad[<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>            a <span class="op">+=</span> ix <span class="op">*</span> ix<span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>            b <span class="op">+=</span> iy <span class="op">*</span> iy<span class="op">;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>            c <span class="op">+=</span> ix <span class="op">*</span> iy<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [a<span class="op">,</span> b<span class="op">,</span> c]<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h4 id="step-3-compute-the-harris-corner-response-matrix">Step 3:
+Compute the Harris Corner Response Matrix</h4>
+<p>Calculate the scalar score <span class="math inline">\(R\)</span> for
+each position using the structure tensor components.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeHarrisResponse <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(tensor<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> k) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> components <span class="op">=</span> tensor[y][x]<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> A <span class="op">=</span> components[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> B <span class="op">=</span> components[<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> C <span class="op">=</span> components[<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> detM <span class="op">=</span> (A <span class="op">*</span> B) <span class="op">-</span> (C <span class="op">*</span> C)<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> traceM <span class="op">=</span> A <span class="op">+</span> B<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Harris response: R = det(M) - k * (trace(M))^2</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> R <span class="op">=</span> detM <span class="op">-</span> (k <span class="op">*</span> traceM <span class="op">*</span> traceM)<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> R<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="3-executing-the-pipeline">3. Executing the Pipeline</h3>
+<p>Combine the kernels into an execution sequence. Grayscale pixel
+values must be normalized to floating-point values between <span
+class="math inline">\(0.0\)</span> and <span
+class="math inline">\(1.0\)</span>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getHarrisResponseMatrix</span>(grayscale2DArray<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> kSensitivity <span class="op">=</span> <span class="fl">0.04</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 1. Calculate derivatives</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gradients <span class="op">=</span> <span class="fu">computeGradients</span>(grayscale2DArray<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 2. Accumulate structure tensor components</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> structureTensor <span class="op">=</span> <span class="fu">computeStructureTensor</span>(gradients<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 3. Compute response matrix R</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> responseMatrix <span class="op">=</span> <span class="fu">computeHarrisResponse</span>(</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        structureTensor<span class="op">,</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        width<span class="op">,</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>        height<span class="op">,</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>        kSensitivity</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> responseMatrix<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="4-post-processing-considerations">4. Post-Processing
+Considerations</h3>
+<ul>
+<li><strong>Thresholding:</strong> Filter the resulting response matrix
+<span class="math inline">\(R\)</span> with a minimum threshold (e.g.,
+<span class="math inline">\(R &gt; \text{threshold}\)</span>) to
+eliminate weak responses and flat regions.</li>
+<li><strong>Non-Maximum Suppression (NMS):</strong> Run an additional
+kernel over the response matrix to ensure a corner candidate is the
+local maximum within its neighborhood, preventing adjacent duplicate
+detections.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

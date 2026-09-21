@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sparse Matrix-Vector Multiplication in GPU.js - gpu.js</title>
+    <meta name="description" content="Sparse matrix-vector multiplication (SpMV) is a foundational computational kernel in scientific computing, machine learning, and graph analytics, where matrices contain predominantly zero values. In gpu.js, a JavaScript library that compiles JavaScript f">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/sparse-matrix-vector-multiplication-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Sparse Matrix-Vector Multiplication in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/sparse-matrix-vector-multiplication-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Sparse matrix-vector multiplication (SpMV) is a foundational computational kernel in scientific computing, machine learning, and graph analytics, where matrices contain predominantly zero values. In gpu.js, a JavaScript library that compiles JavaScript f" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="sparse-matrix-vector-multiplication-in-gpujs">Sparse
+Matrix-Vector Multiplication in GPU.js</h1>
+<p>Sparse matrix-vector multiplication (SpMV) is a foundational
+computational kernel in scientific computing, machine learning, and
+graph analytics, where matrices contain predominantly zero values. In
+gpu.js, a JavaScript library that compiles JavaScript functions into
+WebGL shaders, implementing SpMV requires mapping compressed matrix
+formats into GPU-friendly textures or flat arrays to avoid the memory
+overhead and wasted operations of dense computation. This article
+examines how SpMV is implemented in gpu.js using Compressed Sparse Row
+(CSR) formatting, how the kernel manages row-parallel execution, and the
+primary optimization techniques applied to minimize memory latency and
+thread divergence.</p>
+<h3 id="representing-sparse-matrices-for-gpu-kernels">Representing
+Sparse Matrices for GPU Kernels</h3>
+<p>Dense matrix representations allocate memory for every element, which
+leads to substantial GPU memory waste and inefficient memory bandwidth
+usage. To perform SpMV efficiently in gpu.js, the matrix must be
+converted into a sparse representation on the CPU before transfer. The
+standard format for this operation is Compressed Sparse Row (CSR),
+defined by three 1D arrays:</p>
+<ol type="1">
+<li><strong>Values (<code>val</code>)</strong>: A contiguous array
+containing all non-zero floating-point numbers.</li>
+<li><strong>Column Indices (<code>col</code>)</strong>: An array
+matching <code>val</code> in length, indicating the column index of each
+non-zero value.</li>
+<li><strong>Row Pointers (<code>ptr</code>)</strong>: An array of length
+<code>N + 1</code> (where <code>N</code> is the number of rows),
+indicating the index in <code>val</code> where each row begins and
+ends.</li>
+</ol>
+<p>Because gpu.js runs computations via WebGL shaders, passing these
+three 1D arrays alongside the dense vector enables the GPU to iterate
+exclusively through non-zero entries.</p>
+<h3 id="kernel-implementation">Kernel Implementation</h3>
+<p>In gpu.js, an SpMV kernel is structured so that each GPU thread
+corresponds to one row of the resulting vector. The kernel outputs an
+array with an execution dimension equal to the total number of rows.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> spmvKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(values<span class="op">,</span> colIndices<span class="op">,</span> rowPointers<span class="op">,</span> vector) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> start <span class="op">=</span> rowPointers[row]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> end <span class="op">=</span> rowPointers[row <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> start<span class="op">;</span> i <span class="op">&lt;</span> end<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> values[i] <span class="op">*</span> vector[colIndices[i]]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([rowCount])<span class="op">;</span></span></code></pre></div>
+<p>Each thread evaluates <code>this.thread.x</code> to determine its
+target row, reads the start and end boundary indices from the
+<code>rowPointers</code> array, and executes a loop that multiplies each
+non-zero element by the corresponding component of the input
+<code>vector</code>.</p>
+<h3 id="optimization-strategies">Optimization Strategies</h3>
+<p>While the basic CSR implementation significantly reduces compute
+cycles relative to dense multiplication, executing it on WebGL hardware
+introduces specific performance bottlenecks. Optimizing SpMV in gpu.js
+requires resolving hardware-level constraints:</p>
+<h4 id="1-managing-thread-divergence">1. Managing Thread Divergence</h4>
+<p>The primary drawback of standard CSR on GPUs is load imbalance. GPU
+threads run in lockstep groups (warps or wavefronts). If adjacent rows
+have vastly different numbers of non-zero entries, threads with fewer
+non-zeros idle while waiting for the longest row in the warp to
+finish.</p>
+<ul>
+<li><strong>ELLPACK / Hybrid Formats</strong>: To mitigate divergence,
+matrices can be transformed into the ELLPACK format, which pads rows
+with zeros to an identical length, or a hybrid (HYB) format that handles
+the dense portion via ELLPACK and long outliers via CSR. This
+homogenizes loop bounds and eliminates branch divergence across adjacent
+shader invocations.</li>
+<li><strong>Row Sorting</strong>: Rows can be permuted on the CPU by
+non-zero count prior to executing the kernel. Grouping rows of similar
+lengths together ensures threads within the same execution block
+complete roughly at the same time.</li>
+</ul>
+<h4 id="2-vector-caching-and-coalesced-reads">2. Vector Caching and
+Coalesced Reads</h4>
+<p>In the inner loop, accessing <code>vector[colIndices[i]]</code>
+generates indirect, non-contiguous memory access patterns that can lead
+to cache misses.</p>
+<ul>
+<li>Pre-arranging column indices through bandwidth-reduction algorithms
+(such as Reverse Cuthill-McKee) keeps non-zero entries close to the
+diagonal, localizing reads to the dense vector.</li>
+<li>Where supported, structuring the dense vector data as a 2D texture
+instead of a 1D linear array in WebGL allows hardware texture caches to
+exploit spatial locality during lookups.</li>
+</ul>
+<h4 id="3-data-transfer-overhead">3. Data Transfer Overhead</h4>
+<p>Data marshaling between the CPU (JavaScript engine) and the GPU
+(WebGL context) often outweighs computation time for single-run SpMV
+operations. To maximize throughput, inputs should be initialized as
+typed arrays (e.g., <code>Float32Array</code>, <code>Int32Array</code>)
+and marked as immutable or reused across multiple iterations (such as in
+iterative solvers like Conjugate Gradient), avoiding redundant
+CPU-to-GPU data transfers.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Stream Post-Processing with GPU.js Kernels - gpu.js</title>
+    <meta name="description" content="GPU.js can apply real-time post-processing shader effects to video streams by using graphical kernels that compile JavaScript functions into WebGL fragment shaders. By feeding frames from an HTML5 video element directly into a graphical kernel within an">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/video-stream-post-processing-with-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Video Stream Post-Processing with GPU.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/video-stream-post-processing-with-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can apply real-time post-processing shader effects to video streams by using graphical kernels that compile JavaScript functions into WebGL fragment shaders. By feeding frames from an HTML5 video element directly into a graphical kernel within an" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="video-stream-post-processing-with-gpujs-kernels">Video Stream
+Post-Processing with GPU.js Kernels</h1>
+<p>GPU.js can apply real-time post-processing shader effects to video
+streams by using graphical kernels that compile JavaScript functions
+into WebGL fragment shaders. By feeding frames from an HTML5 video
+element directly into a graphical kernel within an animation loop,
+developers can manipulate pixel data on the GPU and render custom visual
+effects back to a canvas at high frame rates.</p>
+<h3 id="how-graphical-kernels-work-with-video">How Graphical Kernels
+Work with Video</h3>
+<p>GPU.js allows kernels to output directly to an HTML5 canvas rather
+than returning a standard numerical array. Setting the kernel option
+<code>{ graphical: true }</code> instructs the compiler to generate a
+WebGL shader that writes color values via
+<code>this.color(r, g, b, a)</code>.</p>
+<p>When an HTML5 <code>&lt;video&gt;</code> element (whether playing a
+local file or receiving a live WebRTC/webcam stream) is passed as an
+argument to a GPU.js kernel, the browser uploads the current video frame
+to the GPU as a 2D texture. Inside the kernel function, you can sample
+the color values of the current pixel—or its neighboring pixels—using
+native array indexing syntax.</p>
+<h3 id="implementation-workflow">Implementation Workflow</h3>
+<ol type="1">
+<li><strong>Acquire the Video Stream</strong>: Capture media through the
+<code>navigator.mediaDevices.getUserMedia()</code> API or standard
+<code>&lt;video&gt;</code> playback.</li>
+<li><strong>Instantiate the Graphical Kernel</strong>: Configure a
+kernel with dimensions matching the video width and height, and enable
+graphical mode:
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> processFrame <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(videoFrame) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pixel <span class="op">=</span> videoFrame[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Example: Invert colors</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="dv">1</span> <span class="op">-</span> pixel<span class="op">.</span><span class="at">r</span><span class="op">,</span> <span class="dv">1</span> <span class="op">-</span> pixel<span class="op">.</span><span class="at">g</span><span class="op">,</span> <span class="dv">1</span> <span class="op">-</span> pixel<span class="op">.</span><span class="at">b</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [videoWidth<span class="op">,</span> videoHeight]<span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">graphical</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div></li>
+<li><strong>Execute the Render Loop</strong>: Use
+<code>requestAnimationFrame</code> to continuously pass the video
+element into the kernel. Each frame triggers a redraw on the kernel's
+internal canvas:
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">render</span>() {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (video<span class="op">.</span><span class="at">readyState</span> <span class="op">===</span> video<span class="op">.</span><span class="at">HAVE_ENOUGH_DATA</span>) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>        <span class="fu">processFrame</span>(video)<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(render)<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div></li>
+<li><strong>Display Output</strong>: Append the generated canvas
+(<code>processFrame.canvas</code>) to the DOM, or pipe its stream to a
+downstream media consumer using
+<code>canvas.captureStream()</code>.</li>
+</ol>
+<h3 id="common-post-processing-capabilities">Common Post-Processing
+Capabilities</h3>
+<ul>
+<li><strong>Color Grading and Adjustments</strong>: Brightness,
+contrast, saturation, and custom LUT (Look-Up Table) transformations can
+be applied instantaneously across millions of pixels.</li>
+<li><strong>Spatial Convolutions</strong>: Multi-tap kernels can sample
+surrounding coordinates
+(<code>videoFrame[this.thread.y + dy][this.thread.x + dx]</code>) to
+compute Gaussian blurs, sharpen filters, Sobel edge detection, and
+emboss effects.</li>
+<li><strong>Chroma Keying</strong>: Background replacement algorithms
+can compare the pixel color to a target green or blue key value and
+dynamically set the alpha channel or blend with an alternate video
+source.</li>
+</ul>
+<h3 id="performance-limitations">Performance Limitations</h3>
+<p>While GPU.js simplifies GPU programming by abstracting GLSL, texture
+uploads from CPU/video memory to GPU memory still present a bottleneck.
+Post-processing streams at 1080p or 4K resolution can introduce latency
+depending on the client's graphics hardware. For maximum performance,
+match the kernel dimensions exactly to the input stream's native
+resolution to avoid unnecessary scaling overhead.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

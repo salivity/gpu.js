@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js WebGL Buffer Binding for Uniform Arrays - gpu.js</title>
+    <meta name="description" content="This article explores how GPU.js manages WebGL buffer binding targets when updating uniform array buffers across different hardware contexts. It covers the mechanics of target selection between WebGL 1 and WebGL 2, how gl.UNIFORMBUFFER targets are bound">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-web-gl-buffer-binding-for-uniform-arrays">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js WebGL Buffer Binding for Uniform Arrays - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-web-gl-buffer-binding-for-uniform-arrays" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how GPU.js manages WebGL buffer binding targets when updating uniform array buffers across different hardware contexts. It covers the mechanics of target selection between WebGL 1 and WebGL 2, how gl.UNIFORMBUFFER targets are bound" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-webgl-buffer-binding-for-uniform-arrays">GPU.js WebGL
+Buffer Binding for Uniform Arrays</h1>
+<p>This article explores how GPU.js manages WebGL buffer binding targets
+when updating uniform array buffers across different hardware contexts.
+It covers the mechanics of target selection between WebGL 1 and WebGL 2,
+how <code>gl.UNIFORM_BUFFER</code> targets are bound and populated, the
+fallback mechanisms used when uniform arrays exceed size limits, and the
+internal state cleanup required to maintain WebGL pipeline
+integrity.</p>
+<h3 id="uniform-array-handling-across-webgl-contexts">Uniform Array
+Handling Across WebGL Contexts</h3>
+<p>GPU.js dynamically compiles JavaScript operations into GLSL shaders
+and manages the corresponding WebGL pipeline. When passing uniform array
+data into a kernel, GPU.js evaluates whether the active rendering
+context is WebGL 1 or WebGL 2, as this determines how uniform arrays are
+stored and updated in GPU memory.</p>
+<p>In WebGL 1, true uniform array buffers (Uniform Buffer Objects, or
+UBOs) do not exist. GPU.js handles standard uniform arrays by setting
+values directly via program state using methods such as
+<code>gl.uniform1fv</code> or <code>gl.uniform4fv</code>. These standard
+uniform updates target internal shader uniform locations rather than
+dedicated buffer targets.</p>
+<p>In WebGL 2, GPU.js can take advantage of Uniform Buffer Objects. In
+this scenario, uniform arrays can be managed as actual buffer objects
+using the <code>gl.UNIFORM_BUFFER</code> binding target, allowing
+shared, re-usable data across multiple shader invocations without
+re-uploading individual uniform variables.</p>
+<h3 id="the-gluniform_buffer-binding-workflow">The
+<code>gl.UNIFORM_BUFFER</code> Binding Workflow</h3>
+<p>When a WebGL 2 kernel requires an update to a uniform array
+represented by a UBO, GPU.js executes a strict sequence to ensure the
+buffer target is properly configured:</p>
+<ol type="1">
+<li><strong>Target Selection:</strong> GPU.js assigns
+<code>gl.UNIFORM_BUFFER</code> as the active target for the array buffer
+operation.</li>
+<li><strong>Buffer Binding:</strong> The framework invokes
+<code>gl.bindBuffer(gl.UNIFORM_BUFFER, webGlBuffer)</code>. This
+establishes the designated WebGL buffer as the active recipient for
+subsequent uniform data modifications.</li>
+<li><strong>Memory Updating:</strong>
+<ul>
+<li>If the size of the array has changed, GPU.js calls
+<code>gl.bufferData(gl.UNIFORM_BUFFER, data, gl.STATIC_DRAW)</code> (or
+<code>gl.DYNAMIC_DRAW</code>) to reallocate the storage on the GPU.</li>
+<li>If the array size is unchanged, it employs
+<code>gl.bufferSubData(gl.UNIFORM_BUFFER, 0, data)</code> to overwrite
+the existing memory without the performance cost of reallocating buffer
+memory.</li>
+</ul></li>
+<li><strong>Binding Point Association:</strong> To make the buffer data
+readable by the compiled shader, GPU.js binds the buffer to an indexed
+uniform block binding point using
+<code>gl.bindBufferBase(gl.UNIFORM_BUFFER, index, webGlBuffer)</code> or
+<code>gl.bindBufferRange</code>.</li>
+</ol>
+<h3 id="handling-large-arrays-via-texture-targets">Handling Large Arrays
+via Texture Targets</h3>
+<p>Hardware implementations enforce strict memory limits on uniforms via
+<code>MAX_UNIFORM_BLOCK_SIZE</code> or
+<code>MAX_VERTEX_UNIFORM_VECTORS</code>. Because numerical compute tasks
+frequently exceed these hardware thresholds, GPU.js bypasses uniform
+buffer targets entirely for large arrays.</p>
+<p>When an array argument is deemed too large for a uniform target:</p>
+<ul>
+<li>GPU.js converts the uniform array into a float texture.</li>
+<li>Instead of using <code>gl.UNIFORM_BUFFER</code> or standard uniform
+setters, it binds the target to <code>gl.TEXTURE_2D</code> using
+<code>gl.bindTexture</code>.</li>
+<li>Updates are handled via <code>gl.texSubImage2D</code> or
+<code>gl.texImage2D</code>.</li>
+<li>The shader then reads the array elements via texture lookups
+(<code>texelFetch</code> or <code>texture2D</code>) rather than standard
+uniform indexing.</li>
+</ul>
+<h3 id="state-cleanup-and-unbinding">State Cleanup and Unbinding</h3>
+<p>To prevent side effects across different kernels or interfering with
+external WebGL libraries sharing the context, GPU.js manages buffer
+target state cleanup. Once an update to a uniform buffer is finalized,
+GPU.js unbinds the target by passing <code>null</code> to the target
+binding call:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">bindBuffer</span>(gl<span class="op">.</span><span class="at">UNIFORM_BUFFER</span><span class="op">,</span> <span class="kw">null</span>)<span class="op">;</span></span></code></pre></div>
+<p>Unbinding the target ensures that subsequent operations targeting
+other buffers (such as vertex attributes using
+<code>gl.ARRAY_BUFFER</code> or index buffers using
+<code>gl.ELEMENT_ARRAY_BUFFER</code>) do not inadvertently overwrite
+uniform data or encounter state collision errors during execution.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Denormalized Floating-Point Numbers - gpu.js</title>
+    <meta name="description" content="This article examines how the gpu.js library handles denormalized (subnormal) floating-point values when executing computations across diverse graphics hardware. Because gpu.js compiles JavaScript operations into WebGL and GLSL shaders rather than native">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-denormalized-floating-point-numbers">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Denormalized Floating-Point Numbers - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-denormalized-floating-point-numbers" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the gpu.js library handles denormalized (subnormal) floating-point values when executing computations across diverse graphics hardware. Because gpu.js compiles JavaScript operations into WebGL and GLSL shaders rather than native" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-denormalized-floating-point-numbers">How
+GPU.js Handles Denormalized Floating-Point Numbers</h1>
+<p>This article examines how the gpu.js library handles denormalized
+(subnormal) floating-point values when executing computations across
+diverse graphics hardware. Because gpu.js compiles JavaScript operations
+into WebGL and GLSL shaders rather than native machine code, it does not
+manage floating-point representations directly. Instead, the handling of
+subnormal numbers is dictated entirely by the underlying GPU hardware
+architecture, the graphics driver, and the WebGL specification's
+floating-point rules.</p>
+<h2 id="the-webgl-abstraction-barrier">The WebGL Abstraction
+Barrier</h2>
+<p>gpu.js accelerates JavaScript by transpiling standard functions into
+GLSL (OpenGL Shading Language) fragments that run on the client’s GPU
+via WebGL. Unlike low-level compute APIs such as CUDA, OpenCL, or
+Vulkan—which provide flags to configure floating-point modes—WebGL
+abstracts low-level hardware registers.</p>
+<p>Because of this abstraction, gpu.js cannot toggle CPU-style control
+words (such as <code>MXCSR</code> on x86) or GPU-level control flags
+(such as <code>ftz</code> in CUDA). If an operation produces an exponent
+below the minimum normalized threshold (<span
+class="math inline">\(2^{-126}\)</span> for IEEE 754 single-precision
+float), gpu.js delegates the numeric resolution completely to the host
+platform's shader compiler and the physical execution unit.</p>
+<h2 id="architecture-specific-behavior">Architecture-Specific
+Behavior</h2>
+<p>The IEEE 754 standard defines gradual underflow to preserve precision
+near zero using denormalized numbers. However, graphics hardware has
+historically prioritized throughput over strict IEEE 754 compliance.
+Consequently, behavior varies significantly across different classes of
+hardware:</p>
+<h3 id="modern-desktop-gpus-nvidia-and-amd">Modern Desktop GPUs (NVIDIA
+and AMD)</h3>
+<p>Modern discrete architectures (such as NVIDIA Turing, Ampere, Ada
+Lovelace, and AMD RDNA) feature dedicated hardware pipelines capable of
+handling 32-bit single-precision (<code>highp</code>) denormals without
+severe throughput penalties. However, when executing via WebGL:</p>
+<ul>
+<li>OpenGL and WebGL drivers often enforce <strong>Flush-to-Zero
+(FTZ)</strong> and <strong>Denormals-Are-Zero (DAZ)</strong> by default
+to maximize fragment processing speeds.</li>
+<li>Even if the underlying hardware supports gradual underflow natively,
+the driver’s GLSL optimizer may truncate subnormal intermediate states
+to zero during shader compilation.</li>
+</ul>
+<h3
+id="mobile-and-embedded-gpus-arm-mali-qualcomm-adreno-apple-silicon">Mobile
+and Embedded GPUs (ARM Mali, Qualcomm Adreno, Apple Silicon)</h3>
+<p>Mobile system-on-chips (SoCs) prioritize energy efficiency and
+silicon surface area:</p>
+<ul>
+<li>Mobile architectures almost universally rely on hardware-level FTZ.
+When a calculation in gpu.js yields a value between <span
+class="math inline">\(-1.17549435 \times 10^{-38}\)</span> and <span
+class="math inline">\(+1.17549435 \times 10^{-38}\)</span>, mobile
+hardware abruptly clamps the value to <code>0.0</code>.</li>
+<li>Additionally, WebGL implementations on mobile devices may map
+<code>highp</code> precision to 16-bit half-precision
+(<code>fp16</code>) if full single-precision is unsupported by the
+target context, dramatically raising the underflow threshold to <span
+class="math inline">\(2^{-14}\)</span> (<span class="math inline">\(6.10
+\times 10^{-5}\)</span>).</li>
+</ul>
+<h3 id="intel-integrated-graphics">Intel Integrated Graphics</h3>
+<p>Intel integrated GPUs handle subnormals depending on the generation
+and OS driver stack:</p>
+<ul>
+<li>Older generations (Gen9 and earlier) incur heavy clock cycle
+penalties if forced into subnormal arithmetic, leading drivers to flush
+denormals aggressively in GLSL contexts.</li>
+<li>Modern Intel Iris Xe and Arc architectures include better hardware
+support, but WebGL pipelines frequently maintain FTZ to match typical
+browser rendering behaviors.</li>
+</ul>
+<h2 id="practical-implications-for-gpujs-pipelines">Practical
+Implications for gpu.js Pipelines</h2>
+<p>Because gpu.js lacks a mechanism to force standard IEEE 754
+compliance across platforms, developers must design algorithms around
+the assumption that <strong>denormals will be flushed to
+zero</strong>.</p>
+<ol type="1">
+<li><strong>Division by Zero Hazards:</strong> Algorithms that assume
+non-zero values will decrease gradually near the lower precision bound
+can unexpectedly encounter division-by-zero errors if a subnormal
+intermediate value is flushed to <code>0.0</code>.</li>
+<li><strong>Platform Inconsistency:</strong> Running the identical
+gpu.js kernel on a high-end desktop workstation versus a smartphone may
+yield divergent numerical results if the algorithm relies on the edges
+of floating-point dynamic range.</li>
+<li><strong>Manual Scaling Solutions:</strong> When extreme dynamic
+ranges are required, computations in gpu.js should apply manual range
+scaling (such as processing values in logarithmic space or pre-scaling
+data arrays by fixed exponents) before submitting workloads to the GPU
+context.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Recycles WebGL Texture Buffers - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates parallel computation in JavaScript by translating functions into WebGL shaders that use textures as memory buffers. Constantly allocating and deallocating native WebGL textures introduces severe CPU-GPU synchronization bottlenecks and">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-recycles-web-gl-texture-buffers">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Recycles WebGL Texture Buffers - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-recycles-web-gl-texture-buffers" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates parallel computation in JavaScript by translating functions into WebGL shaders that use textures as memory buffers. Constantly allocating and deallocating native WebGL textures introduces severe CPU-GPU synchronization bottlenecks and" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-recycles-webgl-texture-buffers">How GPU.js Recycles
+WebGL Texture Buffers</h1>
+<p>GPU.js accelerates parallel computation in JavaScript by translating
+functions into WebGL shaders that use textures as memory buffers.
+Constantly allocating and deallocating native WebGL textures introduces
+severe CPU-GPU synchronization bottlenecks and garbage collection
+pauses. To mitigate this overhead, GPU.js manages an internal recycling
+queue known as <code>recycledTextures</code> within its WebGL backend
+kernel implementations, enabling rapid reuse of discarded texture
+buffers without repeatedly calling native WebGL allocation APIs.</p>
+<p>When a GPU.js kernel executes, it outputs computational results onto
+an off-screen framebuffer backed by a <code>WebGLTexture</code>. In
+standard WebGL workflows, freeing these resources requires
+<code>gl.deleteTexture()</code>, which discards the GPU-side allocation.
+GPU.js avoids this churn by wrapping native textures inside its own
+<code>Texture</code> abstraction class. When a consumer disposes of an
+output texture—either manually using <code>.delete()</code>, or
+automatically when extracting values through <code>.toArray()</code>—the
+underlying <code>WebGLTexture</code> reference is diverted away from
+destruction and pushed directly into the kernel's
+<code>recycledTextures</code> array.</p>
+<p>The <code>recycledTextures</code> structure functions as a memory
+pool. When the kernel is called again, it checks the recycling queue
+before instantiating new texture memory. For a recycled texture to be
+reused, its specifications must match the requirements of the incoming
+kernel run, including:</p>
+<ul>
+<li><strong>Dimensions:</strong> Width and height must be identical to
+the output dimensions expected by the framebuffer.</li>
+<li><strong>Internal Format and Type:</strong> The data representation
+(such as floating-point precision textures or standard integer channels)
+must match the kernel's output configuration.</li>
+<li><strong>Context Compatibility:</strong> The texture must belong to
+the active WebGL rendering context.</li>
+</ul>
+<p>If an existing texture in the <code>recycledTextures</code> queue
+meets these criteria, GPU.js extracts it from the pool, binds it to the
+current framebuffer, and writes the new kernel output directly into that
+existing buffer. If no compatible texture exists in the queue, only then
+does GPU.js issue a <code>gl.createTexture()</code> call to allocate a
+fresh buffer.</p>
+<p>By retaining and re-queuing discarded texture references in
+<code>recycledTextures</code>, GPU.js maintains high throughput during
+iterative operations, such as deep learning training loops or physics
+simulations, where the output of one step repeatedly demands memory
+allocation of identical sizes and types.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

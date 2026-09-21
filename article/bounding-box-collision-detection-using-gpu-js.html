@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bounding Box Collision Detection Using GPU.js - gpu.js</title>
+    <meta name="description" content="Collision detection between thousands of geometric bounding boxes can be evaluated efficiently using GPU.js by compiling JavaScript functions into WebGL compute shaders. While traditional CPU-based brute-force collision checking quickly degrades as box c">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/bounding-box-collision-detection-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Bounding Box Collision Detection Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/bounding-box-collision-detection-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Collision detection between thousands of geometric bounding boxes can be evaluated efficiently using GPU.js by compiling JavaScript functions into WebGL compute shaders. While traditional CPU-based brute-force collision checking quickly degrades as box c" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="bounding-box-collision-detection-using-gpujs">Bounding Box
+Collision Detection Using GPU.js</h1>
+<p>Collision detection between thousands of geometric bounding boxes can
+be evaluated efficiently using GPU.js by compiling JavaScript functions
+into WebGL compute shaders. While traditional CPU-based brute-force
+collision checking quickly degrades as box counts scale into the
+thousands, GPU.js leverages massive hardware parallelism to test
+millions of box pairs simultaneously. This article explains how GPU.js
+handles 2D and 3D bounding box tests, the data structures required,
+performance advantages, and key architectural limitations to
+consider.</p>
+<h3 id="the-feasibility-of-gpujs-for-collision-detection">The
+Feasibility of GPU.js for Collision Detection</h3>
+<p>GPU.js is well-suited for Axis-Aligned Bounding Box (AABB) collision
+detection. Because an AABB overlap test consists only of basic
+conditional comparisons and arithmetic across coordinates (min and max
+values for <span class="math inline">\(X\)</span>, <span
+class="math inline">\(Y\)</span>, and <span
+class="math inline">\(Z\)</span>), it translates directly into efficient
+GPU instructions.</p>
+<p>In a traditional brute-force implementation checking <span
+class="math inline">\(N\)</span> boxes against each other:</p>
+<ul>
+<li><span class="math inline">\(1,000\)</span> boxes require <span
+class="math inline">\(1,000,000\)</span> intersection checks.</li>
+<li><span class="math inline">\(5,000\)</span> boxes require <span
+class="math inline">\(25,000,000\)</span> intersection checks.</li>
+</ul>
+<p>On a CPU, a nested loop processing 25 million checks causes severe
+frame drops in real-time applications. GPU.js executes these comparisons
+concurrently across thousands of GPU shader cores, typically completing
+the same workload in a few milliseconds.</p>
+<h3 id="data-layout-and-kernel-design">Data Layout and Kernel
+Design</h3>
+<p>GPU.js communicates with graphics hardware using arrays and textures.
+To perform collision checks on thousands of boxes, bounding box data
+must be flattened into typed arrays.</p>
+<p>A common pattern for 3D AABBs is storing coordinates as flat arrays
+or 2D matrices:</p>
+<ul>
+<li>Minimum coordinates: <code>[minX, minY, minZ]</code></li>
+<li>Maximum coordinates: <code>[maxX, maxY, maxZ]</code></li>
+</ul>
+<p>A 2D GPU.js kernel sized to <code>[N, N]</code> assigns each GPU
+thread a specific pair of boxes <code>(i, j)</code>. The kernel function
+evaluates the standard overlap logic:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> checkCollisions <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(boxesMin<span class="op">,</span> boxesMax) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> j <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Avoid self-collision or redundant duplicate pairs</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">&gt;=</span> j) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Check for separation along X, Y, and Z axes</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (boxesMax[i][<span class="dv">0</span>] <span class="op">&lt;</span> boxesMin[j][<span class="dv">0</span>] <span class="op">||</span> boxesMin[i][<span class="dv">0</span>] <span class="op">&gt;</span> boxesMax[j][<span class="dv">0</span>]) <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (boxesMax[i][<span class="dv">1</span>] <span class="op">&lt;</span> boxesMin[j][<span class="dv">1</span>] <span class="op">||</span> boxesMin[i][<span class="dv">1</span>] <span class="op">&gt;</span> boxesMax[j][<span class="dv">1</span>]) <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (boxesMax[i][<span class="dv">2</span>] <span class="op">&lt;</span> boxesMin[j][<span class="dv">2</span>] <span class="op">||</span> boxesMin[i][<span class="dv">2</span>] <span class="op">&gt;</span> boxesMax[j][<span class="dv">2</span>]) <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span> <span class="co">// Collision detected</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])<span class="op">;</span></span></code></pre></div>
+<p>The output is an <span class="math inline">\(N \times N\)</span>
+matrix indicating active intersections between any two box indices.</p>
+<h3 id="advantages-of-the-gpu-approach">Advantages of the GPU
+Approach</h3>
+<ol type="1">
+<li><strong>Massive Parallelism</strong>: Evaluating pairwise tests in a
+2D grid maps directly to GPU architecture, keeping computational latency
+low even with 5,000 to 10,000 objects.</li>
+<li><strong>Simplified Codebase</strong>: GPU.js abstracts low-level
+WebGL boilerplate, such as writing raw GLSL shaders, managing
+framebuffers, and configuring vertex attributes.</li>
+<li><strong>Hardware Acceleration in the Browser</strong>: The
+calculations run client-side on the user's graphics card, freeing the
+main JavaScript execution thread for rendering and game logic.</li>
+</ol>
+<h3 id="bottlenecks-and-considerations">Bottlenecks and
+Considerations</h3>
+<p>While GPU.js provides significant compute acceleration, scaling
+beyond roughly 10,000 to 20,000 boxes introduces specific
+bottlenecks:</p>
+<ul>
+<li><strong>Memory Transfer Overhead</strong>: Passing large arrays from
+the CPU to the GPU and reading results back via
+<code>gl.readPixels</code> incurs latency. If box positions update every
+frame, data bus saturation can diminish performance gains.</li>
+<li><strong><span class="math inline">\(O(N^2)\)</span>
+Complexity</strong>: Brute-force checking eventually overwhelms even
+powerful GPUs at higher scales. For tens of thousands of objects,
+combining GPU execution with a broad-phase spatial partition (such as a
+uniform spatial grid or bounding volume hierarchy) is necessary.</li>
+<li><strong>Output Parsing</strong>: Processing a massive output matrix
+(e.g., <span class="math inline">\(10,000 \times 10,000 =
+100,000,000\)</span> values) back on the CPU creates a secondary
+bottleneck. Keeping the collision results on the GPU to drive subsequent
+physics or rendering passes yields the highest performance.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js 2D Delaunay Triangulation Circumcircles - gpu.js</title>
+    <meta name="description" content="Computing 2D Delaunay triangulation updates on the GPU involves parallelizing the empty circumcircle test using spatial predicates. This article demonstrates how to translate the geometric in-circle determinant into a GPU kernel using gpu.js, how to form">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-2-d-delaunay-triangulation-circumcircles">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js 2D Delaunay Triangulation Circumcircles - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-2-d-delaunay-triangulation-circumcircles" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing 2D Delaunay triangulation updates on the GPU involves parallelizing the empty circumcircle test using spatial predicates. This article demonstrates how to translate the geometric in-circle determinant into a GPU kernel using gpu.js, how to form" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-2d-delaunay-triangulation-circumcircles">GPU.js 2D
+Delaunay Triangulation Circumcircles</h1>
+<p>Computing 2D Delaunay triangulation updates on the GPU involves
+parallelizing the empty circumcircle test using spatial predicates. This
+article demonstrates how to translate the geometric in-circle
+determinant into a GPU kernel using gpu.js, how to format triangle and
+vertex buffers for massively parallel execution, and how to query
+circumcircle violations to drive dynamic triangulation algorithms like
+Bowyer-Watson.</p>
+<h3 id="the-in-circle-predicate">The In-Circle Predicate</h3>
+<p>A triangle formed by vertices <span class="math inline">\(A(x_a,
+y_a)\)</span>, <span class="math inline">\(B(x_b, y_b)\)</span>, and
+<span class="math inline">\(C(x_c, y_c)\)</span> in counter-clockwise
+(CCW) order satisfies the Delaunay condition for a test point <span
+class="math inline">\(P(x_p, y_p)\)</span> if <span
+class="math inline">\(P\)</span> lies outside the triangle's
+circumcircle.</p>
+<p>This geometric check evaluates the sign of the following <span
+class="math inline">\(3 \times 3\)</span> determinant:</p>
+<p><span class="math display">\[
+\det \begin{bmatrix}
+x_a - x_p &amp; y_a - y_p &amp; (x_a - x_p)^2 + (y_a - y_p)^2 \\
+x_b - x_p &amp; y_b - y_p &amp; (x_b - x_p)^2 + (y_b - y_p)^2 \\
+x_c - x_p &amp; y_c - y_p &amp; (x_c - x_p)^2 + (y_c - y_p)^2
+\end{bmatrix}
+\]</span></p>
+<p>If the determinant is greater than zero, <span
+class="math inline">\(P\)</span> lies strictly inside the circumcircle,
+violating the Delaunay condition. If it equals zero, the points are
+cocircular; if less than zero, <span class="math inline">\(P\)</span> is
+strictly outside.</p>
+<h3 id="data-layout-for-gpujs">Data Layout for GPU.js</h3>
+<p>GPU kernels operate most efficiently over flat, typed arrays or 2D
+coordinate matrices. To verify multiple triangles simultaneously against
+an inserted point, represent the existing triangulation as flattened
+vertex coordinates:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Triangle vertices arranged counter-clockwise: [Ax, Ay, Bx, By, Cx, Cy]</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> triangles <span class="op">=</span> [</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.0</span><span class="op">,</span> <span class="fl">0.0</span><span class="op">,</span>  <span class="fl">2.0</span><span class="op">,</span> <span class="fl">0.0</span><span class="op">,</span>  <span class="fl">1.0</span><span class="op">,</span> <span class="fl">2.0</span><span class="op">,</span> <span class="co">// Triangle 0</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="fl">2.0</span><span class="op">,</span> <span class="fl">0.0</span><span class="op">,</span>  <span class="fl">3.0</span><span class="op">,</span> <span class="fl">2.0</span><span class="op">,</span>  <span class="fl">1.0</span><span class="op">,</span> <span class="fl">2.0</span>  <span class="co">// Triangle 1</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>]<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Query point P to test against all circumcircles</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> queryPoint <span class="op">=</span> [<span class="fl">1.0</span><span class="op">,</span> <span class="fl">0.5</span>]<span class="op">;</span></span></code></pre></div>
+<h3 id="implementing-the-circumcircle-kernel">Implementing the
+Circumcircle Kernel</h3>
+<p>Using <code>gpu.js</code>, you can compile a kernel that assigns one
+thread per triangle. Each thread loads the three triangle vertices,
+computes the determinant relative to the query point, and outputs a flag
+indicating a circumcircle violation.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> checkInCircleKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(triangles<span class="op">,</span> px<span class="op">,</span> py) {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> triIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="dv">6</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Triangle vertices</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ax <span class="op">=</span> triangles[triIndex]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ay <span class="op">=</span> triangles[triIndex <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> bx <span class="op">=</span> triangles[triIndex <span class="op">+</span> <span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> by <span class="op">=</span> triangles[triIndex <span class="op">+</span> <span class="dv">3</span>]<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cx <span class="op">=</span> triangles[triIndex <span class="op">+</span> <span class="dv">4</span>]<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cy <span class="op">=</span> triangles[triIndex <span class="op">+</span> <span class="dv">5</span>]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Coordinates relative to query point P</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> adx <span class="op">=</span> ax <span class="op">-</span> px<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ady <span class="op">=</span> ay <span class="op">-</span> py<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> bdx <span class="op">=</span> bx <span class="op">-</span> px<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> bdy <span class="op">=</span> by <span class="op">-</span> py<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cdx <span class="op">=</span> cx <span class="op">-</span> px<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cdy <span class="op">=</span> cy <span class="op">-</span> py<span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Squared distances from relative origin</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> alift <span class="op">=</span> adx <span class="op">*</span> adx <span class="op">+</span> ady <span class="op">*</span> ady<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> blift <span class="op">=</span> bdx <span class="op">*</span> bdx <span class="op">+</span> bdy <span class="op">*</span> bdy<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> clift <span class="op">=</span> cdx <span class="op">*</span> cdx <span class="op">+</span> cdy <span class="op">*</span> cdy<span class="op">;</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compute 3x3 determinant</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> det <span class="op">=</span> </span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    adx <span class="op">*</span> (bdy <span class="op">*</span> clift <span class="op">-</span> blift <span class="op">*</span> cdy) <span class="op">-</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    ady <span class="op">*</span> (bdx <span class="op">*</span> clift <span class="op">-</span> blift <span class="op">*</span> cdx) <span class="op">+</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    alift <span class="op">*</span> (bdx <span class="op">*</span> cdy <span class="op">-</span> bdy <span class="op">*</span> cdx)<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Return 1 if inside circumcircle (violation), otherwise 0</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> det <span class="op">&gt;</span> <span class="fl">0.000001</span> <span class="op">?</span> <span class="dv">1</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([triangles<span class="op">.</span><span class="at">length</span> <span class="op">/</span> <span class="dv">6</span>])<span class="op">;</span></span></code></pre></div>
+<h3 id="applying-the-results-to-triangulation-updates">Applying the
+Results to Triangulation Updates</h3>
+<p>The kernel returns an array of binary flags corresponding to each
+triangle in the mesh:</p>
+<ol type="1">
+<li><strong>Cavity Identification:</strong> Triangles flagged with
+<code>1</code> have circumcircles that contain the newly inserted point.
+In an incremental Bowyer-Watson algorithm, these flagged triangles form
+the insertion cavity.</li>
+<li><strong>Boundary Extraction:</strong> On the CPU or through a
+secondary reduction kernel, gather the outer boundary edges of the
+cavity by removing shared internal edges between flagged triangles.</li>
+<li><strong>Re-triangulation:</strong> Connect the query point to each
+vertex on the boundary of the cavity to form new Delaunay-compliant
+triangles.</li>
+<li><strong>Buffer Synchronization:</strong> Append the newly formed
+triangles to the coordinate buffer and remove the invalid ones before
+executing the next GPU check.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

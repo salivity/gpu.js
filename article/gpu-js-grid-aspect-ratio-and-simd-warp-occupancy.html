@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Grid Aspect Ratio and SIMD Warp Occupancy - gpu.js</title>
+    <meta name="description" content="The thread grid aspect ratio in gpu.js directly impacts hardware-level performance by altering how 2D and 3D coordinate spaces map onto physical SIMD execution units. When kernel dimensions fail to align with the underlying GPU warp or wavefront architec">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-grid-aspect-ratio-and-simd-warp-occupancy">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Grid Aspect Ratio and SIMD Warp Occupancy - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-grid-aspect-ratio-and-simd-warp-occupancy" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The thread grid aspect ratio in gpu.js directly impacts hardware-level performance by altering how 2D and 3D coordinate spaces map onto physical SIMD execution units. When kernel dimensions fail to align with the underlying GPU warp or wavefront architec" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-grid-aspect-ratio-and-simd-warp-occupancy">GPU.js Grid
+Aspect Ratio and SIMD Warp Occupancy</h1>
+<p>The thread grid aspect ratio in gpu.js directly impacts
+hardware-level performance by altering how 2D and 3D coordinate spaces
+map onto physical SIMD execution units. When kernel dimensions fail to
+align with the underlying GPU warp or wavefront architecture, hardware
+lanes sit idle, memory access patterns degrade, and instruction
+pipelines stall. Understanding the relationship between grid geometry,
+workgroup mapping, and execution units is critical for maximizing SIMD
+occupancy in web-based parallel computing.</p>
+<h3 id="warp-execution-and-linear-thread-mapping">Warp Execution and
+Linear Thread Mapping</h3>
+<p>Modern GPUs execute code in lockstep groups called warps (NVIDIA, 32
+threads) or wavefronts (AMD, 32 or 64 threads). gpu.js abstracts this
+hardware layer by allowing developers to define an <code>output</code>
+array such as <code>[width, height]</code>. Under the hood, gpu.js
+compiles JavaScript into WebGL fragment shaders or WebGPU compute
+shaders.</p>
+<p>Regardless of the high-level representation, the GPU must serialize
+multi-dimensional grid coordinates into a one-dimensional hardware
+execution stream. Threads are scheduled in contiguous chunks
+corresponding to warp sizes. When the aspect ratio of the grid causes
+the inner dimension (typically the X-axis) to be misaligned with the
+hardware warp size, execution units cannot be fully saturated.</p>
+<h3 id="the-problem-of-skewed-aspect-ratios">The Problem of Skewed
+Aspect Ratios</h3>
+<p>An extreme or unbalanced aspect ratio (for example, a grid of
+<code>[4, 1024]</code> versus <code>[64, 64]</code>) introduces
+substantial overhead:</p>
+<ul>
+<li><strong>Boundary Inefficiency and Padding:</strong> If the
+X-dimension is not a multiple of the warp size, individual warps often
+cross row boundaries. In compute pipelines with fixed 2D workgroup
+bounds (e.g., <span class="math inline">\(8 \times 8\)</span> or <span
+class="math inline">\(16 \times 16\)</span>), an aspect ratio with
+narrow edges results in partially populated workgroups. Threads outside
+the valid range must be masked off, leaving SIMD lanes inactive and
+dropping overall occupancy.</li>
+<li><strong>Quad Divergence in WebGL Mode:</strong> When gpu.js falls
+back to WebGL, computation is driven by rendering geometry where pixels
+are processed in <span class="math inline">\(2 \times 2\)</span> pixel
+quads to support derivative calculations. Extremely tall or thin aspect
+ratios (such as <span class="math inline">\(1 \times N\)</span>) force
+the rasterizer to launch quads where only half—or a quarter—of the
+fragment lanes contain active data, immediately cutting compute
+efficiency by 50% to 75%.</li>
+<li><strong>Branch Masking:</strong> In gpu.js kernels containing
+boundary conditions (<code>if (this.thread.x &lt; limit)</code>),
+mismatched grid bounds cause adjacent threads within the same warp to
+take divergent execution paths. Because SIMD cores execute branches
+sequentially by disabling inactive lanes, divergent conditions caused by
+awkward grid edges reduce effective throughput.</li>
+</ul>
+<h3 id="memory-coalescing-and-stride-latency">Memory Coalescing and
+Stride Latency</h3>
+<p>The thread grid aspect ratio governs how data is fetched from
+underlying WebGL textures or WebGPU buffers. Hardware memory controllers
+achieve peak bandwidth when all 32 threads in a warp access contiguous
+memory addresses simultaneously (coalesced access).</p>
+<p>In gpu.js, adjacent threads along the primary axis access adjacent
+indices. A wide aspect ratio promotes contiguous, coalesced reads across
+the warp. Conversely, a tall, narrow aspect ratio forces threads within
+the same warp to span across rows. This creates strided memory access,
+where each memory request must be fulfilled through separate, serialized
+transactions, stalling the warp while waiting for high-latency texture
+caches.</p>
+<h3 id="optimizing-aspect-ratios-in-gpujs">Optimizing Aspect Ratios in
+gpu.js</h3>
+<p>To ensure maximum SIMD warp occupancy:</p>
+<ol type="1">
+<li><strong>Align Dimensions to Multiples of 32:</strong> Set the
+fastest-moving dimension (the first index in the output array) to a
+multiple of 32 to guarantee that warp boundaries do not overlap
+unaligned rows.</li>
+<li><strong>Flatten Non-Spatial Datasets:</strong> If the kernel does
+not rely on local 2D neighborhoods (such as matrix convolutions),
+flatten the output into a single 1D grid. 1D allocations eliminate
+boundary mismatches and ensure clean warp scheduling.</li>
+<li><strong>Pad Irregular Dimensions:</strong> When processing irregular
+matrix sizes, round the output grid up to the nearest warp multiple and
+discard extraneous calculations with an early exit, rather than running
+an unpadded, non-standard aspect ratio.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

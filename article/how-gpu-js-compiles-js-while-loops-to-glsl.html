@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Compiles JS While Loops to GLSL - gpu.js</title>
+    <meta name="description" content="This article explores how the gpu.js compiler parses JavaScript while loops and transforms them into valid OpenGL Shading Language (GLSL) code. It covers the abstract syntax tree (AST) traversal, type inference, conditional expression translation, and ho">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-js-while-loops-to-glsl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Compiles JS While Loops to GLSL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-js-while-loops-to-glsl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how the gpu.js compiler parses JavaScript while loops and transforms them into valid OpenGL Shading Language (GLSL) code. It covers the abstract syntax tree (AST) traversal, type inference, conditional expression translation, and ho" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-compiles-js-while-loops-to-glsl">How gpu.js Compiles
+JS While Loops to GLSL</h1>
+<p>This article explores how the gpu.js compiler parses JavaScript
+<code>while</code> loops and transforms them into valid OpenGL Shading
+Language (GLSL) code. It covers the abstract syntax tree (AST)
+traversal, type inference, conditional expression translation, and how
+gpu.js addresses target-specific WebGL constraints to ensure
+GPU-compatible iteration.</p>
+<h3 id="1-abstract-syntax-tree-ast-parsing">1. Abstract Syntax Tree
+(AST) Parsing</h3>
+<p>gpu.js begins compilation by serializing the kernel JavaScript
+function and passing it through an internal parser (such as Acorn) to
+produce an Abstract Syntax Tree (AST).</p>
+<p>When the parser encounters a JavaScript <code>while</code> loop, it
+identifies a <code>WhileStatement</code> node. This node consists of two
+main properties:</p>
+<ul>
+<li><code>test</code>: The condition evaluated before each
+iteration.</li>
+<li><code>body</code>: The block of code executed when the test
+evaluates to <code>true</code>.</li>
+</ul>
+<p>The compiler’s code generator traverses this node using a visitor
+pattern, mapping the dynamic JavaScript structure to a static GLSL
+equivalent.</p>
+<h3 id="2-condition-normalization-and-boolean-coercion">2. Condition
+Normalization and Boolean Coercion</h3>
+<p>In JavaScript, loop conditions rely on dynamic truthiness (e.g.,
+<code>while (count)</code> terminates when <code>count</code> becomes
+<code>0</code>). GLSL, however, strictly enforces that all loop
+conditions must evaluate to a native scalar <code>bool</code>.</p>
+<p>During code generation, gpu.js analyzes the AST's <code>test</code>
+expression:</p>
+<ul>
+<li><strong>Explicit Booleans:</strong> Expressions such as
+<code>i &lt; 10</code> map directly to GLSL relational operations.</li>
+<li><strong>Implicit Truthiness:</strong> Non-boolean identifiers or
+expressions are converted into explicit boolean checks. For instance, an
+integer counter <code>while (n)</code> is rewritten in GLSL as
+<code>while (n != 0)</code> or <code>while (n &gt; 0)</code>, matching
+GLSL's strict typing rules.</li>
+</ul>
+<h3 id="3-type-inference-and-variable-tracking">3. Type Inference and
+Variable Tracking</h3>
+<p>GLSL requires all variables to be statically typed before or upon
+assignment. Because a <code>while</code> loop frequently modifies
+variables declared outside its scope (such as accumulators or counters),
+gpu.js must determine their types prior to writing the loop.</p>
+<p>The compiler performs an initial inference pass over the kernel
+function to track variable assignments. If an outer variable is modified
+inside the <code>WhileStatement</code> body, gpu.js ensures:</p>
+<ol type="1">
+<li>The variable is declared with an explicit GLSL type
+(<code>int</code>, <code>float</code>, etc.) prior to the loop.</li>
+<li>Any assignments within the loop body cast values appropriately
+(e.g., converting a JavaScript floating-point number into a GLSL
+<code>float</code>).</li>
+</ol>
+<h3 id="4-constructing-the-glsl-loop-structure">4. Constructing the GLSL
+Loop Structure</h3>
+<p>In WebGL 2.0 (GLSL ES 3.00), dynamic loops are natively supported.
+The code generator writes the AST <code>WhileStatement</code> directly
+into a standard GLSL <code>while</code> loop:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">while</span> <span class="op">(</span>condition<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Transpiled body statements</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>If the target environment is restricted to WebGL 1.0 (GLSL ES 1.00),
+dynamic <code>while</code> loops face strict hardware and specification
+constraints. In GLSL ES 1.00, loop indices and iteration limits often
+require constant expressions to permit static loop unrolling by graphics
+drivers.</p>
+<p>To overcome these limitations in constrained targets, gpu.js can
+transform unbounded or dynamic <code>while</code> loops into fixed
+<code>for</code> loops bounded by a predefined maximum iteration
+threshold, using an internal break statement:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">for</span> <span class="op">(</span><span class="dt">int</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> MAX_ITERATIONS<span class="op">;</span> i<span class="op">++)</span> <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">if</span> <span class="op">(!</span>condition<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>        <span class="kw">break</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Transpiled body statements</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h3 id="5-loop-body-transpilation">5. Loop Body Transpilation</h3>
+<p>Finally, gpu.js recursively translates the statements contained in
+the AST's <code>body</code> block. JavaScript statements like
+<code>break</code> and <code>continue</code> map directly to their
+identical GLSL keywords. Any mathematical operators or built-in
+functions (such as <code>Math.sin</code> or <code>Math.floor</code>)
+used inside the loop body are substituted with their native GLSL
+counterparts (<code>sin</code>, <code>floor</code>) to produce
+optimized, hardware-accelerated shader code.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

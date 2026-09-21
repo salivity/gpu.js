@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accelerating Nussinov RNA Folding with GPU.js - gpu.js</title>
+    <meta name="description" content="This article evaluates whether dynamic programming algorithms for RNA secondary structure prediction—specifically the Nussinov algorithm and its base-pairing probability extensions—can achieve meaningful performance acceleration using gpu.js. It deta">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/accelerating-nussinov-rna-folding-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Accelerating Nussinov RNA Folding with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/accelerating-nussinov-rna-folding-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article evaluates whether dynamic programming algorithms for RNA secondary structure prediction—specifically the Nussinov algorithm and its base-pairing probability extensions—can achieve meaningful performance acceleration using gpu.js. It deta" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="accelerating-nussinov-rna-folding-with-gpujs">Accelerating
+Nussinov RNA Folding with GPU.js</h1>
+<p>This article evaluates whether dynamic programming algorithms for RNA
+secondary structure prediction—specifically the Nussinov algorithm and
+its base-pairing probability extensions—can achieve meaningful
+performance acceleration using gpu.js. It details the structural data
+dependencies of the algorithm, explains how dynamic programming maps to
+GPU shaders, outlines the architectural constraints of WebGL-based
+computing, and provides a clear verdict on the feasibility and
+efficiency of this approach.</p>
+<h3
+id="understanding-the-nussinov-dynamic-programming-model">Understanding
+the Nussinov Dynamic Programming Model</h3>
+<p>The Nussinov algorithm predicts RNA secondary structure by finding
+the configuration with the maximum number of complementary base pairs
+(A-U, G-C, G-U). It utilizes dynamic programming to construct an <span
+class="math inline">\(N \times N\)</span> scoring matrix, where <span
+class="math inline">\(N\)</span> is the length of the RNA sequence.</p>
+<p>The recurrence relation depends on four potential states for any
+subsequence from index <span class="math inline">\(i\)</span> to <span
+class="math inline">\(j\)</span>:</p>
+<ol type="1">
+<li><span class="math inline">\(i\)</span> is unpaired.</li>
+<li><span class="math inline">\(j\)</span> is unpaired.</li>
+<li><span class="math inline">\(i\)</span> and <span
+class="math inline">\(j\)</span> pair together.</li>
+<li>The subsequence is split at an intermediate point <span
+class="math inline">\(k\)</span> (<span class="math inline">\(i \le k
+&lt; j\)</span>), combining the optimal substructures of <span
+class="math inline">\((i, k)\)</span> and <span
+class="math inline">\((k+1, j)\)</span>.</li>
+</ol>
+<p>Evaluating this split requires an internal loop over <span
+class="math inline">\(k\)</span>, resulting in an overall time
+complexity of <span class="math inline">\(O(N^3)\)</span> and a space
+complexity of <span class="math inline">\(O(N^2)\)</span>. Computing
+base-pairing probabilities via the related McCaskill algorithm similarly
+relies on <span class="math inline">\(O(N^3)\)</span> matrix traversals
+using inside-outside partition functions.</p>
+<h3 id="parallelizing-matrix-traversal-on-the-gpu">Parallelizing Matrix
+Traversal on the GPU</h3>
+<p>The primary barrier to GPU acceleration is the strict data dependency
+inherent to dynamic programming: a cell <span class="math inline">\((i,
+j)\)</span> cannot be evaluated until all smaller subproblems within its
+range are resolved.</p>
+<p>Parallelism cannot be applied across the entire matrix at once.
+However, it can be parallelized along diagonals:</p>
+<ul>
+<li>The matrix is processed in stages corresponding to subsequence
+length <span class="math inline">\(L = j - i + 1\)</span>, starting from
+<span class="math inline">\(L = 1\)</span> up to <span
+class="math inline">\(L = N\)</span>.</li>
+<li>Within any given diagonal <span class="math inline">\(L\)</span>,
+all cell calculations are completely independent of one another.</li>
+<li>These independent cells can be mapped to individual GPU execution
+threads.</li>
+</ul>
+<h3 id="implementing-the-kernel-via-gpujs">Implementing the Kernel via
+gpu.js</h3>
+<p>gpu.js allows developers to write computational kernels in
+JavaScript, which it automatically translates into WebGL shaders (or
+WebGPU where supported) to execute on the GPU.</p>
+<p>In a gpu.js implementation:</p>
+<ol type="1">
+<li>The scoring matrix is maintained as a GPU texture.</li>
+<li>A custom kernel takes the matrix state at step <span
+class="math inline">\(L-1\)</span> and computes the values for diagonal
+<span class="math inline">\(L\)</span>.</li>
+<li>The thread ID corresponds to the sequence index <span
+class="math inline">\(i\)</span>, calculating <span
+class="math inline">\(j = i + L - 1\)</span>.</li>
+<li>The internal loop over <span class="math inline">\(k\)</span>
+executes inside the shader to locate the optimal bifurcation point.</li>
+</ol>
+<h3 id="technical-limitations-and-performance-bottlenecks">Technical
+Limitations and Performance Bottlenecks</h3>
+<p>While mathematically parallelizable, implementing this pipeline in
+gpu.js encounters several practical bottlenecks:</p>
+<ul>
+<li><strong>Kernel Launch Overhead:</strong> Because each diagonal
+depends on the output of the previous one, the host program must
+dispatch at least <span class="math inline">\(N\)</span> sequential
+kernel calls. In WebGL, the overhead of issuing hundreds or thousands of
+draw calls can easily eclipse the parallel computational gains.</li>
+<li><strong>Variable Loop Bounds:</strong> WebGL shaders heavily favor
+static loop limits. In the Nussinov algorithm, the inner loop bounds
+change dynamically based on <span class="math inline">\(j - i\)</span>.
+Implementing dynamic branching or running fixed-size loops with internal
+conditional checks degrades GPU branch efficiency.</li>
+<li><strong>Floating-Point Precision in Probabilities:</strong> When
+extending the model to base-pairing probabilities (partition functions),
+values can scale exponentially, requiring either dynamic scaling or
+logarithmic transformations. Standard WebGL implementations often lack
+robust 64-bit double-precision floating-point support, increasing the
+risk of numerical underflow or overflow.</li>
+<li><strong>Memory Bandwidth:</strong> Each step requires reading from
+and writing back to memory textures, creating a memory-bound workload on
+hardware that excels most at compute-bound tasks.</li>
+</ul>
+<h3 id="verdict">Verdict</h3>
+<p>The Nussinov algorithm and related base-pairing calculations can
+technically run on the GPU via gpu.js by parallelizing along matrix
+diagonals. However, for typical single RNA sequences (<span
+class="math inline">\(N &lt; 500\)</span>), the synchronization latency
+and kernel invocation overhead in gpu.js make it substantially slower
+than a well-optimized CPU implementation written in C, Rust, or
+WebAssembly (Wasm). gpu.js only becomes competitive if the algorithm is
+restructured to process large batches of independent RNA sequences
+simultaneously, allowing the GPU to maximize thread occupancy in a
+single execution pass.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Root-Finding with GPU.js - gpu.js</title>
+    <meta name="description" content="Numerical root-finding algorithms such as the Newton-Raphson method can be effectively parallelized using GPU.js, provided the workload involves evaluating many roots or parameter spaces simultaneously. While finding a single root is an inherently iterat">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-root-finding-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel Root-Finding with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-root-finding-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Numerical root-finding algorithms such as the Newton-Raphson method can be effectively parallelized using GPU.js, provided the workload involves evaluating many roots or parameter spaces simultaneously. While finding a single root is an inherently iterat" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-root-finding-with-gpujs">Parallel Root-Finding with
+GPU.js</h1>
+<p>Numerical root-finding algorithms such as the Newton-Raphson method
+can be effectively parallelized using GPU.js, provided the workload
+involves evaluating many roots or parameter spaces simultaneously. While
+finding a single root is an inherently iterative, sequential process
+that gains little from a GPU, solving systems of independent equations,
+testing large arrays of initial guesses, or generating convergence
+fractals (such as Newton fractals) are embarrassingly parallel tasks.
+This article explores how to map the Newton-Raphson method onto GPU.js,
+its architectural constraints within WebGL, and the practical
+performance considerations.</p>
+<h2 id="how-newton-raphson-parallelization-works">How Newton-Raphson
+Parallelization Works</h2>
+<p>The classical Newton-Raphson formula updates an approximation using
+the rule:</p>
+<p><span class="math display">\[x_{n+1} = x_n -
+\frac{f(x_n)}{f&#39;(x_n)}\]</span></p>
+<p>Because each iteration depends entirely on the result of the
+preceding one, a single root computation cannot be parallelized across
+multiple GPU threads.</p>
+<p>However, root-finding workloads frequently require calculating roots
+for thousands or millions of scenarios. Parallelism is achieved across
+the <em>data</em> rather than the <em>algorithm</em> using a Single
+Program, Multiple Data (SPMD) paradigm. GPU.js allows you to assign each
+thread to:</p>
+<ul>
+<li>A unique initial guess (<span class="math inline">\(x_0\)</span>) to
+locate all roots of a complex function.</li>
+<li>Independent function variations across a parameterized system.</li>
+<li>Points on a complex plane to visualize basin boundaries and
+convergence rates.</li>
+</ul>
+<h2 id="implementing-the-algorithm-in-gpujs">Implementing the Algorithm
+in GPU.js</h2>
+<p>GPU.js compiles JavaScript functions into WebGL shader code, running
+them directly on the graphics card. To run Newton-Raphson inside a
+GPU.js kernel, the iterative loop must adhere to WebGL shader
+limitations.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> findRoots <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(initialGuesses<span class="op">,</span> maxIterations<span class="op">,</span> tolerance) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> x <span class="op">=</span> initialGuesses[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// WebGL requires fixed-bound loops</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">100</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (i <span class="op">&lt;</span> maxIterations) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Example function: f(x) = x^3 - x - 2</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> fx <span class="op">=</span> x <span class="op">*</span> x <span class="op">*</span> x <span class="op">-</span> x <span class="op">-</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Derivative: f&#39;(x) = 3x^2 - 1</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> fpx <span class="op">=</span> <span class="fl">3.0</span> <span class="op">*</span> x <span class="op">*</span> x <span class="op">-</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(fpx) <span class="op">&gt;</span> <span class="fl">0.00001</span>) {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>                <span class="kw">let</span> step <span class="op">=</span> fx <span class="op">/</span> fpx<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>                x <span class="op">=</span> x <span class="op">-</span> step<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(step) <span class="op">&lt;</span> tolerance) {</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>                    <span class="cf">break</span><span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>                }</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> x<span class="op">;</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000000</span>])<span class="op">;</span> <span class="co">// 1,000,000 independent root calculations</span></span></code></pre></div>
+<h2 id="constraints-and-considerations-in-gpujs">Constraints and
+Considerations in GPU.js</h2>
+<p>When implementing numerical methods via GPU.js, several platform
+constraints impact execution:</p>
+<h3 id="1-fixed-loop-bounds">1. Fixed Loop Bounds</h3>
+<p>WebGL shaders natively require statically determinable loop
+iterations. While a standard CPU implementation uses a dynamic
+<code>while (Math.abs(fx) &gt; tolerance)</code> loop, GPU.js kernels
+require a <code>for</code> loop with a constant upper limit. Convergence
+checks must break out of the loop or skip calculations
+conditionally.</p>
+<h3 id="2-thread-divergence">2. Thread Divergence</h3>
+<p>GPUs achieve peak performance when all threads in a warp or wavefront
+execute the exact same instructions. If varying initial guesses cause
+some threads to converge in 3 iterations while others require 50,
+threads that finish early must still wait for slower threads in the same
+group to complete, reducing theoretical efficiency.</p>
+<h3 id="3-precision-limitations">3. Precision Limitations</h3>
+<p>GPU.js predominantly operates using 32-bit single-precision
+floating-point numbers (<code>float</code>) within standard WebGL
+contexts. While modern CPUs execute calculations in 64-bit double
+precision, root-finding on the GPU may encounter precision issues or
+premature stagnation when convergence tolerances are set below
+single-precision limits (roughly <span
+class="math inline">\(10^{-7}\)</span>).</p>
+<h3 id="4-data-transfer-overhead">4. Data Transfer Overhead</h3>
+<p>Moving input arrays from CPU memory (RAM) to GPU memory (VRAM), and
+subsequently reading the results back, introduces latency. Parallelizing
+Newton-Raphson with GPU.js is only faster than standard CPU
+multithreading (e.g., Node.js worker threads) if the batch size is
+sufficiently large—typically tens of thousands of simultaneous equations
+or more.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

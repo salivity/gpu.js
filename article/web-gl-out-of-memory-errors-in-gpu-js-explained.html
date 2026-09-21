@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Out of Memory Errors in gpu.js Explained - gpu.js</title>
+    <meta name="description" content="WebGL out of memory (OOM) errors during large batch execution in gpu.js occur when computation demands exceed the physical or browser-allocated GPU memory. Because gpu.js maps high-dimensional JavaScript arrays into 2D WebGL textures for parallel process">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-out-of-memory-errors-in-gpu-js-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL Out of Memory Errors in gpu.js Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-out-of-memory-errors-in-gpu-js-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="WebGL out of memory (OOM) errors during large batch execution in gpu.js occur when computation demands exceed the physical or browser-allocated GPU memory. Because gpu.js maps high-dimensional JavaScript arrays into 2D WebGL textures for parallel process" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl-out-of-memory-errors-in-gpujs-explained">WebGL Out of
+Memory Errors in gpu.js Explained</h1>
+<p>WebGL out of memory (OOM) errors during large batch execution in
+gpu.js occur when computation demands exceed the physical or
+browser-allocated GPU memory. Because gpu.js maps high-dimensional
+JavaScript arrays into 2D WebGL textures for parallel processing,
+processing massive datasets pushes the limits of GPU texture dimensions,
+VRAM capacity, and the browser’s automatic garbage collection.
+Understanding the mechanics of texture allocation, kernel lifecycle
+management, and browser resource quotas reveals why these failures
+happen and how to prevent them.</p>
+<h3 id="1-inefficient-garbage-collection-and-texture-leaking">1.
+Inefficient Garbage Collection and Texture Leaking</h3>
+<p>JavaScript uses an automated garbage collector that monitors system
+RAM, but it lacks direct visibility into GPU VRAM. When a gpu.js kernel
+runs in a loop, it generates underlying WebGL textures to hold inputs
+and intermediate outputs. If your code does not explicitly dispose of
+these textures, they remain in VRAM until the browser triggers a garbage
+collection cycle. During fast, iterative batch processing, the rate of
+GPU memory allocation outpaces the JavaScript engine's garbage
+collection routine, exhausting available VRAM and triggering a WebGL
+context loss or OOM error.</p>
+<h3 id="2-pipelined-mode-accumulation">2. Pipelined Mode
+Accumulation</h3>
+<p>The <code>pipeline: true</code> option in gpu.js keeps calculation
+results stored directly on the GPU as textures, avoiding the costly
+performance penalty of transferring data back to the CPU via
+<code>toArray()</code>. However, if successive iterations in a batch
+create new pipelined textures without destroying previous references
+using <code>texture.delete()</code>, VRAM usage grows linearly with each
+batch. Once the driver’s allocation threshold is reached, WebGL throws
+an allocation error.</p>
+<h3 id="3-maximum-texture-dimension-exceeded">3. Maximum Texture
+Dimension Exceeded</h3>
+<p>WebGL relies on 2D textures to store array buffers. GPUs enforce a
+strict hardware limit on texture dimensions, accessible via the
+<code>MAX_TEXTURE_SIZE</code> parameter (typically 4096, 8192, or 16384
+pixels). When a batch contains more elements than can fit within a
+supported 2D texture layout, gpu.js cannot allocate the required
+dimensions. While this is technically an allocation parameter failure
+rather than general memory exhaustion, WebGL frequently reports it as an
+out-of-memory or frame-buffer failure.</p>
+<h3 id="4-browser-and-operating-system-vram-quotas">4. Browser and
+Operating System VRAM Quotas</h3>
+<p>Browsers implement strict security and stability sandboxes. Even if a
+host system has 16 GB of dedicated VRAM, web browsers like Chrome or
+Firefox restrict the maximum memory allocated to an individual WebGL
+context or tab (often capped around 1 GB to 2 GB). When a batch spikes
+memory usage beyond this safety limit, the browser forcibly terminates
+the WebGL context with a <code>CONTEXT_LOST_WEBGL</code> error to
+protect the operating system's display server from freezing.</p>
+<h3 id="5-preventing-webgl-memory-exhaustion">5. Preventing WebGL Memory
+Exhaustion</h3>
+<p>To resolve and avoid these errors during intensive computing
+runs:</p>
+<ul>
+<li><strong>Explicitly Delete Textures:</strong> Call
+<code>resultTexture.delete()</code> on any pipelined textures once they
+are consumed by the next iteration.</li>
+<li><strong>Chunk Large Batches:</strong> Divide massive computational
+jobs into smaller micro-batches that fit comfortably within the
+hardware’s texture limits.</li>
+<li><strong>Destroy Unused Kernels:</strong> If dynamic kernels are
+instantiated inside loops, call <code>kernel.destroy()</code> to free
+shader programs and associated framebuffers.</li>
+<li><strong>Reuse Output Textures:</strong> Structure your pipeline
+using a ping-pong buffer technique, alternating between two
+pre-allocated textures rather than instantiating new textures on each
+step.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

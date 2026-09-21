@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Relativistic Planetary Orbits with GPU.js - gpu.js</title>
+    <meta name="description" content="Computing planetary orbit trajectories with general relativistic corrections is fully achievable using gpu.js. By compiling JavaScript functions into WebGL-accelerated shader code, gpu.js enables high-performance parallel computation directly in the brow">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/relativistic-planetary-orbits-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Relativistic Planetary Orbits with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/relativistic-planetary-orbits-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing planetary orbit trajectories with general relativistic corrections is fully achievable using gpu.js. By compiling JavaScript functions into WebGL-accelerated shader code, gpu.js enables high-performance parallel computation directly in the brow" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="relativistic-planetary-orbits-with-gpujs">Relativistic Planetary
+Orbits with GPU.js</h1>
+<p>Computing planetary orbit trajectories with general relativistic
+corrections is fully achievable using gpu.js. By compiling JavaScript
+functions into WebGL-accelerated shader code, gpu.js enables
+high-performance parallel computation directly in the browser or
+Node.js. While general relativity introduces non-linear mathematical
+complexity beyond classical Newtonian mechanics, these equations boil
+down to arithmetic evaluations that GPUs excel at processing,
+particularly when simulating multi-body systems or massive ensembles of
+test particles.</p>
+<h3 id="the-physics-implementing-relativistic-corrections">The Physics:
+Implementing Relativistic Corrections</h3>
+<p>Classical orbital mechanics relies on Newton’s law of universal
+gravitation, which fails to account for phenomena such as the anomalous
+perihelion precession of Mercury. To incorporate general relativity
+without solving the full Einstein field equations numerically,
+astrophysicists use the Post-Newtonian (PN) approximation.</p>
+<p>For most planetary orbital simulations, the first Post-Newtonian
+correction (1PN) is sufficient. The acceleration <span
+class="math inline">\(\vec{a}\)</span> of a planet incorporates an extra
+relativistic perturbation term:</p>
+<p><span class="math display">\[\vec{a} = -\frac{GM}{r^3}\vec{r} \left(
+1 + \frac{3GM}{r c^2} \right)\]</span></p>
+<p>where <span class="math inline">\(G\)</span> is the gravitational
+constant, <span class="math inline">\(M\)</span> is the solar mass,
+<span class="math inline">\(r\)</span> is the radial distance, and <span
+class="math inline">\(c\)</span> is the speed of light. Because this
+adjustment relies purely on local vectors (position and velocity) and
+standard scalar arithmetic, it can be written directly into a gpu.js
+kernel.</p>
+<h3 id="how-gpujs-handles-the-computation">How GPU.js Handles the
+Computation</h3>
+<p>gpu.js operates by translating a subset of JavaScript into WebGL or
+WebGPU shader language (GLSL). Orbital mechanics calculations are
+executed over grid structures:</p>
+<ol type="1">
+<li><strong>Kernel Definition:</strong> You define a kernel function
+that accepts arrays of positions, velocities, and masses.</li>
+<li><strong>Force Evaluation:</strong> For an <span
+class="math inline">\(N\)</span>-body simulation, each thread computes
+the gravitational pull and relativistic correction exerted on one body
+by all other bodies (<span class="math inline">\(O(N^2)\)</span>
+complexity). The parallel nature of the GPU makes this step
+significantly faster than running standard CPU loops.</li>
+<li><strong>Numerical Integration:</strong> Integrators such as
+Leapfrog, Velocity Verlet, or 4th-order Runge-Kutta (RK4) can be
+evaluated. Symplectic integrators like Velocity Verlet are preferred for
+orbital mechanics because they conserve energy over long
+timescales.</li>
+</ol>
+<h3 id="architectural-strengths">Architectural Strengths</h3>
+<ul>
+<li><strong>Massive Parallelism for <span
+class="math inline">\(N\)</span>-Body Systems:</strong> When modeling
+hundreds or thousands of asteroids, planetesimals, or interacting
+planetary bodies, GPU acceleration prevents the performance bottlenecks
+typical of single-threaded JavaScript.</li>
+<li><strong>Monte Carlo Trajectory Sampling:</strong> If calculating the
+trajectory of a single planet under varying initial relativistic
+parameters, gpu.js can compute thousands of distinct orbital
+trajectories concurrently.</li>
+</ul>
+<h3 id="technical-challenges-and-limitations">Technical Challenges and
+Limitations</h3>
+<ul>
+<li><strong>Sequential Time-Stepping:</strong> GPUs parallelize across
+spatial dimensions (bodies or particles), not time. Because step <span
+class="math inline">\(t+1\)</span> depends strictly on step <span
+class="math inline">\(t\)</span>, the simulation loop itself must run
+sequentially, either by repeatedly calling the kernel or iteratively
+computing mini-batches of time steps inside texture memory.</li>
+<li><strong>Precision Limits:</strong> General relativistic orbital
+shifts, such as Mercury's precession, occur on minute scales (roughly 43
+arcseconds per century). Standard WebGL shaders historically default to
+32-bit floating-point precision (<code>highp float</code>), which can
+introduce numerical drift over millions of simulated iterations. While
+adequate for short-to-medium-term visualizations and qualitative
+experiments, high-precision scientific modeling often requires 64-bit
+precision (FP64), which has limited support across WebGL
+implementations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

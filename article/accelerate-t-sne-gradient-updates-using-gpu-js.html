@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accelerate t-SNE Gradient Updates Using GPU.js - gpu.js</title>
+    <meta name="description" content="Accelerating t-Distributed Stochastic Neighbor Embedding (t-SNE) gradient updates using gpu.js is both feasible and highly effective for client-side and Node.js environments. The core performance bottleneck of standard t-SNE lies in its pairwise gradient">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/accelerate-t-sne-gradient-updates-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Accelerate t-SNE Gradient Updates Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/accelerate-t-sne-gradient-updates-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Accelerating t-Distributed Stochastic Neighbor Embedding (t-SNE) gradient updates using gpu.js is both feasible and highly effective for client-side and Node.js environments. The core performance bottleneck of standard t-SNE lies in its pairwise gradient" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="accelerate-t-sne-gradient-updates-using-gpujs">Accelerate t-SNE
+Gradient Updates Using GPU.js</h1>
+<p>Accelerating t-Distributed Stochastic Neighbor Embedding (t-SNE)
+gradient updates using gpu.js is both feasible and highly effective for
+client-side and Node.js environments. The core performance bottleneck of
+standard t-SNE lies in its pairwise gradient calculation, which scales
+quadratically with the number of data points. By compiling JavaScript
+functions into WebGL-enabled GPU kernels, gpu.js offloads these
+compute-intensive, highly parallel matrix operations to the graphics
+hardware, yielding substantial speedups over pure CPU JavaScript
+implementations for small to moderately sized datasets.</p>
+<h3 id="the-computational-bottleneck-in-t-sne">The Computational
+Bottleneck in t-SNE</h3>
+<p>The standard t-SNE algorithm projects high-dimensional data into a
+lower-dimensional space (typically 2D or 3D) while preserving local
+structure. During each iteration of the optimization phase, the
+positions of the low-dimensional embeddings are updated using gradient
+descent:</p>
+<p><span class="math display">\[\frac{\partial C}{\partial y_i} = 4
+\sum_{j} (p_{ij} - q_{ij})(y_i - y_j)(1 + ||y_i -
+y_j||^2)^{-1}\]</span></p>
+<p>Computing this gradient involves two primary components:</p>
+<ol type="1">
+<li><strong>Attractive forces:</strong> Governed by <span
+class="math inline">\(p_{ij}\)</span>, representing high-dimensional
+similarities. Since distant points have near-zero values, this matrix
+can often be treated sparsely.</li>
+<li><strong>Repulsive forces:</strong> Governed by <span
+class="math inline">\(q_{ij}\)</span>, representing low-dimensional
+Student-t distribution probabilities. This requires calculating pairwise
+distances between <em>all</em> pairs of points in the low-dimensional
+space.</li>
+</ol>
+<p>The calculation of the denominator <span
+class="math inline">\(\sum_{k \neq l} (1 + ||y_k -
+y_l||^2)^{-1}\)</span> (the normalization factor <span
+class="math inline">\(Z\)</span>) and the resulting forces requires
+<span class="math inline">\(O(N^2)\)</span> operations per iteration,
+where <span class="math inline">\(N\)</span> is the number of data
+points. On a single CPU thread in JavaScript, this quickly stalls the
+user interface for <span class="math inline">\(N &gt;
+1,000\)</span>.</p>
+<h3 id="how-gpujs-accelerates-the-process">How GPU.js Accelerates the
+Process</h3>
+<p>GPU.js works by transpiling a subset of JavaScript into GLSL (OpenGL
+Shading Language) and executing it via WebGL on the GPU. The t-SNE
+gradient step is inherently parallelizable: the gradient update for
+point <span class="math inline">\(i\)</span> is independent of point
+<span class="math inline">\(j\)</span> during a given step.</p>
+<p>GPU.js accelerates this workflow in three key stages:</p>
+<ol type="1">
+<li><strong>Pairwise Low-Dimensional Distances:</strong> A 2D kernel
+computes the squared Euclidean distances between all points in the
+current low-dimensional projection:
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDistances <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(Y) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> diffX <span class="op">=</span> Y[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="dv">0</span>] <span class="op">-</span> Y[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> diffY <span class="op">=</span> Y[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="dv">1</span>] <span class="op">-</span> Y[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> diffX <span class="op">*</span> diffX <span class="op">+</span> diffY <span class="op">*</span> diffY<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])<span class="op">;</span></span></code></pre></div></li>
+<li><strong>Summing Normalization Values (<span
+class="math inline">\(Z\)</span>):</strong> Calculating the Student-t
+kernel values <span class="math inline">\(w_{ij} = (1 + ||y_i -
+y_j||^2)^{-1}\)</span> can be executed on the GPU, outputting a matrix
+or leveraging pipelined reduction passes to calculate the scalar sum
+<span class="math inline">\(Z\)</span>.</li>
+<li><strong>Accumulating Forces:</strong> A kernel processes each point
+<span class="math inline">\(i\)</span>, iterating through all points
+<span class="math inline">\(j\)</span> to compute the combined
+attractive and repulsive vectors. Because GPUs contain hundreds or
+thousands of cores, this parallel summation achieves significant
+throughput improvements over standard CPU loops.</li>
+</ol>
+<h3 id="technical-limitations-and-considerations">Technical Limitations
+and Considerations</h3>
+<p>While gpu.js offers an accessible way to harness the GPU directly
+from JavaScript, certain architectural constraints must be managed:</p>
+<ul>
+<li><strong>Memory Transfer Overhead:</strong> Moving data between the
+CPU (RAM) and GPU (VRAM) introduces latency. To achieve maximum
+throughput, intermediate textures must remain on the GPU using
+<code>pipeline: true</code> within gpu.js, avoiding CPU readbacks
+between the distance, normalization, and force calculation stages.</li>
+<li><strong>Precision Constraints:</strong> WebGL historically uses
+32-bit floating-point numbers (single precision). While t-SNE is
+generally robust to small numerical errors, lower precision can
+introduce drift or underflow when computing small probability values
+(<span class="math inline">\(p_{ij}\)</span> and <span
+class="math inline">\(q_{ij}\)</span>).</li>
+<li><strong>Algorithmic Alternatives at Scale:</strong> For very large
+datasets (<span class="math inline">\(N &gt; 20,000\)</span>),
+algorithmic acceleration techniques such as Barnes-Hut (<span
+class="math inline">\(O(N \log N)\)</span>) or Fast Fourier Transform
+accelerated Interpolation-based t-SNE (FIt-SNE, <span
+class="math inline">\(O(N)\)</span>) generally outperform naive <span
+class="math inline">\(O(N^2)\)</span> GPU implementations. Tree
+construction and non-uniform grids, however, are complex to implement
+efficiently within the constrained GLSL environment of gpu.js.</li>
+</ul>
+<h3 id="verdict">Verdict</h3>
+<p>GPU.js is an effective tool for accelerating standard t-SNE gradient
+computations without requiring native C++ or CUDA dependencies. For
+datasets up to roughly 10,000 to 15,000 points, offloading the <span
+class="math inline">\(O(N^2)\)</span> distance and repulsive force
+matrices to gpu.js provides near-instant interactive frame rates in
+browser-based visualization tools.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

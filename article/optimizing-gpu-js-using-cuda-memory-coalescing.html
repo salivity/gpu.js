@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimizing gpu.js Using CUDA Memory Coalescing - gpu.js</title>
+    <meta name="description" content="This article explores whether CUDA memory access coalescing principles can be applied conceptually to optimize gpu.js compute kernels. While gpu.js abstracts low-level GPU hardware by compiling JavaScript into WebGL fragment shaders, the physical hardwar">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/optimizing-gpu-js-using-cuda-memory-coalescing">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Optimizing gpu.js Using CUDA Memory Coalescing - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/optimizing-gpu-js-using-cuda-memory-coalescing" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores whether CUDA memory access coalescing principles can be applied conceptually to optimize gpu.js compute kernels. While gpu.js abstracts low-level GPU hardware by compiling JavaScript into WebGL fragment shaders, the physical hardwar" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="optimizing-gpujs-using-cuda-memory-coalescing">Optimizing gpu.js
+Using CUDA Memory Coalescing</h1>
+<p>This article explores whether CUDA memory access coalescing
+principles can be applied conceptually to optimize gpu.js compute
+kernels. While gpu.js abstracts low-level GPU hardware by compiling
+JavaScript into WebGL fragment shaders, the physical hardware
+architecture executing these operations remains identical. By aligning
+gpu.js thread indexing with linear memory layouts, developers can
+leverage cache spatial locality, minimize memory latency, and
+significantly improve execution speed in web-based parallel
+computing.</p>
+<h3 id="understanding-cuda-memory-coalescing">Understanding CUDA Memory
+Coalescing</h3>
+<p>In native CUDA programming, memory coalescing occurs when threads
+within a single warp (a group of 32 threads) execute a memory
+instruction that accesses contiguous memory locations in global device
+memory. When threads access data sequentially (e.g., thread <span
+class="math inline">\(0\)</span> accesses index <span
+class="math inline">\(0\)</span>, thread <span
+class="math inline">\(1\)</span> accesses index <span
+class="math inline">\(1\)</span>), the GPU hardware combines these
+multiple operations into a single consolidated memory transaction of 32,
+64, or 128 bytes.</p>
+<p>Conversely, strided or scattered access forces the memory controller
+to execute multiple separate transactions to retrieve data for the same
+warp, drastically reducing effective memory bandwidth and degrading
+performance.</p>
+<h3 id="how-gpujs-handles-data-under-the-hood">How gpu.js Handles Data
+Under the Hood</h3>
+<p>Unlike CUDA, which exposes flat physical memory spaces (global,
+shared, local), gpu.js targets WebGL (and experimentally WebGPU). To run
+computations:</p>
+<ol type="1">
+<li>Input arrays are converted into WebGL floating-point textures.</li>
+<li>The custom JavaScript kernel function is compiled into a GLSL
+fragment shader.</li>
+<li>Compute threads correspond to pixel rendering passes across an
+output texture.</li>
+<li>Output data is read back to the CPU via framebuffer textures using
+operations like <code>gl.readPixels()</code>.</li>
+</ol>
+<p>Because WebGL lacks raw pointer arithmetic and direct control over
+memory transactions, hardware-level coalescing cannot be explicitly
+commanded. However, modern GPUs process fragments (pixels) in clusters
+(often <span class="math inline">\(2 \times 2\)</span> pixel quads or
+warps) and rely heavily on the GPU texture cache (L1/L2) for
+performance.</p>
+<h3 id="applying-coalescing-principles-to-gpujs">Applying Coalescing
+Principles to gpu.js</h3>
+<p>Even without direct access to CUDA warps, the conceptual foundation
+of coalesced access—maximizing contiguous memory access across
+concurrently executing threads—directly applies to gpu.js.</p>
+<h4 id="1-prioritizing-thisthreadx-for-consecutive-array-access">1.
+Prioritizing <code>this.thread.x</code> for Consecutive Array
+Access</h4>
+<p>In gpu.js, <code>this.thread.x</code> represents the innermost loop
+dimension, corresponding to horizontal coordinates. In underlying GPU
+hardware, neighboring threads in a warp or wavefront are mapped along
+the X-axis first.</p>
+<p>To maximize spatial locality:</p>
+<ul>
+<li><strong>Optimal Pattern:</strong> Ensure that index increments
+depend primarily on <code>this.thread.x</code>. When adjacent threads
+evaluate <code>data[this.thread.y][this.thread.x]</code>, they request
+adjacent texels stored consecutively in texture memory.</li>
+<li><strong>Suboptimal Pattern:</strong> Swapping indices to
+<code>data[this.thread.x][this.thread.y]</code> causes adjacent threads
+to jump across full row boundaries, inducing cache thrashing similar to
+uncoalesced memory reads in CUDA.</li>
+</ul>
+<h4 id="2-eliminating-strided-access">2. Eliminating Strided Access</h4>
+<p>Strided access occurs when threads read elements at regular intervals
+greater than one (e.g., index <code>i * 4</code>). In CUDA, this spreads
+requests across multiple cache lines.</p>
+<p>In gpu.js, accessing textures with large strides bypasses the 2D
+texture cache's bilinear and spatial optimizations. Flat 1D data
+flattened into textures should be accessed sequentially by thread index
+rather than through multi-element offsets.</p>
+<h4 id="3-matching-memory-layout-to-access-dimension">3. Matching Memory
+Layout to Access Dimension</h4>
+<p>When processing matrix operations (such as matrix multiplication) in
+gpu.js:</p>
+<ul>
+<li>Transposing the second matrix beforehand allows inner loops to read
+data along contiguous rows rather than jumping down columns.</li>
+<li>This technique mirrors shared memory tiling and coalesced global
+reads used in high-performance CUDA General Matrix Multiply (GEMM)
+kernels.</li>
+</ul>
+<h3 id="architectural-differences-and-limitations">Architectural
+Differences and Limitations</h3>
+<p>While the concept transfers conceptually, key physical differences
+exist:</p>
+<ul>
+<li><strong>2D Texture Caches vs. Linear Cache Lines:</strong> GPUs
+utilize texture cache hierarchies optimized for 2D spatial locality
+(<span class="math inline">\(X\)</span> and <span
+class="math inline">\(Y\)</span> proximity), whereas CUDA global memory
+prioritizes strictly linear 1D coalescing.</li>
+<li><strong>Shared Memory Absence:</strong> WebGL-based gpu.js does not
+expose hardware shared memory (thread-block scratchpad memory).
+Optimization must rely purely on structuring reads to favor hardware
+texture samplers and L1/L2 caches.</li>
+<li><strong>Driver-Level Abstraction:</strong> The browser and the
+graphics driver manage texture format packing and swizzling (such as
+Z-order or Morton curve layouts). As a result, software developers
+cannot guarantee single-cycle bus transactions in the same deterministic
+manner as CUDA.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>Applying memory access coalescing principles to gpu.js is a viable
+and highly effective conceptual strategy. By designing kernel access
+patterns where adjacent threads along the <code>this.thread.x</code>
+axis retrieve contiguous data elements, developers minimize texture
+cache misses and optimize data throughput across all underlying GPU
+architectures.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

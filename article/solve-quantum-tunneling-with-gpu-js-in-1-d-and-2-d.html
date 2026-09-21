@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solve Quantum Tunneling with gpu.js in 1D and 2D - gpu.js</title>
+    <meta name="description" content="Quantum tunneling through arbitrary one-dimensional (1D) and two-dimensional (2D) potential barriers can indeed be numerically solved using gpu.js. By translating the Time-Dependent Schrödinger Equation (TDSE) into discrete numerical schemes such as fin">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/solve-quantum-tunneling-with-gpu-js-in-1-d-and-2-d">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Solve Quantum Tunneling with gpu.js in 1D and 2D - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/solve-quantum-tunneling-with-gpu-js-in-1-d-and-2-d" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Quantum tunneling through arbitrary one-dimensional (1D) and two-dimensional (2D) potential barriers can indeed be numerically solved using gpu.js. By translating the Time-Dependent Schrödinger Equation (TDSE) into discrete numerical schemes such as fin" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="solve-quantum-tunneling-with-gpujs-in-1d-and-2d">Solve Quantum
+Tunneling with gpu.js in 1D and 2D</h1>
+<p>Quantum tunneling through arbitrary one-dimensional (1D) and
+two-dimensional (2D) potential barriers can indeed be numerically solved
+using gpu.js. By translating the Time-Dependent Schrödinger Equation
+(TDSE) into discrete numerical schemes such as finite-difference
+time-domain (FDTD) or split-operator methods, gpu.js accelerates the
+required matrix and stencil computations directly in the browser using
+WebGL shaders. This article explores the mathematical foundations,
+implementation strategy, and practical computational constraints of
+running quantum tunneling simulations on the GPU with gpu.js.</p>
+<h3 id="mathematical-framework">Mathematical Framework</h3>
+<p>Quantum tunneling is governed by the Time-Dependent Schrödinger
+Equation:</p>
+<p><span class="math display">\[i\hbar \frac{\partial \psi(\mathbf{r},
+t)}{\partial t} = \left( -\frac{\hbar^2}{2m}\nabla^2 + V(\mathbf{r})
+\right) \psi(\mathbf{r}, t)\]</span></p>
+<p>To simulate this equation numerically, the complex wavefunction <span
+class="math inline">\(\psi(\mathbf{r}, t)\)</span> is typically split
+into real (<span class="math inline">\(R\)</span>) and imaginary (<span
+class="math inline">\(I\)</span>) components:</p>
+<p><span class="math display">\[\psi(\mathbf{r}, t) = R(\mathbf{r}, t) +
+i I(\mathbf{r}, t)\]</span></p>
+<p>This decomposition results in two coupled real differential
+equations:</p>
+<p><span class="math display">\[\hbar \frac{\partial R}{\partial t} =
+-\frac{\hbar^2}{2m}\nabla^2 I + V(\mathbf{r}) I\]</span> <span
+class="math display">\[\hbar \frac{\partial I}{\partial t} =
+\frac{\hbar^2}{2m}\nabla^2 R - V(\mathbf{r}) R\]</span></p>
+<p>Arbitrary barriers are represented by defining an arbitrary scalar
+potential field <span class="math inline">\(V(\mathbf{r})\)</span> on
+the grid, such as rectangular steps, multiple Gaussian barriers, or
+complex geometric obstacles in 2D space.</p>
+<h3 id="implementing-the-solver-with-gpujs">Implementing the Solver with
+gpu.js</h3>
+<p>gpu.js compiles standard JavaScript functions into GLSL shaders,
+executing parallel operations across millions of grid points
+simultaneously. The simulation loop typically uses a staggered leapfrog
+finite-difference algorithm:</p>
+<ol type="1">
+<li><strong>State Representation:</strong> The domain is discretized
+into a uniform grid. For 1D simulations, this is an array of size <span
+class="math inline">\(N\)</span>; for 2D, a matrix of size <span
+class="math inline">\(N \times M\)</span>. Two textures or 2D arrays
+store the real (<span class="math inline">\(R\)</span>) and imaginary
+(<span class="math inline">\(I\)</span>) components, while a third
+static array stores the arbitrary potential values <span
+class="math inline">\(V\)</span>.</li>
+<li><strong>Stencil Operations:</strong> gpu.js kernels compute the
+Laplacian (<span class="math inline">\(\nabla^2\)</span>) using standard
+central finite-difference stencils:
+<ul>
+<li><strong>1D Laplacian:</strong> <span class="math inline">\(\nabla^2
+\psi_x \approx \frac{\psi_{x+1} - 2\psi_x + \psi_{x-1}}{\Delta
+x^2}\)</span></li>
+<li><strong>2D Laplacian:</strong> <span class="math inline">\(\nabla^2
+\psi_{x,y} \approx \frac{\psi_{x+1,y} + \psi_{x-1,y} + \psi_{x,y+1} +
+\psi_{x,y-1} - 4\psi_{x,y}}{\Delta x^2}\)</span></li>
+</ul></li>
+<li><strong>Alternating Time Updates:</strong> A kernel evaluates the
+update for <span class="math inline">\(R\)</span> using the spatial
+derivative of <span class="math inline">\(I\)</span>, followed by a
+second kernel evaluation updating <span class="math inline">\(I\)</span>
+using the newly calculated <span class="math inline">\(R\)</span>.</li>
+</ol>
+<p>Because gpu.js allows arbitrary JavaScript arrays to be passed as
+inputs, users can generate any arbitrary potential function
+dynamically—such as importing an image mask or drawing custom barriers
+on an HTML canvas—and bind it directly as the potential matrix <span
+class="math inline">\(V(x, y)\)</span>.</p>
+<h3 id="1d-vs-2d-performance-profile">1D vs. 2D Performance Profile</h3>
+<ul>
+<li><strong>1D Simulations:</strong> For 1D systems (typically <span
+class="math inline">\(10^3\)</span> to <span
+class="math inline">\(10^4\)</span> points), CPU-based implementations
+in plain JavaScript or WebAssembly can occasionally match or exceed
+gpu.js due to CPU-to-GPU data transfer overhead. However, gpu.js handles
+these trivially at high frame rates.</li>
+<li><strong>2D Simulations:</strong> For 2D domains (e.g., <span
+class="math inline">\(512 \times 512\)</span> or <span
+class="math inline">\(1024 \times 1024\)</span> nodes), CPU computations
+quickly become too slow for real-time rendering. The high degree of data
+parallelism in evaluating the 2D Laplacian makes gpu.js an ideal tool,
+providing real-time wavepacket scattering and tunneling visualization
+directly in web browsers.</li>
+</ul>
+<h3 id="technical-challenges-and-constraints">Technical Challenges and
+Constraints</h3>
+<p>While gpu.js is capable of solving this system, several numerical
+factors must be managed:</p>
+<ul>
+<li><strong>Floating-Point Precision:</strong> gpu.js primarily operates
+using 32-bit single-precision floating-point numbers
+(<code>float32</code>). While sufficient for qualitative visualization
+and basic quantitative tunneling probabilities, 32-bit precision can
+introduce phase drift and norm non-conservation over extended simulation
+runtimes compared to 64-bit scientific desktop codes.</li>
+<li><strong>Boundary Reflections:</strong> Finite numerical grids suffer
+from unphysical reflections when the wavepacket reaches the boundaries.
+To accurately measure tunneling transmission coefficients without
+boundary artifacts, absorbing boundary conditions (such as a complex
+absorbing potential or perfectly matched layers) must be incorporated
+into the edge regions of the <span
+class="math inline">\(V(\mathbf{r})\)</span> grid.</li>
+<li><strong>Numerical Stability:</strong> The time step <span
+class="math inline">\(\Delta t\)</span> and spatial step <span
+class="math inline">\(\Delta x\)</span> must satisfy the
+Courant-Friedrichs-Lewy (CFL) stability criterion:</li>
+</ul>
+<p><span class="math display">\[\Delta t &lt; \frac{2m}{\hbar} \left(
+\frac{1}{\Delta x^2} + \frac{1}{\Delta y^2} \right)^{-1}\]</span></p>
+<p>Exceeding this threshold results in rapid numerical divergence within
+the gpu.js kernel.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

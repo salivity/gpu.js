@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Runs Compute Shaders in WebGL - gpu.js</title>
+    <meta name="description" content="Standard WebGL lacks native compute shader support, posing a major hurdle for high-performance computing in browser environments. GPU.js overcomes this limitation by repurposing WebGL's standard graphics pipeline for general-purpose computing (GPGPU). By">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-runs-compute-shaders-in-web-gl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Runs Compute Shaders in WebGL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-runs-compute-shaders-in-web-gl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Standard WebGL lacks native compute shader support, posing a major hurdle for high-performance computing in browser environments. GPU.js overcomes this limitation by repurposing WebGL's standard graphics pipeline for general-purpose computing (GPGPU). By" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-runs-compute-shaders-in-webgl">How GPU.js Runs Compute
+Shaders in WebGL</h1>
+<p>Standard WebGL lacks native compute shader support, posing a major
+hurdle for high-performance computing in browser environments. GPU.js
+overcomes this limitation by repurposing WebGL's standard graphics
+pipeline for general-purpose computing (GPGPU). By transpiling
+JavaScript functions into GLSL fragment shaders, encoding numerical data
+into 2D textures, and rendering an off-screen quad, GPU.js effectively
+tricks the graphics hardware into executing parallel data processing
+tasks instead of rendering graphics.</p>
+<h3 id="transpiling-javascript-to-glsl">Transpiling JavaScript to
+GLSL</h3>
+<p>GPU.js begins by converting user-written JavaScript into OpenGL
+Shading Language (GLSL). It parses the JavaScript function using an
+Abstract Syntax Tree (AST) analyzer to evaluate mathematical
+expressions, loops, and variable declarations. Once parsed, the library
+generates equivalent GLSL code targeted specifically at a fragment
+shader. This enables developers to write standard JavaScript code while
+executing native GPU instructions under the hood.</p>
+<h3 id="mapping-data-to-textures">Mapping Data to Textures</h3>
+<p>Because WebGL 1.0 and 2.0 lack arbitrary storage buffers, data must
+enter and exit the GPU disguised as image assets. GPU.js converts
+incoming multi-dimensional numerical arrays into WebGL textures. Each
+data point is encoded into the color channels (Red, Green, Blue, Alpha)
+of a pixel:</p>
+<ul>
+<li><strong>Floating-Point Textures:</strong> On devices supporting the
+<code>OES_texture_float</code> or WebGL 2.0 extensions, numbers are
+stored directly as 32-bit floating-point values within texture
+channels.</li>
+<li><strong>Byte Packing:</strong> If floating-point textures are
+unsupported, GPU.js packs 32-bit floating-point numbers across the four
+8-bit channels (RGBA) of a standard unsigned byte texture, ensuring
+mathematical precision across diverse hardware configurations.</li>
+</ul>
+<h3 id="the-render-pipeline-as-a-compute-grid">The Render Pipeline as a
+Compute Grid</h3>
+<p>To initiate parallel execution, GPU.js sets up an off-screen viewport
+sized to match the dimensions of the output array. It renders a single,
+screen-aligned rectangle composed of two triangles covering the entire
+viewport.</p>
+<p>When the GPU rasterizes these triangles, it triggers the compiled
+fragment shader once for every pixel. The pixel's coordinates <span
+class="math inline">\((x, y)\)</span> correlate directly with the matrix
+coordinates <span class="math inline">\((i, j)\)</span> of the target
+calculation. The fragment shader samples values from the input data
+textures using these coordinates, executes the mathematical logic, and
+outputs the calculated result as the pixel's color.</p>
+<h3 id="reading-back-results-and-pipeline-chaining">Reading Back Results
+and Pipeline Chaining</h3>
+<p>The output color values are directed to an off-screen Framebuffer
+Object (FBO) rather than the visible canvas. To return the data to
+JavaScript, GPU.js reads the pixel values from the FBO back into CPU
+memory using <code>gl.readPixels()</code>, automatically unpacking the
+byte channels back into native JavaScript arrays or typed arrays.</p>
+<p>To prevent performance penalties caused by transferring data between
+the CPU and GPU, GPU.js also allows output textures to remain stored in
+GPU memory. The result of one calculation can be immediately passed as
+an input texture to a subsequent kernel, mimicking the execution
+pipeline of native compute shaders while remaining fully compatible with
+older WebGL standards.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

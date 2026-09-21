@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Break and Continue in Nested Loops - gpu.js</title>
+    <meta name="description" content="This article examines how the gpu.js compiler translates JavaScript break and continue statements within nested loop architectures into OpenGL Shading Language (GLSL). It explains the underlying abstract syntax tree (AST) transpilation, scoping rules, th">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-break-and-continue-in-nested-loops">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Break and Continue in Nested Loops - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-break-and-continue-in-nested-loops" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the gpu.js compiler translates JavaScript break and continue statements within nested loop architectures into OpenGL Shading Language (GLSL). It explains the underlying abstract syntax tree (AST) transpilation, scoping rules, th" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-break-and-continue-in-nested-loops">How GPU.js
+Handles Break and Continue in Nested Loops</h1>
+<p>This article examines how the gpu.js compiler translates JavaScript
+<code>break</code> and <code>continue</code> statements within nested
+loop architectures into OpenGL Shading Language (GLSL). It explains the
+underlying abstract syntax tree (AST) transpilation, scoping rules, the
+absence of labeled statement support, and the performance implications
+of hardware branch divergence in WebGL environments.</p>
+<h3 id="ast-translation-to-glsl">AST Translation to GLSL</h3>
+<p>gpu.js operates by parsing JavaScript kernel functions into an
+Abstract Syntax Tree (AST) and transpiling those nodes into GLSL shader
+code. When encountering loop architectures, the transpiler processes
+<code>ForStatement</code> or <code>WhileStatement</code> nodes and
+recursively translates their bodies.</p>
+<p>When <code>break</code> (<code>BreakStatement</code>) or
+<code>continue</code> (<code>ContinueStatement</code>) appear within a
+loop body, gpu.js maps them directly to native GLSL equivalents:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// JavaScript input inside a loop</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> <span class="op">(</span>condition<span class="op">)</span> <span class="kw">break</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> <span class="op">(</span>otherCondition<span class="op">)</span> <span class="kw">continue</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Resulting GLSL output</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> <span class="op">(</span>condition<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">break</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> <span class="op">(</span>otherCondition<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">continue</span><span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>Because modern WebGL2 contexts (and WebGL1 with standard loop
+extensions) support dynamic loop control, GLSL natively recognizes
+<code>break</code> and <code>continue</code> keywords with syntax and
+behavior analogous to C and JavaScript.</p>
+<h3 id="scoping-and-nesting-semantics">Scoping and Nesting
+Semantics</h3>
+<p>In nested loop structures, gpu.js preserves standard JavaScript
+scoping semantics:</p>
+<ul>
+<li><strong><code>break</code></strong>: Immediately exits the innermost
+enclosing loop context. Execution resumes at the statement immediately
+following that specific inner loop. The outer loop continues its
+remaining iterations unaffected.</li>
+<li><strong><code>continue</code></strong>: Skips the remaining
+instructions in the body of the innermost enclosing loop and jumps
+directly to that inner loop’s increment/update expression and condition
+check.</li>
+</ul>
+<p>Because GLSL handles inner-loop control natively, the generated code
+maintains strictly local scoping:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// GPU.js Kernel</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (j <span class="op">&gt;</span> <span class="dv">5</span>) <span class="cf">break</span><span class="op">;</span> <span class="co">// Exits only the &#39;j&#39; loop</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (j <span class="op">%</span> <span class="dv">2</span> <span class="op">===</span> <span class="dv">0</span>) <span class="cf">continue</span><span class="op">;</span> <span class="co">// Skips only the current &#39;j&#39; iteration</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Execution continues here for each iteration of &#39;i&#39;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="the-limitation-on-labeled-statements">The Limitation on Labeled
+Statements</h3>
+<p>JavaScript supports labeled loops, allowing a program to break out of
+an outer loop from within an inner loop using a statement like
+<code>break outerLoop;</code>.</p>
+<p>GLSL does not support goto statements or labeled breaks.
+Consequently, gpu.js cannot transpile labeled <code>break</code> or
+<code>continue</code> statements across nested hierarchies. If a kernel
+attempts to break out of multiple loop depths using labels, gpu.js will
+fail during the transpilation phase or generate invalid shader code.
+Developers must emulate multi-level exits using state flags evaluated
+within each respective loop level.</p>
+<h3 id="hardware-execution-and-warp-divergence">Hardware Execution and
+Warp Divergence</h3>
+<p>While gpu.js correctly transpiles the logic into GLSL, the physical
+GPU architecture executes loops differently than a CPU. GPUs process
+threads concurrently in lockstep groups (known as warps or wavefronts)
+using Single Instruction, Multiple Threads (SIMT).</p>
+<p>When threads within the same warp execute a nested loop containing
+conditional <code>break</code> or <code>continue</code> statements:</p>
+<ol type="1">
+<li><strong>Thread Masking:</strong> If Thread A hits a
+<code>break</code> in the inner loop at iteration 2, but Thread B within
+the same warp continues until iteration 8, the hardware masks Thread A
+off. Thread A remains idle while Thread B finishes.</li>
+<li><strong>Performance Cost:</strong> The warp as a whole must execute
+every iteration required by the slowest thread. A nested loop does not
+yield performance gains from early termination unless <em>all</em>
+threads in the active warp encounter the exit condition
+simultaneously.</li>
+</ol>
+<p>gpu.js strictly maps inner loop control statements to native shader
+instructions, ensuring correct program logic at the software level while
+relying on GPU hardware masking to resolve divergent execution paths
+across nested levels.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

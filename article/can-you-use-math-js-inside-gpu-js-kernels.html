@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Can You Use Math.js Inside GPU.js Kernels? - gpu.js</title>
+    <meta name="description" content="This article explores whether external JavaScript math libraries, such as Math.js, can be executed directly inside a GPU.js kernel. It explains the architectural limitations of running third-party JavaScript libraries on the GPU, why standard CPU-bound c">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/can-you-use-math-js-inside-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Can You Use Math.js Inside GPU.js Kernels? - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/can-you-use-math-js-inside-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores whether external JavaScript math libraries, such as Math.js, can be executed directly inside a GPU.js kernel. It explains the architectural limitations of running third-party JavaScript libraries on the GPU, why standard CPU-bound c" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="can-you-use-mathjs-inside-gpujs-kernels">Can You Use Math.js
+Inside GPU.js Kernels?</h1>
+<p>This article explores whether external JavaScript math libraries,
+such as Math.js, can be executed directly inside a GPU.js kernel. It
+explains the architectural limitations of running third-party JavaScript
+libraries on the GPU, why standard CPU-bound code fails within shader
+environments, and the alternative approaches available for performing
+advanced mathematical computations using GPU.js.</p>
+<p>The short answer is no. You cannot call external JavaScript libraries
+like Math.js inside a GPU.js kernel function.</p>
+<p>To understand why, it is essential to look at how GPU.js operates.
+GPU.js works by taking a JavaScript function, parsing its Abstract
+Syntax Tree (AST), and transpiling that code into WebGL shader language
+(GLSL) or WebGPU code. This transpiled program runs directly on your
+graphics hardware.</p>
+<p>Because the code is converted into low-level shader instructions, the
+kernel does not execute within the standard JavaScript engine (like V8
+in Chrome or Node.js). It has no access to the Document Object Model
+(DOM), the standard window context, the Node.js runtime, or the CPU heap
+memory where external libraries reside. When GPU.js encounters external
+function calls or complex JavaScript objects—such as those provided by
+Math.js—it cannot translate them into valid GLSL, resulting in
+compilation errors.</p>
+<p>GPU.js only supports a strict subset of JavaScript syntax. It
+supports basic primitive operations, loops, conditional statements, and
+a predefined selection of JavaScript's native <code>Math</code> methods
+that map cleanly to native GLSL functions. These supported methods
+include standard functions such as <code>Math.sin()</code>,
+<code>Math.cos()</code>, <code>Math.sqrt()</code>,
+<code>Math.floor()</code>, and <code>Math.pow()</code>.</p>
+<p>If your project requires advanced mathematical calculations, you can
+use the following alternatives:</p>
+<h3 id="1-precompute-on-the-cpu">1. Precompute on the CPU</h3>
+<p>Perform complex algebraic parsing, symbolic math, or data
+restructuring on the CPU using Math.js before invoking the GPU kernel.
+Once the data is processed into flat arrays or typed arrays, pass those
+values into the GPU.js kernel as arguments or input textures.</p>
+<h3 id="2-use-gpuaddfunction">2. Use <code>gpu.addFunction()</code></h3>
+<p>If you need custom mathematical functions that are not built into
+standard JavaScript, you can write pure functions using the supported
+GPU.js subset and register them using <code>gpu.addFunction()</code>.
+These custom functions are transpiled alongside the kernel and can be
+called directly inside the computation pipeline.</p>
+<h3 id="3-recreate-formulas-manually">3. Recreate Formulas Manually</h3>
+<p>Translate complex mathematical logic into pure arithmetic and native
+<code>Math</code> functions directly within your kernel code. While this
+requires manual implementation of algorithms provided out-of-the-box by
+libraries like Math.js, it ensures full compatibility with the GPU
+compilation process.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

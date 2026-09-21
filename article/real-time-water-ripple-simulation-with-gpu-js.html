@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Water Ripple Simulation with GPU.js - gpu.js</title>
+    <meta name="description" content="Water ripple dissipation models on two-dimensional heightfield grids can be simulated in real time using gpu.js. By compiling JavaScript functions into WebGL shaders, gpu.js offloads the intensive per-cell calculations of a 2D wave equation to the graphi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/real-time-water-ripple-simulation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Real-Time Water Ripple Simulation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/real-time-water-ripple-simulation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Water ripple dissipation models on two-dimensional heightfield grids can be simulated in real time using gpu.js. By compiling JavaScript functions into WebGL shaders, gpu.js offloads the intensive per-cell calculations of a 2D wave equation to the graphi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="real-time-water-ripple-simulation-with-gpujs">Real-Time Water
+Ripple Simulation with GPU.js</h1>
+<p>Water ripple dissipation models on two-dimensional heightfield grids
+can be simulated in real time using gpu.js. By compiling JavaScript
+functions into WebGL shaders, gpu.js offloads the intensive per-cell
+calculations of a 2D wave equation to the graphics processor. This
+article examines how the underlying wave dissipation physics operate on
+a discrete grid, why the parallel architecture of gpu.js makes real-time
+framerates achievable, and the key technical considerations required for
+an efficient implementation.</p>
+<h3 id="the-physics-of-2d-heightfield-ripple-dissipation">The Physics of
+2D Heightfield Ripple Dissipation</h3>
+<p>A 2D heightfield represents water as an array of discrete vertical
+displacement points on an <span class="math inline">\(X \times
+Y\)</span> grid. The propagation and dissipation of surface ripples can
+be modeled using a discretized version of the 2D wave equation combined
+with a damping coefficient.</p>
+<p>In this model, the state of any grid cell at the next time step
+(<span class="math inline">\(h_{x,y}^{t+1}\)</span>) depends on its
+current height, its previous height, and the average height of its
+immediate orthogonal neighbors (North, South, East, West):</p>
+<p><span class="math display">\[h_{x,y}^{t+1} = \left( \frac{h_{x-1,y}^t
++ h_{x+1,y}^t + h_{x,y-1}^t + h_{x,y+1}^t}{2} - h_{x,y}^{t-1} \right)
+\times d\]</span></p>
+<p>The variable <span class="math inline">\(d\)</span> represents the
+dissipation or damping factor (typically a scalar such as 0.96 to 0.99).
+Values below 1.0 ensure that energy is lost over time, causing ripples
+to naturally attenuate and flatten out rather than oscillating
+indefinitely.</p>
+<h3 id="why-gpujs-enables-real-time-performance">Why GPU.js Enables
+Real-Time Performance</h3>
+<p>Simulating this process on a CPU requires iterating through nested
+loops over every cell in the grid for each animation frame. While a
+<span class="math inline">\(128 \times 128\)</span> grid (16,384 cells)
+may run adequately on modern CPUs, scaling to higher resolutions like
+<span class="math inline">\(512 \times 512\)</span> (262,144 cells) or
+<span class="math inline">\(1024 \times 1024\)</span> (over 1,000,000
+cells) introduces severe framerate drops due to thread execution limits
+and cache constraints.</p>
+<p>Heightfield wave propagation is an embarrassingly parallel problem.
+Because the calculation for cell <span class="math inline">\((x,
+y)\)</span> relies exclusively on data from the preceding time step,
+every cell can be computed simultaneously.</p>
+<p>GPU.js leverages this characteristic by transpiring standard
+JavaScript kernel functions into WebGL fragment shaders. Each grid cell
+maps to an execution thread running concurrently on the GPU's streaming
+multiprocessors. This allows modern integrated and dedicated graphics
+cards to compute millions of cell updates well within the
+16.6-millisecond budget required for a stable 60 frames per second
+(FPS).</p>
+<h3 id="implementation-considerations">Implementation
+Considerations</h3>
+<p>To achieve real-time execution in gpu.js, three architectural details
+are critical:</p>
+<ol type="1">
+<li><strong>State Buffering (Ping-Pong Technique):</strong> Calculating
+wave motion requires tracking at least two previous states (time <span
+class="math inline">\(t\)</span> and time <span
+class="math inline">\(t-1\)</span>). Because shaders cannot safely read
+from and write to the same memory buffer simultaneously, you must
+alternate between two or three textures—reading from previous states and
+rendering into the next.</li>
+<li><strong>Pipeline Mode:</strong> Standard gpu.js operations transfer
+computed data back to the CPU as typed arrays via
+<code>readPixels</code>, which introduces a severe performance
+bottleneck. Enabling pipeline mode (<code>pipeline: true</code>) keeps
+the output directly on the GPU as a WebGL texture, allowing consecutive
+simulation steps to execute without memory transfer overhead between the
+GPU and CPU.</li>
+<li><strong>Boundary Conditions:</strong> The kernel must account for
+grid edges. Clamping edge indices or setting fixed Dirichlet boundaries
+(<span class="math inline">\(h=0\)</span>) prevents out-of-bounds memory
+lookups and manages wave reflection behaviors when ripples strike the
+perimeter of the heightfield.</li>
+</ol>
+<p>Through pipeline mode and parallel shader execution, gpu.js provides
+more than enough throughput to execute 2D heightfield wave propagation
+and dissipation models in real time for interactive applications, games,
+and web-based physics visualizations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

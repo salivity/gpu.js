@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How Texture Clamping Works in GPU.js - gpu.js</title>
+    <meta name="description" content="Texture clamping in GPU.js defines how kernels handle out-of-bounds coordinate access when sampling data from input arrays, textures, or image buffers. Because GPU.js translates JavaScript functions into WebGL shaders, it relies on underlying WebGL textu">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-texture-clamping-works-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How Texture Clamping Works in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-texture-clamping-works-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Texture clamping in GPU.js defines how kernels handle out-of-bounds coordinate access when sampling data from input arrays, textures, or image buffers. Because GPU.js translates JavaScript functions into WebGL shaders, it relies on underlying WebGL textu" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-texture-clamping-works-in-gpujs">How Texture Clamping Works
+in GPU.js</h1>
+<p>Texture clamping in GPU.js defines how kernels handle out-of-bounds
+coordinate access when sampling data from input arrays, textures, or
+image buffers. Because GPU.js translates JavaScript functions into WebGL
+shaders, it relies on underlying WebGL texture wrapping mechanisms to
+resolve coordinates that fall outside the defined dimensions. This
+process prevents rendering artifacts, ensures numerical stability in
+multi-pass computations, and guarantees that edge values are predictably
+handled rather than returning undefined memory.</p>
+<h3 id="the-underlying-webgl-mechanism">The Underlying WebGL
+Mechanism</h3>
+<p>When GPU.js uploads data—such as a 2D matrix or an HTML canvas—to the
+GPU, it stores that data in a WebGL texture. In WebGL, sampling behavior
+outside the standard coordinate range <span class="math inline">\([0,
+1]\)</span> is dictated by texture wrapping parameters
+(<code>gl.TEXTURE_WRAP_S</code> and <code>gl.TEXTURE_WRAP_T</code>).</p>
+<p>GPU.js predominantly configures textures using
+<code>gl.CLAMP_TO_EDGE</code>. Under this mode:</p>
+<ul>
+<li>Any coordinate less than <code>0.0</code> is clamped to
+<code>0.0</code>.</li>
+<li>Any coordinate greater than <code>1.0</code> is clamped to
+<code>1.0</code>.</li>
+<li>The sampler evaluates the texel at the nearest valid boundary edge
+rather than repeating the pattern (<code>gl.REPEAT</code>) or mirroring
+it (<code>gl.MIRRORED_REPEAT</code>).</li>
+</ul>
+<p>This configuration is standard in WebGL because non-power-of-two
+(NPOT) textures strictly require <code>CLAMP_TO_EDGE</code> unless
+specific WebGL 2.0 or extension capabilities are explicitly handled.</p>
+<h3 id="kernel-sampling-and-thread-indices">Kernel Sampling and Thread
+Indices</h3>
+<p>In GPU.js, kernel operations are driven by the thread hierarchy
+(<code>this.thread.x</code>, <code>this.thread.y</code>,
+<code>this.thread.z</code>). When a kernel samples from an input texture
+using array-like syntax (e.g., <code>inputMatrix[y][x]</code>), GPU.js
+translates these integer thread indices into normalized texture
+coordinates inside the generated GLSL fragment shader.</p>
+<p>If an algorithm accesses coordinates relative to the current
+thread—such as in a convolution filter or neighbor-sampling operation
+(<code>inputMatrix[this.thread.y + offset][this.thread.x + offset]</code>):</p>
+<ol type="1">
+<li><strong>Boundary Adherence:</strong> When the computed index falls
+below zero or exceeds the matrix bounds, the normalized coordinates pass
+outside the <span class="math inline">\([0, 1]\)</span> interval.</li>
+<li><strong>Value Duplication:</strong> Due to
+<code>CLAMP_TO_EDGE</code>, the shader reads the outermost row or column
+values repeatedly for any coordinate extending past the perimeter.</li>
+<li><strong>No Out-of-Bounds Exceptions:</strong> WebGL shaders do not
+throw index-out-of-bounds runtime exceptions. Instead, the hardware
+mathematically forces the lookup index to remain inside valid texture
+memory.</li>
+</ol>
+<h3 id="implications-for-computational-kernels">Implications for
+Computational Kernels</h3>
+<p>Understanding texture clamping is critical when writing algorithms
+sensitive to boundary conditions:</p>
+<ul>
+<li><strong>Image Processing:</strong> In operations such as Gaussian
+blur, edge detection (Sobel filtering), or sharpening, edge clamping
+duplicates the boundary pixels. While this avoids black borders (which
+occur when missing pixels default to zero), it can slightly amplify
+border intensity or skew gradient calculations at the perimeter.</li>
+<li><strong>Cellular Automata and Simulations:</strong> Simulations that
+require toroidal wrapping (where the left edge connects to the right
+edge) will not work automatically with default clamping. Developers must
+explicitly implement modular arithmetic inside the kernel (e.g.,
+<code>(this.thread.x + offset) % width</code>) to wrap indices
+manually.</li>
+<li><strong>Sub-Pixel Interpolation:</strong> When using texture
+arguments with linear filtering enabled, clamping acts on the outermost
+center of the boundary texels, blending the edge colors smoothly up to
+the absolute border.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelize Microarray Normalization with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to accelerate microarray fluorescence intensity normalization in JavaScript by offloading matrix calculations to the GPU using GPU.js. Microarray datasets often contain tens to hundreds of thousands of probes across multiple dye">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelize-microarray-normalization-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelize Microarray Normalization with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelize-microarray-normalization-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to accelerate microarray fluorescence intensity normalization in JavaScript by offloading matrix calculations to the GPU using GPU.js. Microarray datasets often contain tens to hundreds of thousands of probes across multiple dye" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelize-microarray-normalization-with-gpujs">Parallelize
+Microarray Normalization with GPU.js</h1>
+<p>This article explains how to accelerate microarray fluorescence
+intensity normalization in JavaScript by offloading matrix calculations
+to the GPU using GPU.js. Microarray datasets often contain tens to
+hundreds of thousands of probes across multiple dye channels, causing
+traditional CPU-bound normalization routines to bottleneck client-side
+and Node.js applications. By transforming intensity arrays into
+parallelized GPU compute kernels, researchers and developers can achieve
+significant speedups for common normalization techniques such as median
+scaling, background correction, and cyclic loess or linear fitting.</p>
+<h3 id="understanding-microarray-intensity-normalization">Understanding
+Microarray Intensity Normalization</h3>
+<p>In dual-channel (e.g., Cy3/Cy5) or multi-chip microarrays, variations
+in dye incorporation, laser power, and hybridization efficiency
+introduce systematic biases. Normalization adjusts raw fluorescence
+values to allow valid biological comparisons.</p>
+<p>A standard global normalization pipeline includes:</p>
+<ol type="1">
+<li><strong>Background Subtraction:</strong> Subtracting local or
+morphological background noise from foreground intensity signals.</li>
+<li><strong>Log2 Transformation:</strong> Converting intensities to a
+logarithmic scale (<span class="math inline">\(log_2(R/G)\)</span>) to
+stabilize variance.</li>
+<li><strong>Scale Normalization:</strong> Aligning channel distributions
+using a global scaling factor, such as the median or mean intensity
+across all probes.</li>
+</ol>
+<p>Because operations like background subtraction and scaling apply the
+exact same mathematical formula independently to every probe, the task
+is embarrassingly parallel and ideal for graphics processors.</p>
+<h3 id="setting-up-gpujs">Setting Up GPU.js</h3>
+<p>GPU.js is a JavaScript acceleration library that compiles simple
+JavaScript functions into GLSL (OpenGL Shading Language) and executes
+them on the GPU via WebGL or headless contexts.</p>
+<p>Install the package via npm:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>Or import it directly into a browser application:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdn.jsdelivr.net/npm/gpu.js@latest/dist/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<h3 id="implementing-parallel-normalization">Implementing Parallel
+Normalization</h3>
+<p>To normalize intensities across arrays, the GPU kernel can process a
+2D matrix where rows represent individual probes and columns represent
+distinct microarray channels (e.g., Column 0 for Cy3, Column 1 for
+Cy5).</p>
+<p>The following implementation demonstrates background subtraction,
+offset correction, and global median-factor scaling:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to subtract background and apply scaling factors</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> normalizeIntensities <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(foreground<span class="op">,</span> background<span class="op">,</span> scaleFactors<span class="op">,</span> offset) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> probeIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> channelIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Retrieve raw foreground and background values</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fg <span class="op">=</span> foreground[probeIndex][channelIndex]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bg <span class="op">=</span> background[probeIndex][channelIndex]<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Background correction with floor threshold to avoid negative values</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> corrected <span class="op">=</span> fg <span class="op">-</span> bg<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (corrected <span class="op">&lt;</span> <span class="fl">1.0</span>) {</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        corrected <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply channel-specific scaling factor and offset</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> scaled <span class="op">=</span> (corrected <span class="op">+</span> offset) <span class="op">*</span> scaleFactors[channelIndex]<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Return log2-transformed intensity</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log2</span>(scaled)<span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">2</span><span class="op">,</span> <span class="dv">100000</span>])<span class="op">;</span> <span class="co">// Dimensions: [channels, totalProbes]</span></span></code></pre></div>
+<h3 id="executing-the-pipeline">Executing the Pipeline</h3>
+<p>Before executing the kernel, calculate channel-wide summary metrics
+(such as the mean or median) on the CPU, as global reductions across
+irregular datasets are lightweight compared to per-probe
+adjustments:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Example dataset: 100,000 probes across 2 channels</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> totalProbes <span class="op">=</span> <span class="dv">100000</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> foregroundData <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> backgroundData <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> totalProbes<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    foregroundData<span class="op">.</span><span class="fu">push</span>([<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">5000</span> <span class="op">+</span> <span class="dv">500</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">5000</span> <span class="op">+</span> <span class="dv">500</span>])<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    backgroundData<span class="op">.</span><span class="fu">push</span>([<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">50</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">50</span>])<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a><span class="co">// Compute scale factors (e.g., balancing total intensity between Channel 0 and 1)</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> scaleFactors <span class="op">=</span> [<span class="fl">1.0</span><span class="op">,</span> <span class="fl">1.05</span>]<span class="op">;</span> </span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> offset <span class="op">=</span> <span class="fl">10.0</span><span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="co">// Execute the kernel</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> normalizedMatrix <span class="op">=</span> <span class="fu">normalizeIntensities</span>(</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    foregroundData<span class="op">,</span> </span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    backgroundData<span class="op">,</span> </span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    scaleFactors<span class="op">,</span> </span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    offset</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(normalizedMatrix[<span class="dv">0</span>])<span class="op">;</span> <span class="co">// Returns [channel0_norm, channel1_norm] for probe 0</span></span></code></pre></div>
+<h3 id="performance-optimization-guidelines">Performance Optimization
+Guidelines</h3>
+<ul>
+<li><strong>Manage Float Precision:</strong> GPU.js defaults to 32-bit
+floats. Ensure that precision degradation is acceptable for your dynamic
+range; standard microarray intensities comfortably fit within 32-bit
+floating-point limits.</li>
+<li><strong>Minimize Data Transfers:</strong> Transferring large arrays
+across the PCI-e bus between system RAM and GPU memory creates latency.
+If you perform downstream calculations (such as computing dye ratios or
+variance thresholds), chain kernels together using
+<code>pipeline: true</code> on the kernel configuration to keep data in
+GPU memory.</li>
+<li><strong>Pre-allocate Typed Arrays:</strong> Use
+<code>Float32Array</code> buffers instead of standard JavaScript arrays
+when feeding raw signal inputs to reduce memory serialization
+overhead.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

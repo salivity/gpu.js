@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Array Methods Like Map Do Not Work in GPU.js - gpu.js</title>
+    <meta name="description" content="GPU.js allows developers to accelerate computational tasks by translating JavaScript functions into WebGL shader code to run massively parallel operations on the GPU. However, standard JavaScript methods like Array.prototype.map, filter, and reduce throw">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-array-methods-like-map-do-not-work-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why Array Methods Like Map Do Not Work in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-array-methods-like-map-do-not-work-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js allows developers to accelerate computational tasks by translating JavaScript functions into WebGL shader code to run massively parallel operations on the GPU. However, standard JavaScript methods like Array.prototype.map, filter, and reduce throw" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-array-methods-like-map-do-not-work-in-gpujs">Why Array
+Methods Like Map Do Not Work in GPU.js</h1>
+<p>GPU.js allows developers to accelerate computational tasks by
+translating JavaScript functions into WebGL shader code to run massively
+parallel operations on the GPU. However, standard JavaScript methods
+like <code>Array.prototype.map</code>, <code>filter</code>, and
+<code>reduce</code> throw errors when called inside a GPU.js kernel.
+This limitation occurs because the GPU execution environment is not a
+JavaScript engine; instead, GPU.js transpiles a strictly limited subset
+of JavaScript into native shading languages like GLSL (OpenGL Shading
+Language), where dynamic prototypes and higher-order functions do not
+exist.</p>
+<h3 id="compilation-replaces-javascript-execution">Compilation Replaces
+JavaScript Execution</h3>
+<p>When you define a kernel in GPU.js, the library does not pass your
+function to a JavaScript runtime like Google V8 or SpiderMonkey.
+Instead, it reads the JavaScript function's Abstract Syntax Tree (AST)
+and parses the syntax directly into GLSL source code.</p>
+<p>Because the code ultimately executes on the graphics card hardware
+via WebGL, there is no underlying JavaScript Virtual Machine, dynamic
+runtime, or prototype chain present during execution. Built-in
+prototypes, including <code>Array.prototype</code>, belong to the
+ECMAScript host environment and simply do not exist within compiled GPU
+shaders.</p>
+<h3 id="shaders-require-static-types-and-fixed-memory">Shaders Require
+Static Types and Fixed Memory</h3>
+<p>Standard array prototype methods rely heavily on dynamic behaviors
+native to JavaScript:</p>
+<ul>
+<li><strong>Dynamic Memory Allocation:</strong> Methods like
+<code>.map()</code> dynamically allocate memory for a new array on the
+heap and adjust size as items are returned. GPUs, by contrast, require
+predetermined memory buffers. They cannot dynamically allocate arbitrary
+memory addresses during shader execution.</li>
+<li><strong>Garbage Collection:</strong> JavaScript relies on automatic
+memory management and garbage collection. GPU hardware does not support
+runtime garbage collection.</li>
+<li><strong>Higher-Order Functions:</strong> Methods like
+<code>.map()</code> accept callback functions. GLSL does not support
+function pointers, closures, or passing functions as arguments.</li>
+</ul>
+<h3 id="the-simdsimt-architecture-mismatch">The SIMD/SIMT Architecture
+Mismatch</h3>
+<p>The functional design of <code>Array.prototype.map()</code> conflicts
+directly with how GPU hardware processes data. Standard JavaScript maps
+iterate through array elements sequentially on a single thread (or
+iteratively via background threads).</p>
+<p>GPUs operate under a Single Instruction, Multiple Threads (SIMT)
+architecture. Instead of taking an existing array and iterating over it
+to produce a new structure, a GPU.js kernel executes thousands of
+instances of your function concurrently. Each concurrent thread
+calculates the output for a single cell based on its coordinates,
+accessible via <code>this.thread.x</code>, <code>this.thread.y</code>,
+and <code>this.thread.z</code>.</p>
+<h3 id="the-alternative-approach-in-gpujs">The Alternative Approach in
+GPU.js</h3>
+<p>To perform transformations that would typically use
+<code>Array.prototype.map</code>, developers must rely on the
+thread-based indexing model native to GPU programming:</p>
+<ul>
+<li><strong>Output Dimensions:</strong> Define the kernel's output shape
+using the <code>.setOutput([width, height])</code> configuration.</li>
+<li><strong>Index Mapping:</strong> Read directly from input buffers
+using array indexing based on thread position (e.g.,
+<code>inputArray[this.thread.x]</code>).</li>
+<li><strong>Deterministic Control Flow:</strong> Use standard,
+fixed-bound <code>for</code> loops and basic arithmetic supported by the
+GPU.js syntax subset rather than declarative functional iterations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

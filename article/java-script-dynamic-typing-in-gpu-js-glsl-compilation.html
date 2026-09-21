@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JavaScript Dynamic Typing in gpu.js GLSL Compilation - gpu.js</title>
+    <meta name="description" content="gpu.js allows developers to accelerate standard JavaScript code by compiling it on the fly into OpenGL Shading Language (GLSL) to execute directly on the GPU. However, translating a dynamically and loosely typed language like JavaScript into a strictly,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/java-script-dynamic-typing-in-gpu-js-glsl-compilation">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="JavaScript Dynamic Typing in gpu.js GLSL Compilation - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/java-script-dynamic-typing-in-gpu-js-glsl-compilation" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="gpu.js allows developers to accelerate standard JavaScript code by compiling it on the fly into OpenGL Shading Language (GLSL) to execute directly on the GPU. However, translating a dynamically and loosely typed language like JavaScript into a strictly," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="javascript-dynamic-typing-in-gpujs-glsl-compilation">JavaScript
+Dynamic Typing in gpu.js GLSL Compilation</h1>
+<p>gpu.js allows developers to accelerate standard JavaScript code by
+compiling it on the fly into OpenGL Shading Language (GLSL) to execute
+directly on the GPU. However, translating a dynamically and loosely
+typed language like JavaScript into a strictly, statically typed
+language like GLSL introduces significant friction during the
+compilation stage. This article explores how JavaScript's dynamic typing
+affects Abstract Syntax Tree (AST) parsing, forces runtime type
+inference, restricts variable mutability, and shapes the overall
+performance of GPU-accelerated web applications.</p>
+<h3 id="the-typing-mismatch-between-js-and-glsl">The Typing Mismatch
+Between JS and GLSL</h3>
+<p>GLSL requires every variable, function parameter, and return value to
+possess a definitive static type (such as <code>int</code>,
+<code>float</code>, <code>vec2</code>, <code>vec4</code>, or
+<code>sampler2D</code>) at compile time. In contrast, JavaScript
+variables declared with <code>let</code> or <code>var</code> can hold
+any data type and can mutate between primitives, arrays, or objects at
+runtime.</p>
+<p>Because WebGL shaders cannot be compiled without explicit type
+definitions, gpu.js cannot perform ahead-of-time (AOT) compilation.
+Instead, it must construct an intermediate compilation pipeline that
+runs just-in-time (JIT) in the browser, deferring GLSL generation until
+kernel invocation.</p>
+<h3 id="runtime-type-inference-and-deferred-compilation">Runtime Type
+Inference and Deferred Compilation</h3>
+<p>When a kernel is defined in gpu.js, the library parses the JavaScript
+function into an Abstract Syntax Tree (AST). It inspects the structure
+of the code, but it cannot finalize the GLSL code until the kernel is
+called with actual data.</p>
+<p>Dynamic typing impacts this process in several distinct ways:</p>
+<ul>
+<li><strong>Argument Inspection:</strong> gpu.js infers argument types
+by inspecting the first set of values passed to the kernel. If a
+function accepts a parameter <code>x</code>, and the caller passes
+<code>1.5</code>, gpu.js types it as a <code>float</code>. If the caller
+passes <code>1</code>, it may type it as an <code>int</code>.</li>
+<li><strong>Compilation Latency:</strong> The initial execution of a
+kernel incurs a measurable delay. The JavaScript engine must parse the
+AST, deduce types based on runtime arguments, generate the GLSL string,
+send it to the GPU driver via WebGL, and wait for the GPU driver to
+compile the shader program.</li>
+<li><strong>Kernel Recompilation Overhead:</strong> If the types of
+input arguments change on subsequent calls (for example, passing an
+integer in one frame and a float in the next), gpu.js must invalidate
+the compiled WebGL program, re-infer types, regenerate the GLSL string,
+and recompile the shader.</li>
+</ul>
+<h3 id="restrictions-on-variable-type-mutability">Restrictions on
+Variable Type Mutability</h3>
+<p>In standard JavaScript, reassigning a variable to a different type is
+valid syntax:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> value <span class="op">=</span> <span class="dv">10</span><span class="op">;</span>     <span class="co">// integer</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>value <span class="op">=</span> <span class="fl">10.5</span><span class="op">;</span>       <span class="co">// converted to float</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>value <span class="op">=</span> [<span class="dv">1</span><span class="op">,</span> <span class="dv">2</span><span class="op">,</span> <span class="dv">3</span>]<span class="op">;</span>  <span class="co">// converted to array</span></span></code></pre></div>
+<p>Within a gpu.js kernel, this pattern breaks GLSL generation. GLSL
+forbids variable shadowing with different types and variable type
+mutation within the same scope.</p>
+<p>During AST traversal, gpu.js attempts to infer variable types from
+initial assignments. If an inner variable changes its type downstream,
+the compilation pipeline fails, producing syntax errors during the WebGL
+shader compilation step or throwing a JavaScript exception prior to
+submission. As a consequence, dynamic type reassignment inside kernels
+is strictly unsupported.</p>
+<h3 id="math-ambiguity-and-implicit-conversions">Math Ambiguity and
+Implicit Conversions</h3>
+<p>GLSL does not perform implicit type coercion between integers and
+floating-point numbers. An expression like
+<code>float a = 1.0 + 2;</code> causes a compilation error in strict
+GLSL environments because the operands are not identical types.</p>
+<p>JavaScript natively handles all numbers as double-precision
+floating-point values (IEEE 754) unless typed arrays or bitwise
+operators are involved. During the GLSL transpilation step, gpu.js must
+analyze literal values and operators to decide whether to inject
+explicit casts:</p>
+<ul>
+<li>Literals like <code>1</code> might need to be rewritten to
+<code>1.0</code> if assigned to or operated alongside floats.</li>
+<li>Mixed arithmetic requires the AST parser to evaluate the types of
+both operands and insert functions like <code>float(...)</code> or
+<code>int(...)</code> to generate valid GLSL.</li>
+<li>If the types of the operands cannot be conclusively deduced from the
+AST, the transpiler must default to <code>float</code>, which can lead
+to unexpected precision issues or compiler warnings in the underlying
+graphics driver.</li>
+</ul>
+<h3 id="fallback-to-cpu-execution">Fallback to CPU Execution</h3>
+<p>When the dynamic nature of the provided JavaScript cannot be resolved
+into valid GLSL—such as when utilizing dynamic object lookups,
+heterogeneous arrays, or dynamic string operations—the gpu.js
+compilation pipeline fails to emit valid shader code.</p>
+<p>To prevent runtime application crashes, gpu.js features an automatic
+fallback mechanism. If the GLSL compilation stage fails due to
+unresolvable dynamic types or unsupported JS features, the kernel
+defaults to executing on the CPU via standard JavaScript. While this
+ensures functionality, it silently negates the performance benefits of
+GPU parallelization.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

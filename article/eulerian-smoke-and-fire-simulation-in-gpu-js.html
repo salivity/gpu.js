@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eulerian Smoke and Fire Simulation in GPU.js - gpu.js</title>
+    <meta name="description" content="Grid-based Eulerian fluid dynamics can be used to simulate smoke and fire in GPU.js, though practical implementations face distinct architectural constraints. By leveraging GPU.js to compile JavaScript functions into WebGL fragment shaders, developers ca">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/eulerian-smoke-and-fire-simulation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Eulerian Smoke and Fire Simulation in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/eulerian-smoke-and-fire-simulation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Grid-based Eulerian fluid dynamics can be used to simulate smoke and fire in GPU.js, though practical implementations face distinct architectural constraints. By leveraging GPU.js to compile JavaScript functions into WebGL fragment shaders, developers ca" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="eulerian-smoke-and-fire-simulation-in-gpujs">Eulerian Smoke and
+Fire Simulation in GPU.js</h1>
+<p>Grid-based Eulerian fluid dynamics can be used to simulate smoke and
+fire in GPU.js, though practical implementations face distinct
+architectural constraints. By leveraging GPU.js to compile JavaScript
+functions into WebGL fragment shaders, developers can solve the
+Navier-Stokes equations across discrete grid cells entirely on the GPU.
+While 2D simulations are straightforward and performant, true 3D
+volumetric simulations require custom data-packing strategies and
+multi-pass rendering pipelines to overcome the absence of native 3D
+compute shaders in standard WebGL contexts.</p>
+<h2 id="the-eulerian-framework-for-fire-and-smoke">The Eulerian
+Framework for Fire and Smoke</h2>
+<p>The Eulerian approach treats fluid flow from fixed points in space,
+dividing the simulation domain into a grid of cells. For smoke and fire,
+each cell typically stores:</p>
+<ul>
+<li><strong>Velocity Vector (<span class="math inline">\(u, v,
+w\)</span>):</strong> The directional movement of fluid throughout the
+grid.</li>
+<li><strong>Smoke Density:</strong> The concentration of visible
+particulate matter.</li>
+<li><strong>Temperature:</strong> The thermal energy driving buoyancy
+forces upward.</li>
+<li><strong>Fuel/Reaction Coordinates:</strong> The unburnt material
+that combusts into heat and smoke.</li>
+</ul>
+<p>The simulation advances each time step through four primary stages
+governed by the incompressible Navier-Stokes equations: advection
+(transporting quantities along the velocity field), external forces
+(buoyancy and vorticity confinement), diffusion (viscous smoothing), and
+projection (enforcing mass conservation by solving the Poisson pressure
+equation).</p>
+<h2 id="implementing-the-pipeline-in-gpujs">Implementing the Pipeline in
+GPU.js</h2>
+<p>GPU.js allows mathematical operations over large datasets to be
+accelerated by mapping output indices directly to GPU thread IDs. An
+Eulerian solver in GPU.js relies on chaining multiple computational
+kernels.</p>
+<h3 id="1-advection">1. Advection</h3>
+<p>Advection moves fluid properties through the velocity field using
+semi-Lagrangian backtracing. A GPU.js kernel samples the previous state
+by tracing backward in time from the current cell along its velocity
+vector, interpolating the values of surrounding cells.</p>
+<h3 id="2-buoyancy-and-combustion">2. Buoyancy and Combustion</h3>
+<p>Fire generates upward momentum proportional to its temperature
+relative to the ambient air. In a GPU.js kernel, external accelerations
+are applied directly to the vertical velocity component:</p>
+<p><span class="math display">\[\mathbf{f}_{\text{buoyancy}} = (-\alpha
+\rho + \beta (T - T_0))\mathbf{g}\]</span></p>
+<p>where <span class="math inline">\(\rho\)</span> is smoke density,
+<span class="math inline">\(T\)</span> is temperature, <span
+class="math inline">\(T_0\)</span> is ambient temperature, and <span
+class="math inline">\(\mathbf{g}\)</span> is the gravity vector. Fuel is
+consumed at a set reaction rate, simultaneously increasing temperature
+and depositing smoke density.</p>
+<h3 id="3-pressure-projection-the-poisson-solve">3. Pressure Projection
+(The Poisson Solve)</h3>
+<p>Incompressible fluid requires a divergence-free velocity field (<span
+class="math inline">\(\nabla \cdot \mathbf{u} = 0\)</span>). This step
+calculates a pressure scalar field to correct velocities:</p>
+<ol type="1">
+<li><strong>Compute Divergence:</strong> A kernel evaluates the net flow
+into or out of each cell based on adjacent velocity values.</li>
+<li><strong>Pressure Solve:</strong> The Poisson equation (<span
+class="math inline">\(\nabla^2 p = \nabla \cdot \mathbf{u}\)</span>) is
+solved iteratively using the Jacobi method. In GPU.js, this requires
+repeatedly ping-ponging two texture buffers across dozens of iterations
+per frame.</li>
+<li><strong>Velocity Correction:</strong> A final kernel subtracts the
+pressure gradient (<span class="math inline">\(\nabla p\)</span>) from
+the intermediate velocity field.</li>
+</ol>
+<h2 id="2d-vs-3d-volumetric-challenges-in-gpujs">2D vs. 3D Volumetric
+Challenges in GPU.js</h2>
+<h3 id="2d-simulations">2D Simulations</h3>
+<p>GPU.js handles 2D Eulerian simulations efficiently. Textures natively
+map to 2D arrays, making neighbor lookups (left, right, up, down) simple
+index offsets that execute rapidly on standard hardware.</p>
+<h3 id="3d-volumetric-simulations">3D Volumetric Simulations</h3>
+<p>While GPU.js supports 3D output dimensions
+(<code>kernel.setOutput([width, height, depth])</code>), it internally
+abstracts 3D arrays over 2D WebGL textures. This abstraction introduces
+specific engineering hurdles for volumetric smoke and fire:</p>
+<ul>
+<li><strong>Texture Flattening and Memory Bandwidth:</strong> GPU.js
+emulates 3D memory by tiling or flattening data across 2D render
+targets. This increases the overhead of trilinear interpolation and
+spatial neighborhood sampling required by Jacobi iterations and
+semi-Lagrangian advection.</li>
+<li><strong>Ping-Pong Overhead:</strong> Updating 3D grid states
+requires multiple independent read/write buffers. Passing large 3D array
+references between kernels in GPU.js introduces WebGL frame-buffer
+binding overhead that can degrade real-time framerates at resolutions
+higher than <span class="math inline">\(64^3\)</span> or <span
+class="math inline">\(128^3\)</span>.</li>
+</ul>
+<h2 id="rendering-volumetric-data">Rendering Volumetric Data</h2>
+<p>Simulating the data grid produces raw values that require volumetric
+rendering to visualize. In a pure GPU.js workflow, visualization is
+separated from the solver:</p>
+<ul>
+<li><strong>Raymarching:</strong> A specialized rendering kernel casts
+rays from the camera through the 3D bounding box of the grid.</li>
+<li><strong>Absorption and Emission:</strong> At each step along a ray,
+the kernel samples density and temperature. Density attenuates the
+background light (Beer-Lambert law), while high temperatures sample a
+blackbody radiation color map to emit the characteristic glow of
+fire.</li>
+</ul>
+<h2 id="practical-assessment">Practical Assessment</h2>
+<p>Eulerian smoke and fire simulations can be computed in GPU.js,
+serving as an effective educational or prototyping tool for
+browser-based fluid dynamics. However, for production-grade 3D
+volumetric fire requiring high grid resolutions (<span
+class="math inline">\(256^3\)</span> and above) and complex boundary
+interactions, raw WebGL2 with 3D textures or modern WebGPU compute
+shaders provide significantly better memory management, texture sampling
+control, and execution performance than the high-level abstractions of
+GPU.js.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

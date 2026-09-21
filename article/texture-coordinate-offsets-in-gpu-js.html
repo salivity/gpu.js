@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texture Coordinate Offsets in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how the gpu.js library manages texture coordinate offsets and avoids sampling artifacts when reading data at non-integer boundaries in WebGL. Because gpu.js translates JavaScript array operations into GPU fragment shaders, it must m">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/texture-coordinate-offsets-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Texture Coordinate Offsets in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/texture-coordinate-offsets-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how the gpu.js library manages texture coordinate offsets and avoids sampling artifacts when reading data at non-integer boundaries in WebGL. Because gpu.js translates JavaScript array operations into GPU fragment shaders, it must m" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="texture-coordinate-offsets-in-gpujs">Texture Coordinate Offsets
+in gpu.js</h1>
+<p>This article explains how the gpu.js library manages texture
+coordinate offsets and avoids sampling artifacts when reading data at
+non-integer boundaries in WebGL. Because gpu.js translates JavaScript
+array operations into GPU fragment shaders, it must map array indices
+directly to floating-point texture coordinates. To guarantee data
+precision and prevent interpolation errors, gpu.js utilizes half-texel
+offsets, strict nearest-neighbor texture filtering, and automated
+coordinate conversion in its generated GLSL code.</p>
+<h3 id="the-half-texel-problem-in-webgl">The Half-Texel Problem in
+WebGL</h3>
+<p>In WebGL and OpenGL, texture coordinates (<span
+class="math inline">\(U, V\)</span>) are normalized between
+<code>0.0</code> and <code>1.0</code>. A texel is not an infinitesimal
+point; it is an area. The integer coordinates of a discrete texel
+represent its outer boundary, while the true center of the texel lies at
+an offset of half a unit:</p>
+<p><span class="math display">\[\text{Texel Center} = x +
+0.5\]</span></p>
+<p>If a shader samples a texture directly at a texel edge (an exact
+integer boundary in pixel space), floating-point rounding errors can
+cause the GPU to sample either the intended texel or its adjacent
+neighbor. For graphics, this creates minor visual blur; for
+general-purpose GPU (GPGPU) compute tasks where texels hold numerical
+data, it corrupts calculations.</p>
+<h3 id="automated-half-texel-offsetting">Automated Half-Texel
+Offsetting</h3>
+<p>To prevent boundary ambiguity, the gpu.js shader compiler
+automatically adds a <code>0.5</code> offset to coordinate calculations
+during index-to-UV translation. When an internal kernel reads from an
+input array mapped as a texture, the generated GLSL does not query index
+<span class="math inline">\(x\)</span> directly. Instead, it computes
+the normalized coordinate using:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">vec2</span> uv <span class="op">=</span> <span class="op">(</span><span class="dt">vec2</span><span class="op">(</span>x<span class="op">,</span> y<span class="op">)</span> <span class="op">+</span> <span class="dt">vec2</span><span class="op">(</span><span class="fl">0.5</span><span class="op">,</span> <span class="fl">0.5</span><span class="op">))</span> <span class="op">/</span> textureDimensions<span class="op">;</span></span></code></pre></div>
+<p>By explicitly targeting the center of the texel, the sample point
+sits as far away from the texel's bounding borders as possible. This
+margin accommodates IEEE 754 floating-point inaccuracies inherent in GPU
+arithmetic, ensuring that small precision drifts do not push the sample
+into an adjacent memory cell.</p>
+<h3 id="nearest-neighbor-filtering-enforcement">Nearest-Neighbor
+Filtering Enforcement</h3>
+<p>Texture samplers in standard rendering pipelines often rely on
+bilinear filtering (<code>gl.LINEAR</code>), which blends adjacent
+texels when queried at non-integer coordinates. This behavior is
+catastrophic for scientific computing and matrix operations.</p>
+<p>gpu.js configures its WebGL texture parameters to use
+nearest-neighbor sampling:</p>
+<ul>
+<li><code>gl.TEXTURE_MIN_FILTER = gl.NEAREST</code></li>
+<li><code>gl.TEXTURE_MAG_FILTER = gl.NEAREST</code></li>
+<li><code>gl.TEXTURE_WRAP_S = gl.CLAMP_TO_EDGE</code></li>
+<li><code>gl.TEXTURE_WRAP_T = gl.CLAMP_TO_EDGE</code></li>
+</ul>
+<p>With <code>gl.NEAREST</code>, the GPU evaluates any non-integer
+texture coordinate by snapping it to the nearest texel center. Combined
+with <code>gl.CLAMP_TO_EDGE</code>, samples that fall slightly outside
+the range <code>[0.0, 1.0]</code> due to non-integer bounds or edge
+arithmetic do not wrap around to the other side of the array; instead,
+they clamp safely to the border texel.</p>
+<h3 id="handling-non-integer-lookups-in-shaders">Handling Non-Integer
+Lookups in Shaders</h3>
+<p>When user-written kernel code generates non-integer indices
+dynamically, gpu.js handles coordinate resolution via internal GLSL
+mathematical utilities.</p>
+<p>If fractional indices are passed into built-in lookup functions, the
+compiler generates instructions to truncate or floor the incoming value
+before applying the half-texel offset. This ensures that:</p>
+<ol type="1">
+<li>The fractional index is explicitly converted to an integer
+index.</li>
+<li>The <code>+ 0.5</code> bias is added to the resolved integer.</li>
+<li>The result is divided by the texture dimension to normalize the
+coordinate.</li>
+</ol>
+<p>Through this sequence—clamping the texture edges, applying a
+half-texel shift, enforcing nearest-neighbor selection, and normalizing
+coordinates against texture dimensions—gpu.js ensures that memory reads
+at or near texel boundaries reliably retrieve exact, uncorrupted
+numerical values.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Converts JavaScript to WebGL Shaders - gpu.js</title>
+    <meta name="description" content="This article explains the internal transpilation pipeline of gpu.js, detailing how standard JavaScript functions are converted into high-performance WebGL shader code. By parsing JavaScript into an Abstract Syntax Tree, inferring data types, mapping buil">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-converts-java-script-to-web-gl-shaders">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Converts JavaScript to WebGL Shaders - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-converts-java-script-to-web-gl-shaders" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains the internal transpilation pipeline of gpu.js, detailing how standard JavaScript functions are converted into high-performance WebGL shader code. By parsing JavaScript into an Abstract Syntax Tree, inferring data types, mapping buil" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-converts-javascript-to-webgl-shaders">How gpu.js
+Converts JavaScript to WebGL Shaders</h1>
+<p>This article explains the internal transpilation pipeline of gpu.js,
+detailing how standard JavaScript functions are converted into
+high-performance WebGL shader code. By parsing JavaScript into an
+Abstract Syntax Tree, inferring data types, mapping built-in functions,
+and injecting memory-management boilerplate, gpu.js bridges the gap
+between dynamic browser code and statically typed GLSL (OpenGL Shading
+Language) execution.</p>
+<h3 id="1-function-stringification-and-ast-parsing">1. Function
+Stringification and AST Parsing</h3>
+<p>The process begins when a standard JavaScript function is passed into
+the <code>gpu.createKernel()</code> method. Because JavaScript engines
+execute functions natively rather than exposing raw GLSL, gpu.js must
+deconstruct the source code:</p>
+<ul>
+<li><strong>Stringification:</strong> The library calls
+<code>.toString()</code> on the supplied JavaScript kernel function to
+retrieve its raw text representation.</li>
+<li><strong>Lexical Analysis and Parsing:</strong> Using a JavaScript
+parser (historically Acorn or a modified internal variant), gpu.js
+tokenizes the source code and constructs an Abstract Syntax Tree (AST).
+The AST represents the syntactic structure of the function, identifying
+variable declarations, assignments, conditionals, iterations, and return
+statements as distinct tree nodes.</li>
+</ul>
+<h3 id="2-static-type-inference">2. Static Type Inference</h3>
+<p>GLSL requires strict, static typing, whereas JavaScript is
+dynamically typed. To generate valid shader code, gpu.js performs a
+static analysis pass over the AST:</p>
+<ul>
+<li><strong>Argument Inference:</strong> When input parameters (such as
+arrays, matrices, or numbers) are passed into the kernel, gpu.js
+inspects their runtime types before shader compilation.</li>
+<li><strong>Variable Propagation:</strong> The compiler walks through
+the AST to determine the types of local variables based on the literals
+assigned to them or the results of operations. For example, a numeric
+literal like <code>0</code> or <code>1.5</code> is tracked as a float
+(since GLSL handles floating-point math differently than integers). If a
+variable changes types or uses unsupported dynamic structures (like
+objects), the compiler throws an error.</li>
+</ul>
+<h3 id="3-syntax-and-math-mapping">3. Syntax and Math Mapping</h3>
+<p>Once the AST nodes are typed, gpu.js traverses the tree and
+translates JavaScript syntax into corresponding GLSL language
+constructs:</p>
+<ul>
+<li><strong>Thread Indexing:</strong> The dynamic context variable
+<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code> is mapped directly to GLSL calculations
+derived from fragment coordinates (<code>gl_FragCoord</code>).</li>
+<li><strong>Math Library Conversion:</strong> Standard <code>Math</code>
+methods are mapped directly to native GLSL hardware intrinsics. For
+instance, <code>Math.sin(x)</code> translates to <code>sin(x)</code>,
+<code>Math.floor(x)</code> translates to <code>floor(x)</code>, and
+<code>Math.pow(x, y)</code> becomes <code>pow(x, y)</code>.</li>
+<li><strong>Control Flow:</strong> Standard <code>if-else</code>
+branches and standard counting <code>for</code> loops are rewritten into
+C-style GLSL equivalents. Loops must generally have static or
+predictable bounds so the GPU can manage execution paths.</li>
+</ul>
+<h3 id="4-memory-layout-and-texture-mapping">4. Memory Layout and
+Texture Mapping</h3>
+<p>GPUs process large data parallelly by drawing to screen pixels or
+off-screen framebuffers. gpu.js handles data input and output via WebGL
+textures:</p>
+<ul>
+<li><strong>Input Arrays to 2D Textures:</strong> Large 1D or 2D
+JavaScript numeric arrays are converted into WebGL textures, where pixel
+values (RGBA channels) store the numeric data.</li>
+<li><strong>Array Indexing to Texture Lookups:</strong> Inside the
+generated GLSL, array access like <code>A[y][x]</code> is translated
+into a texture lookup function (<code>texture2D</code>) that calculates
+the normalized UV coordinates needed to sample the correct pixel from
+the data texture.</li>
+</ul>
+<h3 id="5-glsl-assembly-and-webgl-compilation">5. GLSL Assembly and
+WebGL Compilation</h3>
+<p>After transforming the core logic, gpu.js wraps the translated
+statements into a complete GLSL Fragment Shader template:</p>
+<ol type="1">
+<li><strong>Header Injection:</strong> Precision specifiers (e.g.,
+<code>precision highp float;</code>) and uniform declarations for kernel
+arguments are injected at the top.</li>
+<li><strong>Main Function Insertion:</strong> The transformed kernel
+body is placed inside <code>void main() { ... }</code>.</li>
+<li><strong>Output Encoding:</strong> The kernel’s return value is
+packed into the <code>gl_FragColor</code> vector, encoding numerical
+results across the four color channels (RGBA) if floating-point textures
+are unsupported, or directly bound if supported.</li>
+</ol>
+<p>Finally, this assembled GLSL string is passed to the browser's WebGL
+context via <code>gl.shaderSource()</code> and compiled with
+<code>gl.compileShader()</code>. The resulting WebGL program executes in
+parallel across the GPU cores, returning the computed results directly
+back to JavaScript.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

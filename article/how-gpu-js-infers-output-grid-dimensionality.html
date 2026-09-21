@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Infers Output Grid Dimensionality - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js detects and handles the dimensionality of the execution grid defined by the setOutput() method. By analyzing the structure and length of the argument provided—whether an array or an object—GPU.js determines if the ker">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-infers-output-grid-dimensionality">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Infers Output Grid Dimensionality - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-infers-output-grid-dimensionality" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js detects and handles the dimensionality of the execution grid defined by the setOutput() method. By analyzing the structure and length of the argument provided—whether an array or an object—GPU.js determines if the ker" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-infers-output-grid-dimensionality">How GPU.js Infers
+Output Grid Dimensionality</h1>
+<p>This article explains how GPU.js detects and handles the
+dimensionality of the execution grid defined by the
+<code>setOutput()</code> method. By analyzing the structure and length
+of the argument provided—whether an array or an object—GPU.js determines
+if the kernel should execute in one, two, or three dimensions. It
+translates these parameters into WebGL texture bounds and injects
+coordinate-mapping mathematics into the compiled fragment shader to
+expose <code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code> to the developer.</p>
+<h3 id="array-based-dimensionality-inference">Array-Based Dimensionality
+Inference</h3>
+<p>The most common way to define the output shape in GPU.js is via an
+array of integers. GPU.js directly evaluates the <code>length</code> of
+this array to infer the grid's dimensions:</p>
+<ul>
+<li><strong>1D Grid (<code>[x]</code>):</strong> An array with one value
+defines a one-dimensional array of threads of length <code>x</code>.
+GPU.js sets the thread boundary such that only
+<code>this.thread.x</code> spans from <code>0</code> to
+<code>x - 1</code>, while <code>y</code> and <code>z</code> default to
+0.</li>
+<li><strong>2D Grid (<code>[x, y]</code>):</strong> An array with two
+values indicates a two-dimensional matrix. GPU.js designates the first
+element as the width (<code>x</code>) and the second as the height
+(<code>y</code>).</li>
+<li><strong>3D Grid (<code>[x, y, z]</code>):</strong> An array with
+three values defines a three-dimensional volume with width
+(<code>x</code>), height (<code>y</code>), and depth
+(<code>z</code>).</li>
+</ul>
+<h3 id="object-based-dimensionality-inference">Object-Based
+Dimensionality Inference</h3>
+<p>GPU.js also accepts an object literal (e.g.,
+<code>{ x: 512, y: 512 }</code>). In this case, dimensionality is
+inferred by checking for the presence of specific coordinate
+properties:</p>
+<ul>
+<li>If only <code>x</code> is present, it is inferred as 1D.</li>
+<li>If <code>x</code> and <code>y</code> are present, it is treated as
+2D.</li>
+<li>If <code>x</code>, <code>y</code>, and <code>z</code> are all
+provided, it is treated as 3D.</li>
+</ul>
+<h3 id="webgl-texture-flattening-and-coordinate-deconstruction">WebGL
+Texture Flattening and Coordinate Deconstruction</h3>
+<p>Because standard WebGL 1.0 and WebGL 2.0 fragment shaders render onto
+two-dimensional framebuffers (textures), GPU.js must adapt 1D and 3D
+specifications to fit 2D hardware memory:</p>
+<ul>
+<li><strong>1D Mapping:</strong> For large 1D vectors that exceed the
+GPU's maximum texture width limit, GPU.js wraps the 1D dimension across
+a 2D surface and computes the single linear index inside the shader
+using modulo and division logic against the texture width.</li>
+<li><strong>2D Mapping:</strong> A 2D output maps directly to standard
+2D texture coordinates (<code>gl_FragCoord.x</code> and
+<code>gl_FragCoord.y</code>).</li>
+<li><strong>3D Mapping:</strong> For 3D outputs, GPU.js packs the third
+dimension (<code>z</code>) into a tiled 2D sheet (or calculates a
+virtual 3D coordinate space across the 2D texture).</li>
+</ul>
+<p>During compilation, GPU.js generates specialized GLSL boilerplate
+prepended to your kernel code. It uses the inferred dimensions to
+calculate real-time values for <code>this.thread.x</code>,
+<code>this.thread.y</code>, and <code>this.thread.z</code> from the
+fragment's 2D canvas coordinates, ensuring seamless access to
+multi-dimensional indices regardless of the underlying hardware
+layout.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Float32 to RGBA Packing Algorithm Explained - gpu.js</title>
+    <meta name="description" content="This article explores the packing algorithm used by gpu.js to encode a 32-bit floating-point number across four 8-bit RGBA channels. Because older WebGL 1.0 implementations often lack support for rendering directly to 32-bit floating-point textures, gpu.">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-float-32-to-rgba-packing-algorithm-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Float32 to RGBA Packing Algorithm Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-float-32-to-rgba-packing-algorithm-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores the packing algorithm used by gpu.js to encode a 32-bit floating-point number across four 8-bit RGBA channels. Because older WebGL 1.0 implementations often lack support for rendering directly to 32-bit floating-point textures, gpu." />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-float32-to-rgba-packing-algorithm-explained">GPU.js
+Float32 to RGBA Packing Algorithm Explained</h1>
+<p>This article explores the packing algorithm used by gpu.js to encode
+a 32-bit floating-point number across four 8-bit RGBA channels. Because
+older WebGL 1.0 implementations often lack support for rendering
+directly to 32-bit floating-point textures, gpu.js utilizes a
+mathematical emulation of the IEEE 754 single-precision standard. By
+dissecting a 32-bit float into its sign, exponent, and mantissa
+components using standard arithmetic operations, gpu.js can serialize
+high-precision numerical data into standard 8-bit color components and
+retrieve it accurately without data loss.</p>
+<h2 id="the-webgl-10-precision-challenge">The WebGL 1.0 Precision
+Challenge</h2>
+<p>In native WebGL 1.0 environments, fragment shaders write output to a
+default 32-bit color buffer consisting of four 8-bit channels: Red,
+Green, Blue, and Alpha (RGBA). Without extensions such as
+<code>OES_texture_float</code> and render-to-float capabilities, GPUs
+cannot natively store raw <code>float32</code> values in textures.
+Furthermore, GLSL ES 1.0 lacks native bitwise integer operators (such as
+bit-shifts <code>&gt;&gt;</code> or bitwise-AND <code>&amp;</code>),
+preventing straightforward binary manipulation.</p>
+<p>To overcome this constraint, gpu.js implements an IEEE 754
+bit-packing algorithm entirely through floating-point arithmetic
+(<code>log2</code>, <code>floor</code>, <code>fract</code>, and
+<code>mod</code>).</p>
+<h2 id="the-ieee-754-deconstruction-algorithm">The IEEE 754
+Deconstruction Algorithm</h2>
+<p>The single-precision IEEE 754 standard defines a 32-bit float using
+three distinct segments:</p>
+<ul>
+<li><strong>Sign (1 bit):</strong> Indicates positive (<code>0</code>)
+or negative (<code>1</code>).</li>
+<li><strong>Exponent (8 bits):</strong> Biased by 127, ranging
+effectively from -126 to +127.</li>
+<li><strong>Mantissa / Fraction (23 bits):</strong> Represents the
+normalized fractional precision.</li>
+</ul>
+<p>The gpu.js packing algorithm processes an arbitrary input float value
+through the following mathematical steps:</p>
+<h3 id="1-handling-zero-and-extremes">1. Handling Zero and Extremes</h3>
+<p>If the input value is zero, the algorithm immediately outputs
+<code>vec4(0.0, 0.0, 0.0, 0.0)</code>. Special handling is applied to
+infinities and NaN values using predefined sentinel patterns.</p>
+<h3 id="2-extracting-sign-and-exponent">2. Extracting Sign and
+Exponent</h3>
+<p>For non-zero values, the algorithm determines the sign and isolates
+the absolute value:</p>
+<ul>
+<li>The sign bit is <code>1.0</code> if <code>value &lt; 0.0</code>,
+otherwise <code>0.0</code>.</li>
+<li>The exponent is computed using the base-2 logarithm:
+<code>floor(log2(abs(value)))</code>.</li>
+<li>The algorithm adds the IEEE 754 bias of 127 to the exponent:
+<code>biasedExponent = exponent + 127.0</code>.</li>
+</ul>
+<h3 id="3-calculating-the-23-bit-mantissa">3. Calculating the 23-bit
+Mantissa</h3>
+<p>Once the exponent is removed, the remaining significand falls in the
+range <code>[1.0, 2.0)</code>. The algorithm subtracts the implicit
+leading 1 to leave the fractional mantissa:</p>
+<ul>
+<li><code>mantissa = (abs(value) / exp2(exponent)) - 1.0</code>.</li>
+<li>The mantissa is scaled across 23 bits by multiplying by <span
+class="math inline">\(2^{23}\)</span> (8,388,608.0).</li>
+</ul>
+<h3 id="4-distributing-across-four-8-bit-bytes">4. Distributing Across
+Four 8-Bit Bytes</h3>
+<p>The combined 32 bits (1 sign bit + 8 exponent bits + 23 mantissa
+bits) are mapped into four distinct 8-bit integers (<span
+class="math inline">\(B_0, B_1, B_2, B_3\)</span>) using modulo and
+division arithmetic:</p>
+<ul>
+<li><strong>Byte 0 (R):</strong> Holds the sign bit (shifted into bit 7)
+combined with the upper 7 bits of the biased exponent.</li>
+<li><strong>Byte 1 (G):</strong> Holds the least significant bit of the
+biased exponent (shifted into bit 7) combined with the upper 7 bits of
+the mantissa.</li>
+<li><strong>Byte 2 (B):</strong> Holds the middle 8 bits of the
+mantissa.</li>
+<li><strong>Byte 3 (A):</strong> Holds the lowest 8 bits of the
+mantissa.</li>
+</ul>
+<h3 id="5-normalization-to-rgba">5. Normalization to RGBA</h3>
+<p>Because WebGL framebuffers expect normalized color values in the
+range <code>[0.0, 1.0]</code>, each computed byte is divided by 255.0
+before being assigned to <code>gl_FragColor</code>:</p>
+<p><span class="math display">\[\text{gl\_FragColor} =
+\text{vec4}\left(\frac{B_0}{255.0}, \frac{B_1}{255.0},
+\frac{B_2}{255.0}, \frac{B_3}{255.0}\right)\]</span></p>
+<h2 id="unpacking-the-value">Unpacking the Value</h2>
+<p>When reading the texture back to the CPU via
+<code>gl.readPixels</code>, the 4-byte <code>Uint8Array</code> sequence
+directly maps to the binary layout of a standard JavaScript
+<code>Float32Array</code>. By creating a <code>Float32Array</code> view
+over the underlying <code>ArrayBuffer</code> containing the pixels, the
+encoded bytes are instantly reinterpreted as native 32-bit
+floating-point numbers without requiring costly manual decompression on
+the CPU.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

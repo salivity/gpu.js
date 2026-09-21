@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running Depthwise Separable Convolutions in GPU.js - gpu.js</title>
+    <meta name="description" content="Depthwise separable convolutions, the core computational building blocks of efficient mobile neural networks like MobileNet, can be fully executed in GPU.js. By compiling JavaScript-like code directly into WebGL fragment shaders, GPU.js enables browser-b">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/running-depthwise-separable-convolutions-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Running Depthwise Separable Convolutions in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/running-depthwise-separable-convolutions-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Depthwise separable convolutions, the core computational building blocks of efficient mobile neural networks like MobileNet, can be fully executed in GPU.js. By compiling JavaScript-like code directly into WebGL fragment shaders, GPU.js enables browser-b" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="running-depthwise-separable-convolutions-in-gpujs">Running
+Depthwise Separable Convolutions in GPU.js</h1>
+<p>Depthwise separable convolutions, the core computational building
+blocks of efficient mobile neural networks like MobileNet, can be fully
+executed in GPU.js. By compiling JavaScript-like code directly into
+WebGL fragment shaders, GPU.js enables browser-based hardware
+acceleration for both the depthwise and pointwise stages of these
+layers. This guide explains how depthwise separable convolutions
+function, how they are mapped onto GPU.js kernels, and the performance
+practices required to run them efficiently in a web environment.</p>
+<h3 id="understanding-depthwise-separable-convolutions">Understanding
+Depthwise Separable Convolutions</h3>
+<p>Standard convolutions apply filters across both spatial dimensions
+(height and width) and channel dimensions simultaneously, creating
+significant computational overhead. Depthwise separable convolutions
+split this operation into two distinct, sequential steps:</p>
+<ol type="1">
+<li><strong>Depthwise Convolution:</strong> Applies a single
+convolutional filter per input channel, capturing spatial features
+independently without combining channel data.</li>
+<li><strong>Pointwise Convolution:</strong> Applies a standard <span
+class="math inline">\(1 \times 1\)</span> convolution across all
+channels, projecting and combining the spatial features into a new
+channel space.</li>
+</ol>
+<p>This factorization drastically reduces multiply-accumulate (MAC)
+operations and parameter counts, making deep learning models feasible on
+resource-constrained mobile hardware and browser runtimes.</p>
+<h3 id="implementing-the-depthwise-step-in-gpujs">Implementing the
+Depthwise Step in GPU.js</h3>
+<p>In GPU.js, a kernel executes a function in parallel across an output
+grid. For a depthwise convolution, the output dimension matches the
+spatial output dimensions and preserves the channel count of the
+input.</p>
+<p>To write a depthwise convolution kernel:</p>
+<ul>
+<li>Define a 3D output dimension:
+<code>[outputWidth, outputHeight, channels]</code>.</li>
+<li>Access the current thread indices using <code>this.thread.x</code>,
+<code>this.thread.y</code>, and <code>this.thread.z</code>.</li>
+<li>Loop over the kernel dimensions (e.g., <span class="math inline">\(3
+\times 3\)</span>) only for the specific channel index matching
+<code>this.thread.z</code>.</li>
+<li>Accumulate the weighted sum of neighboring pixels strictly from the
+corresponding input channel.</li>
+</ul>
+<p>Because each channel is processed independently, the depthwise step
+maps cleanly to parallel GPU threads with zero cross-channel memory
+dependencies.</p>
+<h3 id="implementing-the-pointwise-step-in-gpujs">Implementing the
+Pointwise Step in GPU.js</h3>
+<p>The pointwise step takes the output of the depthwise convolution and
+computes a linear combination across channels at every spatial position
+using a <span class="math inline">\(1 \times 1\)</span> filter:</p>
+<ul>
+<li>Define a 3D output dimension:
+<code>[outputWidth, outputHeight, outChannels]</code>.</li>
+<li>The thread coordinates <code>this.thread.x</code> and
+<code>this.thread.y</code> represent spatial coordinates, while
+<code>this.thread.z</code> represents the target output channel.</li>
+<li>The kernel loops through all input channels, multiplying the
+depthwise output at the current <code>(x, y)</code> coordinate by the
+corresponding <span class="math inline">\(1 \times 1\)</span> weight and
+summing the results.</li>
+</ul>
+<h3 id="performance-optimization-and-best-practices">Performance
+Optimization and Best Practices</h3>
+<p>To achieve optimal throughput when running depthwise separable
+convolutions in GPU.js, several architecture-specific factors must be
+addressed:</p>
+<ul>
+<li><strong>Kernel Pipelining:</strong> WebGL operations incur overhead
+when reading data back from the GPU to the CPU. Set the depthwise
+kernel's output to pipeline mode (<code>pipeline: true</code>), allowing
+its output texture to stay in VRAM as the direct input to the pointwise
+kernel.</li>
+<li><strong>Texture Padding and Bounds:</strong> Standard convolutions
+often require padding (such as "same" padding). Implement zero-padding
+by checking boundary conditions inside the kernel or by pre-padding the
+input array to avoid conditional branching in the shader.</li>
+<li><strong>Memory Layout:</strong> GPU.js abstracts WebGL textures as
+multidimensional arrays. Flattening tensors efficiently and organizing
+dimensions to optimize cache locality ensures maximum memory bandwidth
+utilization.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>Depthwise separable convolutions are not only possible in GPU.js but
+are well-suited for its thread model. By separating spatial filtering
+from channel projection and chaining the operations using GPU
+pipelining, developers can run mobile-optimized computer vision networks
+directly in web browsers with hardware-accelerated performance.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

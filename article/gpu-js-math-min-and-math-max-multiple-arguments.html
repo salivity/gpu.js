@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js Math.min and Math.max Multiple Arguments - gpu.js</title>
+    <meta name="description" content="In gpu.js, running mathematical operations on the GPU requires transpiling JavaScript code into OpenGL Shading Language (GLSL). While standard JavaScript allows Math.min and Math.max to accept an arbitrary number of arguments, native GLSL only permits tw">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-math-min-and-math-max-multiple-arguments">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js Math.min and Math.max Multiple Arguments - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-math-min-and-math-max-multiple-arguments" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, running mathematical operations on the GPU requires transpiling JavaScript code into OpenGL Shading Language (GLSL). While standard JavaScript allows Math.min and Math.max to accept an arbitrary number of arguments, native GLSL only permits tw" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-mathmin-and-mathmax-multiple-arguments">gpu.js Math.min
+and Math.max Multiple Arguments</h1>
+<p>In gpu.js, running mathematical operations on the GPU requires
+transpiling JavaScript code into OpenGL Shading Language (GLSL). While
+standard JavaScript allows <code>Math.min</code> and
+<code>Math.max</code> to accept an arbitrary number of arguments, native
+GLSL only permits two arguments per function call. To bridge this gap,
+gpu.js transpiles multi-argument calls into nested, two-argument GLSL
+functions, though this behavior comes with strict limitations regarding
+dynamic arrays, argument counts, and type consistency.</p>
+<h2 id="the-transpilation-mechanism">The Transpilation Mechanism</h2>
+<p>When writing kernels in gpu.js, JavaScript Abstract Syntax Trees
+(ASTs) are parsed and converted to GLSL shaders. Native GLSL defines
+<code>min()</code> and <code>max()</code> strictly as binary
+operations:</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>genType min<span class="op">(</span>genType x<span class="op">,</span> genType y<span class="op">);</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>genType max<span class="op">(</span>genType x<span class="op">,</span> genType y<span class="op">);</span></span></code></pre></div>
+<p>When a kernel function contains a call such as
+<code>Math.min(a, b, c, d)</code>, the gpu.js transpiler detects the
+excess arguments and flattens them into nested binary calls. The
+expression is rewritten in GLSL as:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>min<span class="op">(</span>a<span class="op">,</span> min<span class="op">(</span>b<span class="op">,</span> min<span class="op">(</span>c<span class="op">,</span> d<span class="op">)))</span></span></code></pre></div>
+<p>Similarly, <code>Math.max(w, x, y, z)</code> is converted into:</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>max<span class="op">(</span>w<span class="op">,</span> max<span class="op">(</span>x<span class="op">,</span> max<span class="op">(</span>y<span class="op">,</span> z<span class="op">)))</span></span></code></pre></div>
+<p>This tree-like nesting ensures that GPU hardware can process multiple
+values using its high-throughput, paired register comparisons without
+requiring a custom loop.</p>
+<h2 id="limitations-and-edge-cases">Limitations and Edge Cases</h2>
+<p>While static, comma-separated lists of arguments work seamlessly,
+certain JavaScript patterns fail during transpilation:</p>
+<h3 id="1-the-spread-operator-and-dynamic-arrays">1. The Spread Operator
+and Dynamic Arrays</h3>
+<p>In standard JavaScript, finding the minimum value in an array is
+commonly written as <code>Math.min(...array)</code>. In gpu.js, this
+syntax is invalid inside kernels:</p>
+<ul>
+<li><strong>No Dynamic Unrolling:</strong> The transpiler cannot
+dynamically expand arrays at compile time unless the array length and
+structure are completely fixed and known to the compiler.</li>
+<li><strong>Lack of Spread Support:</strong> Spread syntax
+(<code>...</code>) is generally unsupported in kernel parsing because
+GLSL requires fixed-size stack allocations.</li>
+</ul>
+<p>To find the minimum or maximum across an array within a kernel, you
+must manually iterate through the array using a fixed-length
+<code>for</code> loop, updating an accumulator variable with a
+two-argument <code>Math.min</code> or <code>Math.max</code> call on each
+iteration.</p>
+<h3 id="2-zero-or-single-arguments">2. Zero or Single Arguments</h3>
+<ul>
+<li><strong><code>Math.min()</code> / <code>Math.max()</code> with no
+arguments:</strong> In JavaScript, these return <code>Infinity</code>
+and <code>-Infinity</code> respectively. In gpu.js, transpiling a call
+with zero arguments triggers a compilation error, as GLSL cannot
+generate a valid <code>min()</code> or <code>max()</code> call without
+parameters.</li>
+<li><strong>Single argument (<code>Math.min(x)</code>):</strong>
+Standard JavaScript returns <code>x</code>. In gpu.js, passing a single
+argument often results in a GLSL syntax error because the transpiler
+directly maps to the binary GLSL signature without inserting identity
+fallbacks.</li>
+</ul>
+<h3 id="3-type-uniformity">3. Type Uniformity</h3>
+<p>GLSL enforces strict static typing. In JavaScript,
+<code>Math.min(1, 2.5)</code> automatically coerces values to numbers.
+In gpu.js, mixing integers and floating-point literals across multiple
+arguments (for example, <code>Math.max(1, 2.0, 3)</code>) will cause the
+shader compilation to fail due to a type mismatch. All arguments passed
+to multi-argument calls must share identical data types, typically
+standard floats.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

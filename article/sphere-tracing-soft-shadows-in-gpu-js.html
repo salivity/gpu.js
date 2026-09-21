@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sphere Tracing Soft Shadows in GPU.js - gpu.js</title>
+    <meta name="description" content="Approximating realistic soft shadow penumbras using sphere tracing techniques is fully achievable within gpu.js. By combining Signed Distance Functions (SDFs) with ray marching algorithms, developers can compute physically plausible shadow falloffs direc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/sphere-tracing-soft-shadows-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Sphere Tracing Soft Shadows in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/sphere-tracing-soft-shadows-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Approximating realistic soft shadow penumbras using sphere tracing techniques is fully achievable within gpu.js. By combining Signed Distance Functions (SDFs) with ray marching algorithms, developers can compute physically plausible shadow falloffs direc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="sphere-tracing-soft-shadows-in-gpujs">Sphere Tracing Soft
+Shadows in GPU.js</h1>
+<p>Approximating realistic soft shadow penumbras using sphere tracing
+techniques is fully achievable within gpu.js. By combining Signed
+Distance Functions (SDFs) with ray marching algorithms, developers can
+compute physically plausible shadow falloffs directly on the GPU using
+JavaScript syntax. This article details the mathematical principles
+behind sphere-traced soft shadows, outlines how to implement the
+technique using gpu.js kernels, and addresses the performance and
+architectural considerations unique to the library.</p>
+<h2 id="the-principle-of-sphere-traced-soft-shadows">The Principle of
+Sphere-Traced Soft Shadows</h2>
+<p>Sphere tracing relies on Signed Distance Functions, which return the
+shortest distance from any point in space to the nearest surface. When
+casting a primary ray from the camera, the ray steps forward by this
+distance until it hits a surface.</p>
+<p>To compute hard shadows, a shadow ray is cast from the hit point
+toward the light source. If any step along this ray encounters an object
+(distance drops below an epsilon threshold), the point is considered
+fully in shadow.</p>
+<p>Soft shadows, however, simulate an area light source by measuring how
+closely the shadow ray misses intervening geometry. The standard
+approximation, popularized by Inigo Quilez, tracks the minimum ratio of
+distance to ray travel distance along the light path:</p>
+<pre class="text"><code>penumbra_factor = min(penumbra_factor, k * d / t)</code></pre>
+<p>In this formula:</p>
+<ul>
+<li><code>d</code> is the distance returned by the SDF at the current
+step.</li>
+<li><code>t</code> is the total distance traveled along the shadow ray
+so far.</li>
+<li><code>k</code> is a user-defined scalar controlling shadow softness
+(lower values yield softer edges, higher values produce sharper
+edges).</li>
+</ul>
+<p>The resulting factor clamps between 0.0 (fully occluded) and 1.0
+(fully lit), providing a smooth gradient across the penumbra without the
+high computational cost of distributed ray tracing.</p>
+<h2 id="feasibility-in-gpujs">Feasibility in GPU.js</h2>
+<p><code>gpu.js</code> compiles a strictly typed subset of JavaScript
+into WebGL fragment shaders. Because sphere tracing algorithms rely
+almost entirely on scalar mathematics, 3D vector arithmetic, and bounded
+<code>for</code> loops, the approach translates cleanly into gpu.js
+kernels.</p>
+<p>Key capabilities in gpu.js that enable this:</p>
+<ul>
+<li><strong>Loop support:</strong> Iterative ray stepping loops can be
+expressed via standard JavaScript <code>for</code> loops, which compile
+directly into GLSL loops.</li>
+<li><strong>Math functions:</strong> Native access to
+<code>Math.min</code>, <code>Math.max</code>, <code>Math.sqrt</code>,
+and vector math routines enables writing standard SDF primitives
+(spheres, boxes, planes).</li>
+<li><strong>Graphical output:</strong> Kernels configured with the
+graphical output mode
+(<code>output: [width, height], graphical: true</code>) write color
+outputs directly to an HTML5 canvas via WebGL.</li>
+</ul>
+<h2 id="implementation-architecture">Implementation Architecture</h2>
+<p>To implement soft shadows in gpu.js, the kernel structure follows
+these steps:</p>
+<ol type="1">
+<li><strong>Camera Ray Generation:</strong> Determine the ray origin and
+normalized direction vector based on the current thread coordinates
+(<code>this.thread.x</code>, <code>this.thread.y</code>).</li>
+<li><strong>Primary Intersection:</strong> Step along the ray using the
+global SDF until reaching a surface or the maximum view distance.</li>
+<li><strong>Shadow Ray Evaluation:</strong> If an intersection occurs,
+compute the surface normal and start a secondary ray offset slightly
+along that normal toward the light position.</li>
+<li><strong>Penumbra Tracking:</strong> While marching toward the light:
+<ul>
+<li>Sample the scene SDF.</li>
+<li>If the sampled distance is less than zero or an occlusion threshold,
+return <code>0.0</code> (fully shadowed).</li>
+<li>Update the soft shadow factor using the minimum value of
+<code>k * d / t</code>.</li>
+<li>Advance the ray by <code>d</code>.</li>
+</ul></li>
+<li><strong>Lighting Combination:</strong> Multiply the diffuse/specular
+lighting components by the calculated penumbra factor to produce the
+final pixel color.</li>
+</ol>
+<p>An enhanced variant of the formula avoids penumbra artifacts when the
+ray starts close to the surface by tracking the closest approach using
+geometric right triangles:</p>
+<pre class="text"><code>y = d * d / (2.0 * previous_d);
+d_corrected = sqrt(d * d - y * y);
+factor = min(factor, k * d_corrected / max(0.0, t - y));</code></pre>
+<p>This improved calculation can also be implemented within gpu.js using
+native JavaScript math operators.</p>
+<h2 id="constraints-and-performance-considerations">Constraints and
+Performance Considerations</h2>
+<p>While sphere tracing soft shadows works in gpu.js, several
+constraints must be managed:</p>
+<ul>
+<li><strong>Loop Bounds:</strong> WebGL requires statically bounded
+loops. Dynamic while-loops must be avoided; ray marching steps must use
+fixed iterations (e.g., 64 to 128 maximum steps) paired with conditional
+break statements.</li>
+<li><strong>Transpiler Restrictions:</strong> gpu.js does not support
+custom object types, complex classes, or array closures within kernels.
+Math operations must be written in flat scalar code (handling
+<code>x</code>, <code>y</code>, and <code>z</code> components
+individually) or using flat fixed-size arrays.</li>
+<li><strong>Branch Divergence:</strong> Rays traversing different parts
+of the screen will terminate at different loop counts. While modern GPUs
+handle this, heavily divergent scenes will impact frame rates.</li>
+<li><strong>Precision:</strong> WebGL default float precisions can
+introduce banding or self-shadowing acne. Adding small offsets (surface
+biases) along the surface normal before launching the shadow ray is
+essential.</li>
+</ul>
+<p>Sphere tracing soft shadows in gpu.js is a fully viable technique. It
+enables the creation of real-time, aesthetically rich 3D graphics in the
+browser using familiar JavaScript syntax while harnessing GPU
+acceleration.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

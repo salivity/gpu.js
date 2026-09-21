@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tainted Canvas as a Texture in gpu.js Explained - gpu.js</title>
+    <meta name="description" content="Passing an un-sanitized, tainted canvas as an input texture into gpu.js results in an immediate execution failure due to browser security restrictions. Because the canvas contains cross-origin data loaded without proper Cross-Origin Resource Sharing (COR">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/tainted-canvas-as-a-texture-in-gpu-js-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Tainted Canvas as a Texture in gpu.js Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/tainted-canvas-as-a-texture-in-gpu-js-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Passing an un-sanitized, tainted canvas as an input texture into gpu.js results in an immediate execution failure due to browser security restrictions. Because the canvas contains cross-origin data loaded without proper Cross-Origin Resource Sharing (COR" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="tainted-canvas-as-a-texture-in-gpujs-explained">Tainted Canvas
+as a Texture in gpu.js Explained</h1>
+<p>Passing an un-sanitized, tainted canvas as an input texture into
+gpu.js results in an immediate execution failure due to browser security
+restrictions. Because the canvas contains cross-origin data loaded
+without proper Cross-Origin Resource Sharing (CORS) approval, the
+browser flags its origin-clean state as false. Consequently, when gpu.js
+attempts to ingest the canvas to create a WebGL texture or read its
+pixels, the browser halts the operation and throws a
+<code>SecurityError</code> DOMException, preventing the kernel from
+running.</p>
+<h3 id="the-origin-clean-restriction">The Origin-Clean Restriction</h3>
+<p>A canvas becomes "tainted" the moment it draws an image, video, or
+external SVG from a different origin that does not supply a valid
+<code>Access-Control-Allow-Origin</code> header. Once tainted, the
+browser marks the internal <code>origin-clean</code> flag of the canvas
+element as <code>false</code>. This flag serves as a fundamental
+security boundary designed to prevent malicious scripts from extracting
+sensitive cross-origin pixel data.</p>
+<h3 id="what-happens-in-the-webgl-pipeline">What Happens in the WebGL
+Pipeline</h3>
+<p>Under normal conditions, gpu.js accelerates computations by
+translating JavaScript functions into WebGL shaders and uploading input
+arguments—including images and canvases—to the GPU as 2D textures.</p>
+<p>When a canvas element is passed to a gpu.js kernel:</p>
+<ol type="1">
+<li><strong>Texture Creation:</strong> gpu.js allocates a WebGL texture
+via <code>gl.createTexture()</code>.</li>
+<li><strong>Data Upload via <code>texImage2D</code>:</strong> gpu.js
+invokes <code>gl.texImage2D()</code>, passing the tainted canvas element
+directly as the image source to populate the GPU memory.</li>
+<li><strong>Browser Interception:</strong> The browser inspects the
+source canvas before uploading its pixels to the GPU context. Because
+the <code>origin-clean</code> flag is <code>false</code>, the browser
+blocks the call to prevent cross-origin data leakage through shader
+execution or subsequent read operations.</li>
+<li><strong>Exception Thrown:</strong> The browser raises a
+<code>DOMException</code> with the name <code>SecurityError</code>
+(specifically: <em>"The operation is insecure"</em>).</li>
+</ol>
+<p>Because this error is thrown at the WebGL API level, the texture
+allocation fails entirely, execution stops, and the kernel returns an
+uncaught exception rather than a computed output.</p>
+<h3 id="impact-on-cpu-fallback-mode">Impact on CPU Fallback Mode</h3>
+<p>gpu.js includes a CPU fallback mode for environments lacking WebGL
+support or when explicitly configured to run on the CPU. In this mode,
+inputs are processed using standard 2D canvas contexts.</p>
+<p>If an un-sanitized tainted canvas enters the CPU pipeline:</p>
+<ol type="1">
+<li>gpu.js attempts to extract the pixel array using
+<code>CanvasRenderingContext2D.getImageData()</code>.</li>
+<li>The browser immediately intercepts this call because reading raw
+pixel buffers from a tainted canvas is strictly forbidden.</li>
+<li>A <code>SecurityError</code> DOMException is thrown identically to
+the WebGL pathway, terminating execution before processing can
+begin.</li>
+</ol>
+<h3 id="summary-of-consequences">Summary of Consequences</h3>
+<ul>
+<li><strong>Execution Failure:</strong> The gpu.js kernel will crash
+synchronously upon receiving the tainted input.</li>
+<li><strong>No Leaked Data:</strong> The GPU shader never receives the
+pixel buffer, ensuring cross-origin protections remain intact.</li>
+<li><strong>Console Warnings:</strong> The browser developer console
+will log a <code>SecurityError</code>, identifying the canvas as
+non-origin-clean.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

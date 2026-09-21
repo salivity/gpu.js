@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dense Lucas-Kanade Optical Flow in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement the Lucas-Kanade optical flow algorithm for dense motion estimation directly in the browser using gpu.js. Dense motion estimation computes displacement vectors for every pixel between two consecutive image frames. B">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/dense-lucas-kanade-optical-flow-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Dense Lucas-Kanade Optical Flow in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/dense-lucas-kanade-optical-flow-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement the Lucas-Kanade optical flow algorithm for dense motion estimation directly in the browser using gpu.js. Dense motion estimation computes displacement vectors for every pixel between two consecutive image frames. B" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="dense-lucas-kanade-optical-flow-in-gpujs">Dense Lucas-Kanade
+Optical Flow in GPU.js</h1>
+<p>This article explains how to implement the Lucas-Kanade optical flow
+algorithm for dense motion estimation directly in the browser using
+gpu.js. Dense motion estimation computes displacement vectors for every
+pixel between two consecutive image frames. By mapping the mathematical
+steps of spatial-temporal differentiation and local linear system
+solving to WebGL fragment shaders via gpu.js, you can achieve real-time
+dense optical flow estimation on consumer-grade hardware.</p>
+<h2 id="mathematical-formulation">Mathematical Formulation</h2>
+<p>The Lucas-Kanade method relies on the brightness constancy
+assumption:</p>
+<p><span class="math display">\[I(x, y, t) = I(x + u, y + v, t +
+1)\]</span></p>
+<p>Applying a first-order Taylor expansion yields the optical flow
+constraint equation:</p>
+<p><span class="math display">\[I_x u + I_y v + I_t = 0\]</span></p>
+<p>where <span class="math inline">\(I_x\)</span> and <span
+class="math inline">\(I_y\)</span> are the spatial image gradients,
+<span class="math inline">\(I_t\)</span> is the temporal gradient, and
+<span class="math inline">\((u, v)\)</span> represents the horizontal
+and vertical velocity vector.</p>
+<p>For dense optical flow, the algorithm assumes that motion is constant
+within a small window <span class="math inline">\(\Omega\)</span> of
+size <span class="math inline">\(W \times W\)</span> centered at every
+pixel <span class="math inline">\((x, y)\)</span>. This creates an
+overdetermined linear system <span class="math inline">\(A \mathbf{v} =
+\mathbf{b}\)</span>, solved using the standard least-squares
+solution:</p>
+<p><span class="math display">\[\begin{bmatrix} u \\ v \end{bmatrix} =
+(A^T A)^{-1} A^T \mathbf{b}\]</span></p>
+<p>Explicitly:</p>
+<p><span class="math display">\[\begin{bmatrix} \sum I_x^2 &amp; \sum
+I_x I_y \\ \sum I_x I_y &amp; \sum I_y^2 \end{bmatrix} \begin{bmatrix} u
+\\ v \end{bmatrix} = - \begin{bmatrix} \sum I_x I_t \\ \sum I_y I_t
+\end{bmatrix}\]</span></p>
+<p>Using Cramer's rule, the motion components are calculated as:</p>
+<p><span class="math display">\[\det(A^T A) = \left(\sum
+I_x^2\right)\left(\sum I_y^2\right) - \left(\sum I_x
+I_y\right)^2\]</span></p>
+<p><span class="math display">\[u = \frac{-\left(\sum
+I_y^2\right)\left(\sum I_x I_t\right) + \left(\sum I_x
+I_y\right)\left(\sum I_y I_t\right)}{\det(A^T A)}\]</span></p>
+<p><span class="math display">\[v = \frac{-\left(\sum
+I_x^2\right)\left(\sum I_y I_t\right) + \left(\sum I_x
+I_y\right)\left(\sum I_x I_t\right)}{\det(A^T A)}\]</span></p>
+<p>If <span class="math inline">\(\det(A^T A)\)</span> is below a
+regularizing threshold <span class="math inline">\(\epsilon\)</span>,
+the aperture problem occurs or the region lacks texture, meaning motion
+cannot be reliably determined and <span class="math inline">\((u,
+v)\)</span> is set to <span class="math inline">\((0, 0)\)</span>.</p>
+<h2 id="gpujs-implementation-pipeline">GPU.js Implementation
+Pipeline</h2>
+<p>Executing this calculation across every pixel in JavaScript using CPU
+threads causes significant frame drops. With <code>gpu.js</code>, each
+output pixel's motion vector is evaluated in parallel inside a GPU
+kernel.</p>
+<h3 id="step-1-kernel-initialization">Step 1: Kernel Initialization</h3>
+<p>Install and import the library, then instantiate the GPU context:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span> <span class="co">// Or via &lt;script src=&quot;gpu-browser.min.js&quot;&gt;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="step-2-grayscale-and-gradient-extraction">Step 2: Grayscale and
+Gradient Extraction</h3>
+<p>While you can compute optical flow directly on luminance buffers,
+combining gradient calculation and the window integration inside a
+single kernel minimizes texture transfer overhead.</p>
+<p>The inputs are two 2D arrays (or HTML Video/Canvas elements)
+containing pixel intensities for frame <span
+class="math inline">\(t\)</span> (<code>frame1</code>) and frame <span
+class="math inline">\(t+1\)</span> (<code>frame2</code>) normalized
+between 0.0 and 1.0.</p>
+<h3 id="step-3-complete-optical-flow-kernel">Step 3: Complete Optical
+Flow Kernel</h3>
+<p>The following kernel integrates gradient calculation, neighborhood
+summation over a <span class="math inline">\(5 \times 5\)</span> window,
+and matrix inversion per pixel:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">640</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">480</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> windowRadius <span class="op">=</span> <span class="dv">2</span><span class="op">;</span> <span class="co">// Results in a 5x5 window (2*radius + 1)</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> threshold <span class="op">=</span> <span class="fl">0.0001</span><span class="op">;</span> <span class="co">// Eigenvalue/determinant threshold to handle aperture problem</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> denseLucasKanadeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(frame1<span class="op">,</span> frame2<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> radius<span class="op">,</span> eps) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Reject boundary pixels where the window exceeds frame limits</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">&lt;</span> radius <span class="op">||</span> x <span class="op">&gt;=</span> width <span class="op">-</span> radius <span class="op">||</span> y <span class="op">&lt;</span> radius <span class="op">||</span> y <span class="op">&gt;=</span> height <span class="op">-</span> radius) {</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Sxx <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Syy <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Sxy <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Sxt <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Syt <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Accumulate structural tensors over the local window</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> dy <span class="op">=</span> <span class="op">-</span>radius<span class="op">;</span> dy <span class="op">&lt;=</span> radius<span class="op">;</span> dy<span class="op">++</span>) {</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> dx <span class="op">=</span> <span class="op">-</span>radius<span class="op">;</span> dx <span class="op">&lt;=</span> radius<span class="op">;</span> dx<span class="op">++</span>) {</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> px <span class="op">=</span> x <span class="op">+</span> dx<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> py <span class="op">=</span> y <span class="op">+</span> dy<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Central differences for spatial gradients on frame1</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> Ix <span class="op">=</span> (frame1[py][px <span class="op">+</span> <span class="dv">1</span>] <span class="op">-</span> frame1[py][px <span class="op">-</span> <span class="dv">1</span>]) <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> Iy <span class="op">=</span> (frame1[py <span class="op">+</span> <span class="dv">1</span>][px] <span class="op">-</span> frame1[py <span class="op">-</span> <span class="dv">1</span>][px]) <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Temporal gradient between frame1 and frame2</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> It <span class="op">=</span> frame2[py][px] <span class="op">-</span> frame1[py][px]<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>            Sxx <span class="op">+=</span> Ix <span class="op">*</span> Ix<span class="op">;</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>            Syy <span class="op">+=</span> Iy <span class="op">*</span> Iy<span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>            Sxy <span class="op">+=</span> Ix <span class="op">*</span> Iy<span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>            Sxt <span class="op">+=</span> Ix <span class="op">*</span> It<span class="op">;</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>            Syt <span class="op">+=</span> Iy <span class="op">*</span> It<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate determinant of structure tensor (A^T * A)</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> det <span class="op">=</span> (Sxx <span class="op">*</span> Syy) <span class="op">-</span> (Sxy <span class="op">*</span> Sxy)<span class="op">;</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Solve for u (horizontal) and v (vertical) using Cramer&#39;s rule</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (det <span class="op">&gt;</span> eps) {</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> u <span class="op">=</span> (<span class="op">-</span>Syy <span class="op">*</span> Sxt <span class="op">+</span> Sxy <span class="op">*</span> Syt) <span class="op">/</span> det<span class="op">;</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> v <span class="op">=</span> (<span class="op">-</span>Sxx <span class="op">*</span> Syt <span class="op">+</span> Sxy <span class="op">*</span> Sxt) <span class="op">/</span> det<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [u<span class="op">,</span> v]<span class="op">;</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPrecision</span>(<span class="st">&#39;single&#39;</span>)</span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Retains output as a texture for chaining</span></span></code></pre></div>
+<h2 id="running-motion-estimation-on-video-frames">Running Motion
+Estimation on Video Frames</h2>
+<p>To process incoming frames in a loop, extract the grayscale channel
+into 2D arrays, dispatch them to the kernel, and obtain the resulting
+velocity field:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> previousFrame <span class="op">=</span> <span class="fu">getGrayscaleArray</span>(videoElement<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">processFrame</span>() {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentFrame <span class="op">=</span> <span class="fu">getGrayscaleArray</span>(videoElement<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Output is a 2D array of [u, v] motion vectors per pixel</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> flowTexture <span class="op">=</span> <span class="fu">denseLucasKanadeKernel</span>(</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        previousFrame<span class="op">,</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        currentFrame<span class="op">,</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        width<span class="op">,</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>        height<span class="op">,</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        windowRadius<span class="op">,</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>        threshold</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// If needed on CPU: const motionField = flowTexture.toArray();</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    previousFrame <span class="op">=</span> currentFrame<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(processFrame)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getGrayscaleArray</span>(video<span class="op">,</span> w<span class="op">,</span> h) {</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> ctx <span class="op">=</span> offscreenCanvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;2d&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    ctx<span class="op">.</span><span class="fu">drawImage</span>(video<span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> w<span class="op">,</span> h)<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> imgData <span class="op">=</span> ctx<span class="op">.</span><span class="fu">getImageData</span>(<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> w<span class="op">,</span> h)<span class="op">.</span><span class="at">data</span><span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Construct 2D luminance array (h x w)</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gray <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> h<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> w<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> idx <span class="op">=</span> (y <span class="op">*</span> w <span class="op">+</span> x) <span class="op">*</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Standard luminance weights</span></span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>            row<span class="op">.</span><span class="fu">push</span>((<span class="fl">0.299</span> <span class="op">*</span> imgData[idx] <span class="op">+</span> <span class="fl">0.587</span> <span class="op">*</span> imgData[idx <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span> <span class="fl">0.114</span> <span class="op">*</span> imgData[idx <span class="op">+</span> <span class="dv">2</span>]) <span class="op">/</span> <span class="fl">255.0</span>)<span class="op">;</span></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>        gray<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> gray<span class="op">;</span></span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="tuning-and-practical-considerations">Tuning and Practical
+Considerations</h2>
+<ol type="1">
+<li><strong>Window Size</strong>: A larger radius (such as <span
+class="math inline">\(W = 7\)</span> or <span
+class="math inline">\(9\)</span>) handles larger displacements and
+provides smoother results, but increases texture lookups per thread
+(<span class="math inline">\(W^2\)</span>) and blurs motion
+boundaries.</li>
+<li><strong>Pre-smoothing</strong>: Lucas-Kanade relies on continuous
+gradients. Applying a Gaussian blur kernel prior to the optical flow
+kernel eliminates high-frequency noise that causes incorrect gradient
+spikes.</li>
+<li><strong>Multi-Scale (Pyramid) Approach</strong>: Standard
+Lucas-Kanade fails when displacement exceeds 1 to 2 pixels. To capture
+large motion paths, downsample frames into a Gaussian pyramid, compute
+flow at coarse scales, and propagate the flow vectors as an offset to
+finer layers.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

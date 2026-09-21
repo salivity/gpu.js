@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bridge Three.js WebGLRenderer and gpu.js State - gpu.js</title>
+    <meta name="description" content="Bridging state between a Three.js WebGLRenderer and a standalone gpu.js instance allows you to perform high-performance general-purpose GPU (GPGPU) computations while rendering complex 3D scenes on the same canvas. Achieving this requires sharing a singl">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/bridge-three-js-web-gl-renderer-and-gpu-js-state">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Bridge Three.js WebGLRenderer and gpu.js State - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/bridge-three-js-web-gl-renderer-and-gpu-js-state" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Bridging state between a Three.js WebGLRenderer and a standalone gpu.js instance allows you to perform high-performance general-purpose GPU (GPGPU) computations while rendering complex 3D scenes on the same canvas. Achieving this requires sharing a singl" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="bridge-threejs-webglrenderer-and-gpujs-state">Bridge Three.js
+WebGLRenderer and gpu.js State</h1>
+<p>Bridging state between a Three.js <code>WebGLRenderer</code> and a
+standalone <code>gpu.js</code> instance allows you to perform
+high-performance general-purpose GPU (GPGPU) computations while
+rendering complex 3D scenes on the same canvas. Achieving this requires
+sharing a single underlying <code>WebGLRenderingContext</code>, managing
+WebGL state cache invalidation, and passing data between pipelines using
+raw WebGL textures to avoid CPU readback bottlenecks.</p>
+<h3 id="1-share-the-webgl-context">1. Share the WebGL Context</h3>
+<p>To avoid memory duplication and context thrashing, initialize
+<code>gpu.js</code> using the existing WebGL context managed by
+Three.js. Extract the context directly from the initialized
+<code>WebGLRenderer</code>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> <span class="op">*</span> <span class="im">as</span> THREE <span class="im">from</span> <span class="st">&#39;three&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderer <span class="op">=</span> <span class="kw">new</span> THREE<span class="op">.</span><span class="fu">WebGLRenderer</span>({ <span class="dt">antialias</span><span class="op">:</span> <span class="kw">true</span> })<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>renderer<span class="op">.</span><span class="fu">setSize</span>(<span class="bu">window</span><span class="op">.</span><span class="at">innerWidth</span><span class="op">,</span> <span class="bu">window</span><span class="op">.</span><span class="at">innerHeight</span>)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(renderer<span class="op">.</span><span class="at">domElement</span>)<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> renderer<span class="op">.</span><span class="fu">getContext</span>()<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">context</span><span class="op">:</span> gl<span class="op">,</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">canvas</span><span class="op">:</span> renderer<span class="op">.</span><span class="at">domElement</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>Passing the existing context ensures both libraries manipulate the
+same hardware state machine and share the resource namespace (textures,
+buffers, and framebuffers).</p>
+<h3 id="2-manage-webgl-state-invalidation">2. Manage WebGL State
+Invalidation</h3>
+<p>Three.js aggressively caches WebGL state—including active program
+bindings, bound framebuffers, vertex array objects (VAOs), blending
+modes, and texture units—to minimize driver overhead. Because
+<code>gpu.js</code> operates independently, it alters this state without
+notifying Three.js.</p>
+<p>To prevent visual glitches or shader errors, you must reset the
+Three.js state cache immediately after running any <code>gpu.js</code>
+kernel:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>renderer<span class="op">.</span><span class="fu">resetState</span>()<span class="op">;</span></span></code></pre></div>
+<p>Calling <code>resetState()</code> forces Three.js to rebind its
+programs, re-enable its required blend states, and reset vertex
+attributes during the next <code>renderer.render()</code> call.</p>
+<h3 id="3-pass-data-using-textures-zero-copy">3. Pass Data Using
+Textures (Zero-Copy)</h3>
+<p>Transferring data between Three.js and <code>gpu.js</code> via the
+CPU (using <code>readPixels</code> or array serializations) eliminates
+the performance benefits of GPU execution. Instead, keep the data in
+VRAM by operating directly on WebGL textures.</p>
+<h4 id="outputting-from-gpujs-to-threejs">Outputting from gpu.js to
+Three.js</h4>
+<p>Configure the <code>gpu.js</code> kernel to output a texture using
+the <code>pipeline</code> mode or texture output mode:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// GPGPU compute logic</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> resultTexture <span class="op">=</span> <span class="fu">computeKernel</span>()<span class="op">;</span></span></code></pre></div>
+<p>Wrap the native WebGL texture produced by <code>gpu.js</code> inside
+a Three.js <code>ExternalTexture</code> or <code>WebGLTexture</code>
+wrapper:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> threeTexture <span class="op">=</span> <span class="kw">new</span> THREE<span class="op">.</span><span class="fu">Texture</span>()<span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> textureProperties <span class="op">=</span> renderer<span class="op">.</span><span class="at">properties</span><span class="op">.</span><span class="fu">get</span>(threeTexture)<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Assign the raw WebGLTexture produced by gpu.js</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>textureProperties<span class="op">.</span><span class="at">__webglTexture</span> <span class="op">=</span> resultTexture<span class="op">.</span><span class="at">texture</span><span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>threeTexture<span class="op">.</span><span class="at">needsUpdate</span> <span class="op">=</span> <span class="kw">false</span><span class="op">;</span> <span class="co">// Prevent Three.js from uploading null data</span></span></code></pre></div>
+<h4 id="inputting-threejs-render-targets-into-gpujs">Inputting Three.js
+Render Targets into gpu.js</h4>
+<p>When processing a Three.js scene inside <code>gpu.js</code>, render
+the scene into a <code>THREE.WebGLRenderTarget</code>, retrieve the
+internal WebGL texture reference, and pass it as an argument:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>renderer<span class="op">.</span><span class="fu">setRenderTarget</span>(renderTarget)<span class="op">;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>renderer<span class="op">.</span><span class="fu">render</span>(scene<span class="op">,</span> camera)<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>renderer<span class="op">.</span><span class="fu">setRenderTarget</span>(<span class="kw">null</span>)<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> rawTexture <span class="op">=</span> renderer<span class="op">.</span><span class="at">properties</span><span class="op">.</span><span class="fu">get</span>(renderTarget<span class="op">.</span><span class="at">texture</span>)<span class="op">.</span><span class="at">__webglTexture</span><span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Pass the native texture reference to your custom gpu.js wrapper or kernel</span></span></code></pre></div>
+<h3 id="4-the-unified-execution-loop">4. The Unified Execution Loop</h3>
+<p>Coordinate execution order strictly within the requestAnimationFrame
+loop to ensure synchronization:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">animate</span>() {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">requestAnimationFrame</span>(animate)<span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 1. Run gpu.js compute passes</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">computeKernel</span>()<span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 2. Invalidate Three.js state cache</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  renderer<span class="op">.</span><span class="fu">resetState</span>()<span class="op">;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 3. Render Three.js scene</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  renderer<span class="op">.</span><span class="fu">render</span>(scene<span class="op">,</span> camera)<span class="op">;</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="fu">animate</span>()<span class="op">;</span></span></code></pre></div>
+<p>By keeping textures resident on the GPU and resetting the internal
+WebGL state between compute and render passes, you maintain optimal
+throughput and prevent driver conflicts between both engines.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

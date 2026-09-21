@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aligning gpu.js Screen Space to Cartesian Coordinates - gpu.js</title>
+    <meta name="description" content="Aligning gpu.js screen space with a Cartesian coordinate system requires a linear mapping from discrete, non-negative thread indices to a continuous, centered coordinate plane. This article explains the dimensional differences between gpu.js thread index">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/aligning-gpu-js-screen-space-to-cartesian-coordinates">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Aligning gpu.js Screen Space to Cartesian Coordinates - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/aligning-gpu-js-screen-space-to-cartesian-coordinates" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Aligning gpu.js screen space with a Cartesian coordinate system requires a linear mapping from discrete, non-negative thread indices to a continuous, centered coordinate plane. This article explains the dimensional differences between gpu.js thread index" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="aligning-gpujs-screen-space-to-cartesian-coordinates">Aligning
+gpu.js Screen Space to Cartesian Coordinates</h1>
+<p>Aligning gpu.js screen space with a Cartesian coordinate system
+requires a linear mapping from discrete, non-negative thread indices to
+a continuous, centered coordinate plane. This article explains the
+dimensional differences between gpu.js thread indexing and standard
+Cartesian coordinates, provides the mathematical formula for translation
+and scaling, and details how to account for aspect ratio and axis
+orientation inside a GPU kernel.</p>
+<h3 id="understanding-the-coordinate-discrepancy">Understanding the
+Coordinate Discrepancy</h3>
+<p>In gpu.js, kernels execute across a discrete grid defined by
+<code>setOutput([width, height])</code>. Within the kernel execution
+context, each thread references its position via
+<code>this.thread.x</code> and <code>this.thread.y</code>.</p>
+<ul>
+<li><strong>gpu.js Thread Space:</strong> The origin <span
+class="math inline">\((0, 0)\)</span> resides at the bottom-left corner
+of the execution grid. Values are discrete integers where <span
+class="math inline">\(x \in [0, \text{width} - 1]\)</span> and <span
+class="math inline">\(y \in [0, \text{height} - 1]\)</span>.</li>
+<li><strong>Cartesian Coordinate Space:</strong> The origin <span
+class="math inline">\((0, 0)\)</span> typically sits at the center of
+the viewport, with coordinates spanning negative and positive ranges
+(for example, <span class="math inline">\(x \in [-1, 1]\)</span> and
+<span class="math inline">\(y \in [-1, 1]\)</span>), moving continuously
+in both directions.</li>
+</ul>
+<h3 id="the-linear-transformation-formula">The Linear Transformation
+Formula</h3>
+<p>To map the discrete thread range <span class="math inline">\([0,
+W]\)</span> and <span class="math inline">\([0, H]\)</span> to an
+arbitrary Cartesian domain <span class="math inline">\([x_{\min},
+x_{\max}]\)</span> and <span class="math inline">\([y_{\min},
+y_{\max}]\)</span>, apply a standard affine linear transformation:</p>
+<p><span class="math display">\[x_{\text{cartesian}} = x_{\min} + \left(
+\frac{\text{this.thread.x}}{\text{width}} \right) \cdot (x_{\max} -
+x_{\min})\]</span></p>
+<p><span class="math display">\[y_{\text{cartesian}} = y_{\min} + \left(
+\frac{\text{this.thread.y}}{\text{height}} \right) \cdot (y_{\max} -
+y_{\min})\]</span></p>
+<h3 id="mapping-to-a-centered-plane-with-equal-scaling">Mapping to a
+Centered Plane with Equal Scaling</h3>
+<p>When mapping the viewport so that <span class="math inline">\((0,
+0)\)</span> is directly in the center and ranges from <span
+class="math inline">\(-1.0\)</span> to <span
+class="math inline">\(1.0\)</span> along the shortest axis, you must
+account for the aspect ratio to avoid geometric distortion.</p>
+<ol type="1">
+<li><p><strong>Normalize Thread Coordinates:</strong> Scale indices to a
+<span class="math inline">\([0, 1]\)</span> range: <span
+class="math display">\[u =
+\frac{\text{this.thread.x}}{\text{width}}\]</span> <span
+class="math display">\[v =
+\frac{\text{this.thread.y}}{\text{height}}\]</span></p></li>
+<li><p><strong>Shift the Origin to the Center:</strong> Shift the range
+to <span class="math inline">\([-0.5, 0.5]\)</span> and scale by 2 to
+reach <span class="math inline">\([-1.0, 1.0]\)</span>: <span
+class="math display">\[x = (u - 0.5) \cdot 2.0\]</span> <span
+class="math display">\[y = (v - 0.5) \cdot 2.0\]</span></p></li>
+<li><p><strong>Correct for Aspect Ratio:</strong> Multiply the wider
+dimension by the aspect ratio (<span class="math inline">\(A =
+\frac{\text{width}}{\text{height}}\)</span>): <span
+class="math display">\[x_{\text{cartesian}} = x \cdot
+\left(\frac{\text{width}}{\text{height}}\right)\]</span> <span
+class="math display">\[y_{\text{cartesian}} = y\]</span></p></li>
+</ol>
+<h3 id="handling-canvas-and-texture-y-inversion">Handling Canvas and
+Texture Y-Inversion</h3>
+<p>While standard WebGL and gpu.js place <code>this.thread.y = 0</code>
+at the bottom, standard HTML5 Canvas 2D contexts and DOM mouse events
+treat the top-left corner as <span class="math inline">\((0,
+0)\)</span>.</p>
+<p>If your input data comes from an inverted screen coordinate system
+(such as screen-space mouse coordinates), you must invert the vertical
+component before transforming:</p>
+<p><span class="math display">\[y_{\text{inverted}} = (\text{height} -
+1) - \text{this.thread.y}\]</span></p>
+<h3 id="implementation-in-a-gpujs-kernel">Implementation in a gpu.js
+Kernel</h3>
+<p>Inside a gpu.js kernel function, compute the coordinates at the start
+of execution:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(width<span class="op">,</span> height) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 1. Shift origin to center and map to [-1, 1]</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> width) <span class="op">*</span> <span class="fl">2.0</span> <span class="op">-</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> height) <span class="op">*</span> <span class="fl">2.0</span> <span class="op">-</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 2. Adjust for aspect ratio</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> aspectRatio <span class="op">=</span> width <span class="op">/</span> height<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cartesianX <span class="op">=</span> x <span class="op">*</span> aspectRatio<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cartesianY <span class="op">=</span> y<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Use cartesianX and cartesianY for plotting functions, fractals, or simulations</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(cartesianX) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(cartesianY)<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">800</span><span class="op">,</span> <span class="dv">600</span>])<span class="op">;</span></span></code></pre></div>
+<p>This normalization and scaling sequence aligns the discrete execution
+grid of gpu.js directly with mathematical Cartesian space.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

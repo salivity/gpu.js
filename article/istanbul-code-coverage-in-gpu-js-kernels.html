@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Istanbul Code Coverage in GPU.js Kernels - gpu.js</title>
+    <meta name="description" content="This article examines whether JavaScript code coverage tools like Istanbul can accurately measure line coverage inside gpu.js kernel functions. It explores the architectural disconnect between JavaScript runtime instrumentation and GPU shader compilation">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/istanbul-code-coverage-in-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Istanbul Code Coverage in GPU.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/istanbul-code-coverage-in-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether JavaScript code coverage tools like Istanbul can accurately measure line coverage inside gpu.js kernel functions. It explores the architectural disconnect between JavaScript runtime instrumentation and GPU shader compilation" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="istanbul-code-coverage-in-gpujs-kernels">Istanbul Code Coverage
+in GPU.js Kernels</h1>
+<p>This article examines whether JavaScript code coverage tools like
+Istanbul can accurately measure line coverage inside gpu.js kernel
+functions. It explores the architectural disconnect between JavaScript
+runtime instrumentation and GPU shader compilation, details why standard
+code coverage fails, and outlines the practical alternatives for testing
+kernel logic.</p>
+<h2 id="the-short-answer">The Short Answer</h2>
+<p>No, Istanbul cannot accurately track line coverage inside gpu.js
+kernel functions running on the GPU. Standard JavaScript coverage tools
+are designed to monitor execution within a JavaScript engine like V8,
+whereas gpu.js compiles kernel functions into an entirely different
+language and executes them on separate hardware.</p>
+<h2 id="why-istanbul-fails-with-gpujs">Why Istanbul Fails with
+gpu.js</h2>
+<p>To understand why coverage fails, it is necessary to look at how both
+tools process code:</p>
+<ol type="1">
+<li><strong>How Istanbul operates:</strong> Istanbul works by parsing
+JavaScript into an Abstract Syntax Tree (AST) and injecting counter
+variables (such as <code>cov_xxxx().s[0]++</code>) before every
+statement, branch, and function. When the code runs in Node.js or a
+browser, executing those lines increments the counters in memory.</li>
+<li><strong>How gpu.js operates:</strong> gpu.js accepts a JavaScript
+function, converts it to a string using <code>.toString()</code>, parses
+its syntax tree, and transpiles it into WebGL GLSL (OpenGL Shading
+Language) or WebGPU compute shaders. The resulting shader is sent
+directly to the GPU for parallel execution.</li>
+</ol>
+<p>This architecture creates two critical failure points:</p>
+<h3 id="1-transpilation-failure">1. Transpilation Failure</h3>
+<p>If Istanbul instruments your JavaScript files before gpu.js
+initializes, the kernel function will contain injected Istanbul
+counters. When gpu.js parses the function to generate GLSL, it
+encounters these JavaScript-specific tracking objects. Because GLSL has
+strict typing and no concept of JavaScript runtime objects or
+window/global scopes, the gpu.js transpiler fails to compile the
+function and throws a syntax or compilation error.</p>
+<h3 id="2-the-hardware-execution-barrier">2. The Hardware Execution
+Barrier</h3>
+<p>Even if the transpiler could ignore or bypass the instrumentation
+statements, the compiled code does not run inside the JavaScript virtual
+machine. It runs inside the GPU pipelines. The GPU has no access to the
+host environment's memory, meaning it cannot increment the JavaScript
+counter objects that Istanbul monitors to report coverage metrics.</p>
+<h2 id="the-cpu-fallback-exception">The CPU Fallback Exception</h2>
+<p>gpu.js provides a CPU fallback mode
+(<code>new GPU({ mode: 'cpu' })</code>), which executes kernels using
+standard JavaScript loops instead of compiling them to shaders.</p>
+<p>In CPU mode, execution stays within the JavaScript runtime. However,
+Istanbul instrumentation can still cause issues if gpu.js attempts to
+validate or parse the AST of the kernel function before execution. For
+Istanbul to track lines successfully in CPU mode, the kernel must run as
+pure JavaScript without strict AST validation stripping or rejecting the
+injected counters.</p>
+<p>While CPU mode can yield coverage metrics, it only verifies that the
+algorithmic logic executed in JavaScript. It does not verify that the
+logic is valid GLSL or that it will execute without errors on the
+GPU.</p>
+<h2 id="best-practices-for-testing-gpujs-code">Best Practices for
+Testing gpu.js Code</h2>
+<p>Because line-by-line coverage via Istanbul is not feasible for
+GPU-accelerated execution, developers must rely on alternative quality
+assurance strategies:</p>
+<ul>
+<li><strong>Black-box integration tests:</strong> Test kernels by
+asserting that specific inputs produce expected outputs within
+acceptable numeric tolerance limits, rather than measuring line
+coverage.</li>
+<li><strong>Isolate business logic:</strong> Separate mathematical logic
+into pure JavaScript helper functions where possible. Test and cover
+these pure functions using Istanbul, then import or reference their
+logic inside the kernel definitions.</li>
+<li><strong>Dual-mode testing:</strong> Run continuous integration test
+suites in both <code>gpu</code> and <code>cpu</code> modes. While
+<code>gpu</code> mode verifies shader compilation and hardware output,
+<code>cpu</code> mode can provide partial coverage data for shared logic
+pathways.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

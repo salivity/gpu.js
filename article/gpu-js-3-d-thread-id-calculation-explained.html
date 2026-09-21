@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js 3D Thread ID Calculation Explained - gpu.js</title>
+    <meta name="description" content="gpu.js enables JavaScript functions to execute across parallel hardware by transpiling JavaScript kernels into WebGL shader code. Because standard WebGL relies on a 2D rendering pipeline rather than native 3D compute dispatches, gpu.js handles arbitrary">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-3-d-thread-id-calculation-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js 3D Thread ID Calculation Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-3-d-thread-id-calculation-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="gpu.js enables JavaScript functions to execute across parallel hardware by transpiling JavaScript kernels into WebGL shader code. Because standard WebGL relies on a 2D rendering pipeline rather than native 3D compute dispatches, gpu.js handles arbitrary" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-3d-thread-id-calculation-explained">GPU.js 3D Thread ID
+Calculation Explained</h1>
+<p>gpu.js enables JavaScript functions to execute across parallel
+hardware by transpiling JavaScript kernels into WebGL shader code.
+Because standard WebGL relies on a 2D rendering pipeline rather than
+native 3D compute dispatches, gpu.js handles arbitrary three-dimensional
+volumes by linearizing the 3D execution space into a 2D texture, then
+deriving individual <code>this.thread.x</code>,
+<code>this.thread.y</code>, and <code>this.thread.z</code> coordinates
+inside the compiled GLSL fragment shader using arithmetic
+deconstruction.</p>
+<h2 id="mapping-3d-volumes-to-2d-surfaces">Mapping 3D Volumes to 2D
+Surfaces</h2>
+<p>When a kernel is declared with a 3D output dimension like
+<code>[width, height, depth]</code> (or <span
+class="math inline">\([D_x, D_y, D_z]\)</span>), gpu.js determines the
+total number of required execution units:</p>
+<p><span class="math display">\[\text{Total Threads} = D_x \times D_y
+\times D_z\]</span></p>
+<p>Standard WebGL fragment shaders execute over a two-dimensional grid
+of pixels (texels). To accommodate the 3D volume, gpu.js provisions a 2D
+offscreen rendering target whose dimensions <span
+class="math inline">\((\text{texWidth}, \text{texHeight})\)</span> are
+sized to hold all threads up to the hardware’s maximum texture size
+limit.</p>
+<h2 id="deriving-the-linear-index-from-gl_fragcoord">Deriving the Linear
+Index from <code>gl_FragCoord</code></h2>
+<p>Each execution unit runs as an isolated fragment shader instance. The
+GPU provides the current fragment's 2D screen-space coordinate via the
+built-in GLSL variable <code>gl_FragCoord</code>.</p>
+<p>gpu.js computes an absolute, one-dimensional execution index from
+this 2D coordinate:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> x <span class="op">=</span> <span class="dt">int</span><span class="op">(</span><span class="bu">floor</span><span class="op">(</span><span class="bu">gl_FragCoord</span><span class="op">.</span><span class="fu">x</span><span class="op">));</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> y <span class="op">=</span> <span class="dt">int</span><span class="op">(</span><span class="bu">floor</span><span class="op">(</span><span class="bu">gl_FragCoord</span><span class="op">.</span><span class="fu">y</span><span class="op">));</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> linearIndex <span class="op">=</span> y <span class="op">*</span> texWidth <span class="op">+</span> x<span class="op">;</span></span></code></pre></div>
+<p>This single integer value represents the unique thread rank within
+the flattened sequence of all threads in the allocated 3D volume.</p>
+<h2
+id="deconstructing-the-linear-index-into-3d-coordinates">Deconstructing
+the Linear Index into 3D Coordinates</h2>
+<p>Once the linearized index is established, the compiled shader
+converts it back into 3D volume coordinates according to the
+user-defined dimensions <span class="math inline">\([D_x, D_y,
+D_z]\)</span>. gpu.js performs modulo arithmetic and division inside the
+shader to recreate the three spatial axes:</p>
+<ul>
+<li><strong>X Coordinate:</strong> Derived using the modulus of the
+width. <span class="math display">\[\text{thread.x} = \text{linearIndex}
+\pmod{D_x}\]</span></li>
+<li><strong>Y Coordinate:</strong> Derived by shifting out the X
+component, then taking the modulus of the height. <span
+class="math display">\[\text{thread.y} = \left\lfloor
+\frac{\text{linearIndex}}{D_x} \right\rfloor \pmod{D_y}\]</span></li>
+<li><strong>Z Coordinate:</strong> Derived by shifting out both the X
+and Y components. <span class="math display">\[\text{thread.z} =
+\left\lfloor \frac{\text{linearIndex}}{D_x \times D_y}
+\right\rfloor\]</span></li>
+</ul>
+<p>In generated GLSL, these calculations are implemented either with
+integer arithmetic (in WebGL 2 mode) or through high-precision
+floating-point approximations using <code>mod()</code> and
+<code>floor()</code> (in WebGL 1 mode) to prevent truncation errors.</p>
+<h2 id="handling-non-uniform-and-arbitrary-dimensions">Handling
+Non-Uniform and Arbitrary Dimensions</h2>
+<p>Because the bounding 2D texture might allocate more total pixels than
+the exact volume requirement (<span class="math inline">\(D_x \times D_y
+\times D_z\)</span>), gpu.js injects a boundary guard at the start of
+the shader. If <code>linearIndex &gt;= Total Threads</code>, the
+fragment is immediately discarded:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">if</span> <span class="op">(</span>linearIndex <span class="op">&gt;=</span> totalThreads<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">discard</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>This boundary check ensures that arbitrary, non-power-of-two, or
+asymmetric volumes (such as <span class="math inline">\(17 \times 5
+\times 101\)</span>) evaluate strictly within valid index ranges without
+out-of-bounds memory accesses or erroneous calculations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

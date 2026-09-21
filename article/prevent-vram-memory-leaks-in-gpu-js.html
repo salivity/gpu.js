@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prevent VRAM Memory Leaks in gpu.js - gpu.js</title>
+    <meta name="description" content="Running intensive GPU tasks in JavaScript using gpu.js can rapidly deplete Video RAM (VRAM) if resources are not explicitly managed. Because the browser's standard garbage collector manages CPU memory rather than WebGL contexts and GPU-allocated buffers,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/prevent-vram-memory-leaks-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Prevent VRAM Memory Leaks in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/prevent-vram-memory-leaks-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running intensive GPU tasks in JavaScript using gpu.js can rapidly deplete Video RAM (VRAM) if resources are not explicitly managed. Because the browser's standard garbage collector manages CPU memory rather than WebGL contexts and GPU-allocated buffers," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="prevent-vram-memory-leaks-in-gpujs">Prevent VRAM Memory Leaks in
+gpu.js</h1>
+<p>Running intensive GPU tasks in JavaScript using <code>gpu.js</code>
+can rapidly deplete Video RAM (VRAM) if resources are not explicitly
+managed. Because the browser's standard garbage collector manages CPU
+memory rather than WebGL contexts and GPU-allocated buffers, running
+kernels in loops or pipelines often causes memory leaks. This article
+explains why these leaks occur and demonstrates how to manually destroy
+textures, kernels, and GPU instances to keep your GPU memory footprint
+clean and stable.</p>
+<h3 id="why-vram-leaks-occur">Why VRAM Leaks Occur</h3>
+<p>JavaScript relies on automatic garbage collection (GC) to free
+unreferenced memory. However, WebGL textures and framebuffer objects
+reside in GPU memory. The garbage collector does not prioritize freeing
+native GPU handles simply because VRAM is full. If you continuously
+generate new kernels or process intermediate textures without manually
+dereferencing them, your application will eventually crash with an "Out
+of Memory" or "Context Lost" error.</p>
+<h3 id="releasing-texture-memory">Releasing Texture Memory</h3>
+<p>When using pipeline mode (<code>pipeline: true</code>), a kernel
+outputs a <code>Texture</code> object instead of a flat JavaScript
+array. This keeps data on the GPU for the next kernel in the pipeline,
+dramatically boosting performance. However, every intermediate texture
+allocates VRAM.</p>
+<p>To release a texture immediately after you are finished using it,
+invoke the <code>delete()</code> method:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> myKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">output</span><span class="op">:</span> [<span class="dv">512</span>]<span class="op">,</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Run kernel and get texture output</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> resultTexture <span class="op">=</span> <span class="fu">myKernel</span>(inputData)<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="co">// Use the texture in a subsequent operation...</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(texture) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> texture[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> { <span class="dt">output</span><span class="op">:</span> [<span class="dv">512</span>] })<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalArray <span class="op">=</span> <span class="fu">finalKernel</span>(resultTexture)<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="co">// Explicitly free the intermediate texture from VRAM</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>resultTexture<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="destroying-kernels">Destroying Kernels</h3>
+<p>If your application dynamically generates kernels based on user input
+or varying dimensions, old kernels will retain WebGL programs and
+framebuffers in memory. To clean up a kernel that is no longer needed,
+call its <code>destroy()</code> method:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dynamicKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> { <span class="dt">output</span><span class="op">:</span> [<span class="dv">1024</span>] })<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Execute kernel</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="fu">dynamicKernel</span>()<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Manually destroy the kernel and its compiled WebGL program</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>dynamicKernel<span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span></code></pre></div>
+<p><em>Note: Instead of creating and destroying kernels frequently,
+reuse existing kernels with fixed configurations whenever possible to
+minimize overhead.</em></p>
+<h3 id="tearing-down-the-gpu-instance">Tearing Down the GPU
+Instance</h3>
+<p>When completing a batch task, unmounting a UI component, or closing
+an execution pipeline, you should destroy the main <code>GPU</code>
+instance. Calling <code>destroy()</code> on the instance disposes of all
+child kernels, textures, and the underlying WebGL context:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Perform calculations...</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Fully dispose of the WebGL context and all associated VRAM</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="memory-management-best-practices">Memory Management Best
+Practices</h3>
+<ol type="1">
+<li><strong>Avoid Creating Kernels in Loops:</strong> Never instantiate
+<code>gpu.createKernel()</code> inside a <code>for</code> loop or
+<code>requestAnimationFrame</code>. Define kernels once and call them
+repeatedly.</li>
+<li><strong>Dispose Intermediate Textures:</strong> Always track and
+call <code>.delete()</code> on textures generated in multi-step
+pipelines once downstream kernels have consumed them.</li>
+<li><strong>Handle WebGL Context Loss:</strong> Listen to WebGL context
+loss events if your application is long-running to gracefully restart
+the <code>GPU</code> instance if the browser force-purges VRAM.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

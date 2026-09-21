@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LSTM Gating Mechanisms with GPU.js Matrix Kernels - gpu.js</title>
+    <meta name="description" content="This article provides a technical guide on implementing the gating mechanism of a Long Short-Term Memory (LSTM) cell using GPU-accelerated matrix operations in gpu.js. It details the mathematical formulation of LSTM gates, demonstrates how to pack linear">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/lstm-gating-mechanisms-with-gpu-js-matrix-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="LSTM Gating Mechanisms with GPU.js Matrix Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/lstm-gating-mechanisms-with-gpu-js-matrix-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides a technical guide on implementing the gating mechanism of a Long Short-Term Memory (LSTM) cell using GPU-accelerated matrix operations in gpu.js. It details the mathematical formulation of LSTM gates, demonstrates how to pack linear" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="lstm-gating-mechanisms-with-gpujs-matrix-kernels">LSTM Gating
+Mechanisms with GPU.js Matrix Kernels</h1>
+<p>This article provides a technical guide on implementing the gating
+mechanism of a Long Short-Term Memory (LSTM) cell using GPU-accelerated
+matrix operations in gpu.js. It details the mathematical formulation of
+LSTM gates, demonstrates how to pack linear transformations into a
+single general matrix multiplication (GEMM) kernel to minimize GPU
+dispatch overhead, and provides functional WebGL kernel implementations
+for computing gate activations, cell state transitions, and hidden state
+outputs entirely on the GPU.</p>
+<hr />
+<h3 id="mathematical-breakdown-of-lstm-gates">Mathematical Breakdown of
+LSTM Gates</h3>
+<p>An LSTM cell uses gating mechanisms to regulate the flow of
+information across time steps. Given input vector <span
+class="math inline">\(x_t\)</span>, previous hidden state <span
+class="math inline">\(h_{t-1}\)</span>, and previous cell state <span
+class="math inline">\(C_{t-1}\)</span>, the cell calculates four
+internal vectors:</p>
+<ol type="1">
+<li><strong>Forget Gate (<span
+class="math inline">\(f_t\)</span>):</strong> <span
+class="math inline">\(f_t = \sigma(W_f x_t + U_f h_{t-1} +
+b_f)\)</span></li>
+<li><strong>Input Gate (<span
+class="math inline">\(i_t\)</span>):</strong> <span
+class="math inline">\(i_t = \sigma(W_i x_t + U_i h_{t-1} +
+b_i)\)</span></li>
+<li><strong>Candidate Cell State (<span
+class="math inline">\(\tilde{C}_t\)</span>):</strong> <span
+class="math inline">\(\tilde{C}_t = \tanh(W_c x_t + U_c h_{t-1} +
+b_c)\)</span></li>
+<li><strong>Output Gate (<span
+class="math inline">\(o_t\)</span>):</strong> <span
+class="math inline">\(o_t = \sigma(W_o x_t + U_o h_{t-1} +
+b_o)\)</span></li>
+</ol>
+<p>Where <span class="math inline">\(\sigma(z) = \frac{1}{1 +
+e^{-z}}\)</span> and <span class="math inline">\(\tanh(z) = \frac{e^z -
+e^{-z}}{e^z + e^{-z}}\)</span>.</p>
+<p>The states are updated according to:</p>
+<ul>
+<li><strong>Cell State (<span
+class="math inline">\(C_t\)</span>):</strong> <span
+class="math inline">\(C_t = f_t \odot C_{t-1} + i_t \odot
+\tilde{C}_t\)</span></li>
+<li><strong>Hidden State (<span
+class="math inline">\(h_t\)</span>):</strong> <span
+class="math inline">\(h_t = o_t \odot \tanh(C_t)\)</span></li>
+</ul>
+<hr />
+<h3 id="optimizing-via-kernel-fused-linear-projection">Optimizing via
+Kernel Fused Linear Projection</h3>
+<p>Executing individual matrix multiplications for each of the four
+gates causes memory transfer bottlenecks and kernel dispatch overhead.
+To maximize GPU parallelization in gpu.js, concatenate the input
+weights, recurrent weights, and biases:</p>
+<ul>
+<li>Combined Weight Matrix: <span class="math inline">\(W_{gate} \in
+\mathbb{R}^{4D \times M}\)</span></li>
+<li>Combined Recurrent Matrix: <span class="math inline">\(U_{gate} \in
+\mathbb{R}^{4D \times D}\)</span></li>
+<li>Combined Bias Vector: <span class="math inline">\(b_{gate} \in
+\mathbb{R}^{4D}\)</span></li>
+</ul>
+<p>Where <span class="math inline">\(M\)</span> is the input feature
+dimension and <span class="math inline">\(D\)</span> is the hidden state
+dimension. The pre-activations for all four gates can be computed in a
+single kernel execution:</p>
+<p><span class="math display">\[Z = W_{gate} x_t + U_{gate} h_{t-1} +
+b_{gate}\]</span></p>
+<p>The resulting vector <span class="math inline">\(Z\)</span> of length
+<span class="math inline">\(4D\)</span> is partitioned into four
+contiguous blocks of size <span class="math inline">\(D\)</span>:</p>
+<ul>
+<li>Indices <span class="math inline">\([0, D-1]\)</span>: Forget
+pre-activation</li>
+<li>Indices <span class="math inline">\([D, 2D-1]\)</span>: Input
+pre-activation</li>
+<li>Indices <span class="math inline">\([2D, 3D-1]\)</span>: Candidate
+pre-activation</li>
+<li>Indices <span class="math inline">\([3D, 4D-1]\)</span>: Output
+pre-activation</li>
+</ul>
+<hr />
+<h3 id="step-1-linear-transformation-kernel">Step 1: Linear
+Transformation Kernel</h3>
+<p>The following gpu.js kernel computes the combined matrix-vector
+products and adds the bias term:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createLSTMLinearKernel <span class="op">=</span> (hiddenDim<span class="op">,</span> inputDim) <span class="kw">=&gt;</span> {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(W<span class="op">,</span> U<span class="op">,</span> x<span class="op">,</span> h<span class="op">,</span> b) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute W * x</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inputDim</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>      sum <span class="op">+=</span> W[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][i] <span class="op">*</span> x[i]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute U * h</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">hiddenDim</span><span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>      sum <span class="op">+=</span> U[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][j] <span class="op">*</span> h[j]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span> {</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="dt">constants</span><span class="op">:</span> { inputDim<span class="op">,</span> hiddenDim }<span class="op">,</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [<span class="dv">4</span> <span class="op">*</span> hiddenDim]<span class="op">,</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span> <span class="co">// Keeps output in WebGL texture memory</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-2-activation-and-state-update-kernel">Step 2: Activation
+and State Update Kernel</h3>
+<p>Once the concatenated pre-activations vector <span
+class="math inline">\(Z\)</span> is calculated, a second kernel computes
+the non-linear activations (<span class="math inline">\(\sigma\)</span>
+and <span class="math inline">\(\tanh\)</span>), performs element-wise
+operations with the historical cell state <span
+class="math inline">\(C_{t-1}\)</span>, and outputs the updated states
+<span class="math inline">\(C_t\)</span> and <span
+class="math inline">\(h_t\)</span>.</p>
+<p>Because gpu.js kernels return a single matrix or vector per
+execution, we evaluate <span class="math inline">\(C_t\)</span> and
+<span class="math inline">\(h_t\)</span> as a <span
+class="math inline">\(2 \times D\)</span> output array, where row
+<code>0</code> is <span class="math inline">\(C_t\)</span> and row
+<code>1</code> is <span class="math inline">\(h_t\)</span>:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createLSTMStateKernel <span class="op">=</span> (hiddenDim) <span class="kw">=&gt;</span> {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(Z<span class="op">,</span> C_prev) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> d <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hiddenDim <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">hiddenDim</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Pre-activations from concatenated vector Z</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> z_f <span class="op">=</span> Z[d]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> z_i <span class="op">=</span> Z[d <span class="op">+</span> hiddenDim]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> z_c <span class="op">=</span> Z[d <span class="op">+</span> <span class="dv">2</span> <span class="op">*</span> hiddenDim]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> z_o <span class="op">=</span> Z[d <span class="op">+</span> <span class="dv">3</span> <span class="op">*</span> hiddenDim]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute non-linearities</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> f <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>z_f))<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>z_i))<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> c_tilde <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">tanh</span>(z_c)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> o <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>z_o))<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Update cell state</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> c_t <span class="op">=</span> (f <span class="op">*</span> C_prev[d]) <span class="op">+</span> (i <span class="op">*</span> c_tilde)<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Row 0: Cell State (C_t)</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> c_t<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Row 1: Hidden State (h_t)</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> o <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">tanh</span>(c_t)<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span> {</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>    <span class="dt">constants</span><span class="op">:</span> { hiddenDim }<span class="op">,</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [hiddenDim<span class="op">,</span> <span class="dv">2</span>]<span class="op">,</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-3-slicing-the-states-for-subsequent-steps">Step 3: Slicing
+the States for Subsequent Steps</h3>
+<p>To feed <span class="math inline">\(h_t\)</span> and <span
+class="math inline">\(C_t\)</span> into the next recurrent time step
+without pulling data back to the CPU, a helper kernel splits the <span
+class="math inline">\(2 \times D\)</span> texture back into two 1D
+textures:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createExtractRowKernel <span class="op">=</span> (hiddenDim) <span class="kw">=&gt;</span> {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(statesMatrix<span class="op">,</span> rowIndex) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> statesMatrix[rowIndex][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span> {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [hiddenDim]<span class="op">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-4-full-step-execution-pipeline">Step 4: Full Step Execution
+Pipeline</h3>
+<p>Combining these kernels maintains intermediate tensors in GPU texture
+memory throughout the step:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> hiddenDim <span class="op">=</span> <span class="dv">128</span><span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> inputDim <span class="op">=</span> <span class="dv">64</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize kernels</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> linearKernel <span class="op">=</span> <span class="fu">createLSTMLinearKernel</span>(hiddenDim<span class="op">,</span> inputDim)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> stateKernel <span class="op">=</span> <span class="fu">createLSTMStateKernel</span>(hiddenDim)<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> extractRow <span class="op">=</span> <span class="fu">createExtractRowKernel</span>(hiddenDim)<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">lstmStep</span>(x_t<span class="op">,</span> h_prev<span class="op">,</span> C_prev<span class="op">,</span> W_gate<span class="op">,</span> U_gate<span class="op">,</span> b_gate) {</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 1. Compute pre-activations on GPU</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> Z <span class="op">=</span> <span class="fu">linearKernel</span>(W_gate<span class="op">,</span> U_gate<span class="op">,</span> x_t<span class="op">,</span> h_prev<span class="op">,</span> b_gate)<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 2. Compute non-linearities and combined state matrix [C_t, h_t]</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> states <span class="op">=</span> <span class="fu">stateKernel</span>(Z<span class="op">,</span> C_prev)<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 3. Extract separate states for the next iteration</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> C_next <span class="op">=</span> <span class="fu">extractRow</span>(states<span class="op">,</span> <span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> h_next <span class="op">=</span> <span class="fu">extractRow</span>(states<span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> { C_next<span class="op">,</span> h_next }<span class="op">;</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Setting <code>pipeline: true</code> ensures that matrix projections
+and element-wise gate modifications execute on the GPU hardware shaders
+sequentially without transferring intermediate arrays back to JavaScript
+runtime memory.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

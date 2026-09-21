@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Loop Unrolling: Optimizing Small Loops - gpu.js</title>
+    <meta name="description" content="Loop unrolling can significantly improve execution speed for small, bounded loops inside a gpu.js kernel. By replacing iterative control flow with repeated sequential statements, kernels eliminate loop condition checks, minimize branching overhead, and a">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-loop-unrolling-optimizing-small-loops">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Loop Unrolling: Optimizing Small Loops - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-loop-unrolling-optimizing-small-loops" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Loop unrolling can significantly improve execution speed for small, bounded loops inside a gpu.js kernel. By replacing iterative control flow with repeated sequential statements, kernels eliminate loop condition checks, minimize branching overhead, and a" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-loop-unrolling-optimizing-small-loops">GPU.js Loop
+Unrolling: Optimizing Small Loops</h1>
+<p>Loop unrolling can significantly improve execution speed for small,
+bounded loops inside a gpu.js kernel. By replacing iterative control
+flow with repeated sequential statements, kernels eliminate loop
+condition checks, minimize branching overhead, and allow the underlying
+GLSL compiler to optimize instruction scheduling. This guide breaks down
+why loop unrolling works in WebGL environments, how it affects shader
+compilation, and the trade-offs you must consider when optimizing gpu.js
+code.</p>
+<h3 id="how-gpu-architecture-handles-loops">How GPU Architecture Handles
+Loops</h3>
+<p>Graphics Processing Units (GPUs) achieve massive parallelism using
+SIMD (Single Instruction, Multiple Data) or SIMT (Single Instruction,
+Multiple Threads) architectures. These architectures excel at performing
+the same arithmetic operation across thousands of data points
+simultaneously, but they are inherently inefficient at handling
+branch-heavy operations.</p>
+<p>In a standard <code>for</code> or <code>while</code> loop, every
+iteration requires:</p>
+<ul>
+<li>Incrementing a counter.</li>
+<li>Comparing the counter against a boundary.</li>
+<li>Executing a conditional branch jump.</li>
+</ul>
+<p>Because GPU hardware groups threads into warps or wavefronts,
+conditional logic and branching can cause pipeline stalls. When all
+threads in a group follow the exact same sequential path, execution
+remains fast and predictable.</p>
+<h3 id="why-loop-unrolling-improves-speed-in-gpujs">Why Loop Unrolling
+Improves Speed in gpu.js</h3>
+<p>When you write a kernel in gpu.js, the library parses the JavaScript
+function and compiles it into GLSL (OpenGL Shading Language) to execute
+on the GPU via WebGL.</p>
+<p>Unrolling a small bounded loop—either manually in JavaScript or by
+providing static constants that the GLSL compiler can unroll—provides
+several direct performance advantages:</p>
+<ol type="1">
+<li><strong>Elimination of Branch Divergence and Overhead:</strong>
+Removing the loop counter eliminates the arithmetic and comparison
+instructions required at every step, directly saving clock cycles.</li>
+<li><strong>Enhanced Instruction-Level Parallelism (ILP):</strong> When
+operations are laid out sequentially, the GPU’s shader compiler can
+reorder instructions to keep execution pipelines full, hiding memory
+latency and arithmetic delays.</li>
+<li><strong>Constant Propagation and Folding:</strong> If loop indices
+are known at compile time, expressions relying on the index (such as
+array offsets or matrix indices) can be evaluated immediately by the
+compiler rather than calculated dynamically during runtime.</li>
+</ol>
+<h3 id="ideal-scenarios-for-unrolling-in-gpujs">Ideal Scenarios for
+Unrolling in gpu.js</h3>
+<p>Loop unrolling produces the highest speedups when operations meet
+specific criteria:</p>
+<ul>
+<li><strong>Small, Fixed Loop Counts:</strong> Loops running between 2
+and 16 iterations—such as 3x3 or 5x5 convolution filters, 4D vector
+transformations, or small matrix multiplications—gain substantial
+performance from unrolling.</li>
+<li><strong>Uniform Bounds:</strong> Loop limits that do not change
+based on thread ID or dynamic input allow the shader compiler to easily
+optimize the instructions.</li>
+<li><strong>Memory Access Patterns:</strong> When accessing neighboring
+texture coordinates or array indices, unrolled code allows memory fetch
+operations to be batched efficiently.</li>
+</ul>
+<h3 id="potential-drawbacks-and-limitations">Potential Drawbacks and
+Limitations</h3>
+<p>While unrolling is generally beneficial for small loops, overusing it
+can degrade performance:</p>
+<ul>
+<li><strong>Register Pressure:</strong> Unrolled loops expand the number
+of variables alive at the same time. GPUs have a limited pool of
+high-speed registers; exceeding this limit forces variables into slower
+local memory, reducing the number of active threads (occupancy).</li>
+<li><strong>Instruction Cache Misses:</strong> Unrolling loops with
+large iteration counts dramatically inflates the shader binary size,
+potentially causing instruction cache thrashing.</li>
+<li><strong>Compilation Overhead:</strong> Generating massive sequential
+GLSL source code increases kernel compilation time during the initial
+setup phase in the browser.</li>
+</ul>
+<h3 id="practical-recommendations-for-gpujs">Practical Recommendations
+for gpu.js</h3>
+<p>To maximize execution speed in gpu.js kernels:</p>
+<ul>
+<li><strong>Hardcode Static Bounds:</strong> Ensure loop bounds use
+explicit numeric literals (e.g., <code>i &lt; 4</code>) rather than
+dynamically passed uniforms, enabling WebGL’s native compiler to perform
+automatic unrolling.</li>
+<li><strong>Manually Unroll Inner Kernels:</strong> For tight,
+performance-critical mathematical operations (such as sampling a fixed
+3x3 kernel around a pixel), manually write out the individual operations
+instead of wrapping them in a loop.</li>
+<li><strong>Measure Across Hardware:</strong> Mobile and integrated GPUs
+are more sensitive to register pressure than discrete desktop GPUs.
+Always benchmark the kernel across target devices using realistic data
+sets to ensure unrolling yields a net performance gain.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

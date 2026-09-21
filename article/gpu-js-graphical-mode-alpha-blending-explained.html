@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Graphical Mode Alpha Blending Explained - gpu.js</title>
+    <meta name="description" content="In gpu.js, graphical mode enables kernels to render directly to an HTML5 canvas using WebGL fragment shaders instead of returning computed numeric arrays. Transparency and alpha blending in this mode are managed through normalized color channels passed t">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-graphical-mode-alpha-blending-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Graphical Mode Alpha Blending Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-graphical-mode-alpha-blending-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, graphical mode enables kernels to render directly to an HTML5 canvas using WebGL fragment shaders instead of returning computed numeric arrays. Transparency and alpha blending in this mode are managed through normalized color channels passed t" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-graphical-mode-alpha-blending-explained">GPU.js Graphical
+Mode Alpha Blending Explained</h1>
+<p>In gpu.js, graphical mode enables kernels to render directly to an
+HTML5 canvas using WebGL fragment shaders instead of returning computed
+numeric arrays. Transparency and alpha blending in this mode are managed
+through normalized color channels passed to the built-in
+<code>this.color(r, g, b, a)</code> function, where WebGL handles
+transparency at the canvas layer against the webpage DOM, while any
+internal pixel-over-pixel blending within a single render pass must be
+manually computed in shader logic.</p>
+<h3 id="the-thiscolor-method-and-normalized-alpha">The
+<code>this.color()</code> Method and Normalized Alpha</h3>
+<p>To enable graphical rendering, the kernel must be initialized with
+the <code>{ graphical: true }</code> option. Inside a graphical kernel,
+the output of each thread (which corresponds to an individual pixel) is
+defined using:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(r<span class="op">,</span> g<span class="op">,</span> b<span class="op">,</span> a)<span class="op">;</span></span></code></pre></div>
+<p>All four parameters require floating-point values normalized between
+<code>0.0</code> and <code>1.0</code>:</p>
+<ul>
+<li><code>0.0</code> represents complete transparency for the alpha
+channel.</li>
+<li><code>1.0</code> represents complete opacity.</li>
+<li>Values between <code>0.0</code> and <code>1.0</code> represent
+semi-transparency.</li>
+</ul>
+<h3 id="canvas-and-dom-compositing">Canvas and DOM Compositing</h3>
+<p>When gpu.js outputs pixel data with an alpha value lower than
+<code>1.0</code>, the underlying WebGL context composites the rendered
+canvas over HTML elements behind it.</p>
+<p>By default, WebGL uses premultiplied alpha compositing when writing
+to the browser's display buffer. If an area of the canvas has
+<code>this.color(1, 0, 0, 0.5)</code>, it renders a semi-transparent red
+pixel. The browser will blend this red pixel with whatever background
+color or image lies beneath the <code>&lt;canvas&gt;</code> tag in the
+DOM structure.</p>
+<h3 id="internal-blending-limitations">Internal Blending
+Limitations</h3>
+<p>A common misconception is that gpu.js supports automatic
+hardware-level blending between overlapping shapes drawn inside the same
+kernel execution. WebGL fragment shaders execute across all pixels in
+parallel, meaning a thread writing to a specific coordinate cannot
+directly read the previously written color at that exact screen location
+in standard execution.</p>
+<p>Because of this architectural constraint:</p>
+<ol type="1">
+<li><strong>Single-Pass Layering:</strong> If you are rendering multiple
+visual elements (such as two overlapping circles) in a single kernel
+run, you must calculate the alpha blending manually in the kernel code
+using the standard "Over" blending formula:</li>
+</ol>
+<p><span class="math display">\[C_{result} = C_{foreground} \times
+\alpha_{foreground} + C_{background} \times (1.0 -
+\alpha_{foreground})\]</span></p>
+<p><span class="math display">\[\alpha_{result} = \alpha_{foreground} +
+\alpha_{background} \times (1.0 - \alpha_{foreground})\]</span></p>
+<ol start="2" type="1">
+<li><strong>Multi-Pass Rendering:</strong> If you need to accumulate
+layers iteratively across multiple frames or passes, you must feed the
+canvas or output texture from the previous render pass back into the
+kernel as an input texture, sampling the background color with
+<code>kernel.canvas</code> or input arrays and calculating the composite
+manually before calling <code>this.color()</code>.</li>
+</ol>
+<h3 id="code-implementation-example">Code Implementation Example</h3>
+<p>The following pattern demonstrates manual alpha blending of a
+semi-transparent foreground object over a background color within a
+graphical kernel:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> render <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Coordinates normalized to [0, 1]</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Background color: Blue (opaque)</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bgR <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bgG <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bgB <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bgA <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Foreground color: Red with 50% transparency</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fgR <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fgG <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fgB <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fgA <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Determine if pixel is inside a centered circle</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dx <span class="op">=</span> x <span class="op">-</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dy <span class="op">=</span> y <span class="op">-</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> isInsideCircle <span class="op">=</span> (dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy) <span class="op">&lt;</span> <span class="fl">0.04</span><span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (isInsideCircle) {</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Alpha blending: Target = Foreground * Alpha + Background * (1 - Alpha)</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> finalR <span class="op">=</span> (fgR <span class="op">*</span> fgA) <span class="op">+</span> (bgR <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> fgA))<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> finalG <span class="op">=</span> (fgG <span class="op">*</span> fgA) <span class="op">+</span> (bgG <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> fgA))<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> finalB <span class="op">=</span> (fgB <span class="op">*</span> fgA) <span class="op">+</span> (bgB <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> fgA))<span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> finalA <span class="op">=</span> fgA <span class="op">+</span> (bgA <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> fgA))<span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(finalR<span class="op">,</span> finalG<span class="op">,</span> finalB<span class="op">,</span> finalA)<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(bgR<span class="op">,</span> bgG<span class="op">,</span> bgB<span class="op">,</span> bgA)<span class="op">;</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a><span class="fu">render</span>()<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(render<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span></code></pre></div>
+<p>Using this approach allows full control over how overlapping
+transparencies behave, bypassing the single-pass limitations of WebGL
+shaders while leveraging GPU acceleration.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

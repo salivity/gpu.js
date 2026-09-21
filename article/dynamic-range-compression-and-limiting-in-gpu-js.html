@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Range Compression and Limiting in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement real-time dynamic range compression and brickwall audio limiting in web applications using GPU.js. You will learn the mechanics of audio dynamic control, how to adapt sequential envelope detection for parallel GPU e">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/dynamic-range-compression-and-limiting-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Dynamic Range Compression and Limiting in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/dynamic-range-compression-and-limiting-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement real-time dynamic range compression and brickwall audio limiting in web applications using GPU.js. You will learn the mechanics of audio dynamic control, how to adapt sequential envelope detection for parallel GPU e" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="dynamic-range-compression-and-limiting-in-gpujs">Dynamic Range
+Compression and Limiting in GPU.js</h1>
+<p>This article explains how to implement real-time dynamic range
+compression and brickwall audio limiting in web applications using
+GPU.js. You will learn the mechanics of audio dynamic control, how to
+adapt sequential envelope detection for parallel GPU execution, write
+specialized GPU kernels for gain reduction, and pipe audio data between
+the Web Audio API and the GPU with minimal latency.</p>
+<h2
+id="understanding-dynamic-range-compression-and-limiting">Understanding
+Dynamic Range Compression and Limiting</h2>
+<p>Dynamic range compression reduces the volume of loud sounds and
+amplifies quiet sounds by narrowing an audio signal's dynamic range. A
+limiter is an aggressive compressor with a high ratio (often <span
+class="math inline">\(\infty:1\)</span>) and an immediate attack time
+designed to prevent the signal from exceeding a maximum peak threshold
+(typically 0 dBFS to avoid digital clipping).</p>
+<p>Key parameters include:</p>
+<ul>
+<li><strong>Threshold:</strong> The level above which gain reduction
+begins.</li>
+<li><strong>Ratio:</strong> The amount of gain reduction applied to
+signals exceeding the threshold.</li>
+<li><strong>Attack Time:</strong> How quickly gain reduction engages
+when the threshold is crossed.</li>
+<li><strong>Release Time:</strong> How quickly the signal returns to
+uncompressed levels once the signal falls below the threshold.</li>
+<li><strong>Knee:</strong> Smoothness of the transition around the
+threshold.</li>
+</ul>
+<h2 id="the-architecture-for-gpu-accelerated-audio">The Architecture for
+GPU-Accelerated Audio</h2>
+<p>Standard dynamic range compression relies on recursive Infinite
+Impulse Response (IIR) filters for envelope tracking (<span
+class="math inline">\(y[n] = \alpha y[n-1] + (1 - \alpha)
+x[n]\)</span>), which are inherently sequential and difficult to run on
+massively parallel architectures.</p>
+<p>To execute compression efficiently on the GPU via GPU.js, use a
+<strong>feed-forward lookahead window</strong> approach:</p>
+<ol type="1">
+<li>Audio samples are chunked into uniform buffers via the Web Audio
+API.</li>
+<li>The GPU calculates the local absolute peak within a lookahead window
+for each sample in parallel.</li>
+<li>The GPU maps each peak against the compression curve to compute the
+required gain reduction factor.</li>
+<li>The calculated gain factor is applied directly to the original audio
+buffer on the GPU, applying hard limiting if any output sample still
+exceeds the hard ceiling.</li>
+<li>The processed buffer is transferred back to the audio context for
+output.</li>
+</ol>
+<h2 id="implementing-the-processor-with-gpujs">Implementing the
+Processor with GPU.js</h2>
+<h3 id="1-initialize-gpujs">1. Initialize GPU.js</h3>
+<p>Load GPU.js and construct a compute instance optimized for
+WebGL/WebGPU pipeline execution.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> BUFFER_SIZE <span class="op">=</span> <span class="dv">2048</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> LOOKAHEAD_SAMPLES <span class="op">=</span> <span class="dv">64</span><span class="op">;</span> <span class="co">// Approx 1.4ms at 44.1kHz</span></span></code></pre></div>
+<h3 id="2-write-the-compression-and-limiting-kernel">2. Write the
+Compression and Limiting Kernel</h3>
+<p>The kernel computes the local windowed envelope, determines gain
+reduction via a soft-knee compressor curve, applies a brickwall limiter,
+and returns the modulated audio signal.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> processAudioKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  samples<span class="op">,</span> </span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  threshold<span class="op">,</span> </span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  ratio<span class="op">,</span> </span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  knee<span class="op">,</span> </span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  ceiling<span class="op">,</span> </span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  lookahead</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> currentSample <span class="op">=</span> samples[i]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 1. Peak detection using a lookahead window</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> peak <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="op">-</span>lookahead<span class="op">;</span> j <span class="op">&lt;=</span> lookahead<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> idx <span class="op">=</span> i <span class="op">+</span> j<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (idx <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> idx <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">bufferSize</span>) {</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> val <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(samples[idx])<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (val <span class="op">&gt;</span> peak) {</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>        peak <span class="op">=</span> val<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 2. Linear to Decibel conversion</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> peakDb <span class="op">=</span> <span class="fl">20.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log10</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(peak<span class="op">,</span> <span class="fl">0.00001</span>))<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 3. Dynamic Range Compression Curve (Soft Knee)</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> gainDb <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> halfKnee <span class="op">=</span> knee <span class="op">/</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (peakDb <span class="op">&gt;</span> threshold <span class="op">+</span> halfKnee) {</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Above knee: full ratio compression</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    gainDb <span class="op">=</span> (threshold <span class="op">+</span> (peakDb <span class="op">-</span> threshold) <span class="op">/</span> ratio) <span class="op">-</span> peakDb<span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> <span class="cf">if</span> (peakDb <span class="op">&gt;</span> threshold <span class="op">-</span> halfKnee) {</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Inside knee: quadratic interpolation</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> excess <span class="op">=</span> peakDb <span class="op">-</span> threshold <span class="op">+</span> halfKnee<span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>    gainDb <span class="op">=</span> ((<span class="fl">1.0</span> <span class="op">/</span> ratio <span class="op">-</span> <span class="fl">1.0</span>) <span class="op">*</span> (excess <span class="op">*</span> excess)) <span class="op">/</span> (<span class="fl">2.0</span> <span class="op">*</span> knee)<span class="op">;</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 4. Decibel to Linear Gain conversion</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> targetGain <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">pow</span>(<span class="fl">10.0</span><span class="op">,</span> gainDb <span class="op">/</span> <span class="fl">20.0</span>)<span class="op">;</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> outputSample <span class="op">=</span> currentSample <span class="op">*</span> targetGain<span class="op">;</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 5. Hard Limiter / Ceiling Enforcement</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (outputSample <span class="op">&gt;</span> ceiling) {</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>    outputSample <span class="op">=</span> ceiling<span class="op">;</span></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> <span class="cf">if</span> (outputSample <span class="op">&lt;</span> <span class="op">-</span>ceiling) {</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>    outputSample <span class="op">=</span> <span class="op">-</span>ceiling<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> outputSample<span class="op">;</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>  <span class="dt">constants</span><span class="op">:</span> { <span class="dt">bufferSize</span><span class="op">:</span> BUFFER_SIZE }<span class="op">,</span></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>  <span class="dt">output</span><span class="op">:</span> [BUFFER_SIZE]<span class="op">,</span></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>  <span class="dt">precision</span><span class="op">:</span> <span class="st">&#39;single&#39;</span><span class="op">,</span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>  <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">false</span></span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="3-integrate-with-the-web-audio-api">3. Integrate with the Web
+Audio API</h3>
+<p>To stream audio through the GPU in real time, capture raw audio using
+an <code>AudioWorklet</code> (or a <code>ScriptProcessorNode</code> for
+legacy targets), dispatch the buffer to the compiled kernel, and output
+the result.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">async</span> <span class="kw">function</span> <span class="fu">setupAudioPipeline</span>() {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> audioCtx <span class="op">=</span> <span class="kw">new</span> (<span class="bu">window</span><span class="op">.</span><span class="at">AudioContext</span> <span class="op">||</span> <span class="bu">window</span><span class="op">.</span><span class="at">webkitAudioContext</span>)()<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Source setup (e.g., microphone or element)</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> stream <span class="op">=</span> <span class="cf">await</span> <span class="bu">navigator</span><span class="op">.</span><span class="at">mediaDevices</span><span class="op">.</span><span class="fu">getUserMedia</span>({ <span class="dt">audio</span><span class="op">:</span> <span class="kw">true</span> })<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> source <span class="op">=</span> audioCtx<span class="op">.</span><span class="fu">createMediaStreamSource</span>(stream)<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Script processor buffer interface</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> processor <span class="op">=</span> audioCtx<span class="op">.</span><span class="fu">createScriptProcessor</span>(BUFFER_SIZE<span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compression Parameters</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> threshold <span class="op">=</span> <span class="op">-</span><span class="fl">18.0</span><span class="op">;</span> <span class="co">// dB</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ratio <span class="op">=</span> <span class="fl">4.0</span><span class="op">;</span>       <span class="co">// 4:1 compression</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> knee <span class="op">=</span> <span class="fl">6.0</span><span class="op">;</span>        <span class="co">// 6 dB knee width</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> ceiling <span class="op">=</span> <span class="fl">0.95</span><span class="op">;</span>    <span class="co">// Linear amplitude limit (~ -0.45 dBFS)</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  processor<span class="op">.</span><span class="at">onaudioprocess</span> <span class="op">=</span> <span class="kw">function</span>(e) {</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> inputData <span class="op">=</span> e<span class="op">.</span><span class="at">inputBuffer</span><span class="op">.</span><span class="fu">getChannelData</span>(<span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> outputData <span class="op">=</span> e<span class="op">.</span><span class="at">outputBuffer</span><span class="op">.</span><span class="fu">getChannelData</span>(<span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Run parallel dynamics processing on the GPU</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> result <span class="op">=</span> <span class="fu">processAudioKernel</span>(</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>      inputData<span class="op">,</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>      threshold<span class="op">,</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>      ratio<span class="op">,</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>      knee<span class="op">,</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>      ceiling<span class="op">,</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>      LOOKAHEAD_SAMPLES</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Populate the output buffer</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> BUFFER_SIZE<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>      outputData[i] <span class="op">=</span> result[i]<span class="op">;</span></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>  }<span class="op">;</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>  source<span class="op">.</span><span class="fu">connect</span>(processor)<span class="op">;</span></span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>  processor<span class="op">.</span><span class="fu">connect</span>(audioCtx<span class="op">.</span><span class="at">destination</span>)<span class="op">;</span></span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a><span class="fu">setupAudioPipeline</span>()<span class="op">;</span></span></code></pre></div>
+<h2 id="performance-and-latency-considerations">Performance and Latency
+Considerations</h2>
+<ul>
+<li><strong>Data Transfer Overhead:</strong> Passing data between the
+CPU (RAM) and GPU (VRAM) involves memory bus latency. A small buffer
+size (e.g., 256 samples) can introduce CPU-GPU synchronization
+bottlenecks, while large buffers (e.g., 8192 samples) increase perceived
+audio latency. A buffer size of <code>1024</code> or <code>2048</code>
+samples balances GPU utilization and real-time responsiveness.</li>
+<li><strong>Lookahead Delay:</strong> The lookahead window introduces a
+fixed delay equal to <code>lookahead / sampleRate</code> seconds. Using
+a window of 64 samples at a 44.1 kHz sample rate adds only 1.45 ms of
+algorithmic latency.</li>
+<li><strong>Texture Recycling:</strong> If chaining multiple GPU audio
+effects, set <code>pipeline: true</code> in the GPU.js kernel
+configuration to keep the textures directly on the GPU without
+downloading them to the CPU between stages.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

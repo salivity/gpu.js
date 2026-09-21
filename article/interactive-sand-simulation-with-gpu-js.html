@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Sand Simulation with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to build a high-performance, real-time interactive sand and granular material simulation in the browser using GPU.js. By translating cellular automata physics onto graphics hardware, you can simulate hundreds of thousands of par">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/interactive-sand-simulation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Interactive Sand Simulation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/interactive-sand-simulation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to build a high-performance, real-time interactive sand and granular material simulation in the browser using GPU.js. By translating cellular automata physics onto graphics hardware, you can simulate hundreds of thousands of par" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="interactive-sand-simulation-with-gpujs">Interactive Sand
+Simulation with GPU.js</h1>
+<p>This article explains how to build a high-performance, real-time
+interactive sand and granular material simulation in the browser using
+GPU.js. By translating cellular automata physics onto graphics hardware,
+you can simulate hundreds of thousands of particles simultaneously at 60
+frames per second. The following sections walk through the underlying
+simulation model, the implementation of GPU compute kernels, handling
+user interaction, and rendering directly to an HTML5 canvas.</p>
+<h3 id="understanding-the-granular-material-model">Understanding the
+Granular Material Model</h3>
+<p>Granular simulations like sand typically rely on cellular automata
+rather than complex fluid dynamics. The simulation space is divided into
+a 2D grid where each cell represents empty space, a stationary obstacle,
+or a granular particle like sand.</p>
+<p>In a basic falling-sand model, the state of a particle updates every
+frame based on simple neighborhood rules:</p>
+<ol type="1">
+<li><strong>Vertical Fall:</strong> If the cell directly below a sand
+grain is empty, the sand moves down.</li>
+<li><strong>Diagonal Slide:</strong> If the cell below is blocked, but
+the cell down-left or down-right is empty, the sand slides
+diagonally.</li>
+<li><strong>Rest:</strong> If down, down-left, and down-right are all
+occupied, the grain remains stationary.</li>
+</ol>
+<p>Because these rules are local to each cell, every cell can
+theoretically be evaluated independently, making it an ideal candidate
+for massive GPU parallelization.</p>
+<h3 id="solving-the-gpu-concurrency-problem">Solving the GPU Concurrency
+Problem</h3>
+<p>Because GPU threads run simultaneously, two neighboring sand grains
+might attempt to move into the same empty cell at the same time, causing
+race conditions. In CPU simulations, this is solved by iterating in a
+specific order (e.g., bottom-to-top).</p>
+<p>On the GPU, this is resolved using a <strong>sub-stepping phase
+approach</strong> or a <strong>margin-based checkerboard
+update</strong>:</p>
+<ul>
+<li>Divide the update step into distinct phases (e.g., Even Rows / Odd
+Rows, or Left-Falling / Right-Falling).</li>
+<li>Use a <strong>ping-pong buffer</strong> (double buffering) where one
+texture stores the current state and a second texture stores the
+computed next state, alternating roles on each frame.</li>
+</ul>
+<h3 id="setting-up-gpujs">Setting Up GPU.js</h3>
+<p>First, include GPU.js in your project via npm or a CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdnjs.cloudflare.com/ajax/libs/gpu.js/2.16.0/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<p>Initialize GPU.js and prepare the canvas context:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">getElementById</span>(<span class="st">&#39;simCanvas&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">canvas</span><span class="op">:</span> canvas<span class="op">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;gpu&#39;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="implementing-the-simulation-kernel">Implementing the Simulation
+Kernel</h3>
+<p>The physics logic is written as a GPU.js kernel. To prevent write
+collisions, write the logic from the perspective of the <em>target
+cell</em>: determining whether a particle moves <em>into</em> this
+position or vacates it.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateSand <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> current <span class="op">=</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Boundaries</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (y <span class="op">===</span> <span class="dv">0</span>) <span class="cf">return</span> current<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 1. If currently sand, check if it falls down</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (current <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> below <span class="op">=</span> grid[y <span class="op">-</span> <span class="dv">1</span>][x]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> belowLeft <span class="op">=</span> x <span class="op">&gt;</span> <span class="dv">0</span> <span class="op">?</span> grid[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> belowRight <span class="op">=</span> x <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> <span class="dv">1</span> <span class="op">?</span> grid[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (below <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> belowLeft <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> belowRight <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span> <span class="co">// Moves away</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span> <span class="co">// Stays</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="co">// 2. If currently empty, check if sand falls into here from above</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (current <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> above <span class="op">=</span> y <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> <span class="dv">1</span> <span class="op">?</span> grid[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (above <span class="op">===</span> <span class="dv">1</span>) <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> aboveRight <span class="op">=</span> (y <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> <span class="dv">1</span> <span class="op">&amp;&amp;</span> x <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> <span class="dv">1</span>) <span class="op">?</span> grid[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> aboveRightBelow <span class="op">=</span> x <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> <span class="dv">1</span> <span class="op">?</span> grid[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">:</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (aboveRight <span class="op">===</span> <span class="dv">1</span> <span class="op">&amp;&amp;</span> aboveRightBelow <span class="op">!==</span> <span class="dv">0</span>) <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> aboveLeft <span class="op">=</span> (y <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> <span class="dv">1</span> <span class="op">&amp;&amp;</span> x <span class="op">&gt;</span> <span class="dv">0</span>) <span class="op">?</span> grid[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> aboveLeftBelow <span class="op">=</span> x <span class="op">&gt;</span> <span class="dv">0</span> <span class="op">?</span> grid[y][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">:</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (aboveLeft <span class="op">===</span> <span class="dv">1</span> <span class="op">&amp;&amp;</span> aboveLeftBelow <span class="op">!==</span> <span class="dv">0</span>) <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> current<span class="op">;</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ width<span class="op">,</span> height })</span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>Setting <code>.setPipeline(true)</code> ensures output stays in GPU
+memory as a texture rather than transferring back to the CPU, maximizing
+throughput.</p>
+<h3 id="rendering-the-simulation-directly">Rendering the Simulation
+Directly</h3>
+<p>Avoid reading pixel data back into JavaScript. Use a graphical kernel
+in GPU.js to draw directly to the canvas:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> render <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cell <span class="op">=</span> grid[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (cell <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Sand color: yellowish</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.92</span><span class="op">,</span> <span class="fl">0.79</span><span class="op">,</span> <span class="fl">0.45</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> <span class="cf">if</span> (cell <span class="op">===</span> <span class="dv">2</span>) {</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Wall color: gray</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.4</span><span class="op">,</span> <span class="fl">0.4</span><span class="op">,</span> <span class="fl">0.4</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Background: dark</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.08</span><span class="op">,</span> <span class="fl">0.08</span><span class="op">,</span> <span class="fl">0.1</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="adding-interactivity">Adding Interactivity</h3>
+<p>Interactivity requires updating the simulation grid dynamically when
+the user clicks or drags. This can be handled by an "interaction" kernel
+that injects particles at mouse coordinates.</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> addParticles <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid<span class="op">,</span> mouseX<span class="op">,</span> mouseY<span class="op">,</span> radius<span class="op">,</span> type) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> distSq <span class="op">=</span> (x <span class="op">-</span> mouseX) <span class="op">*</span> (x <span class="op">-</span> mouseX) <span class="op">+</span> (y <span class="op">-</span> mouseY) <span class="op">*</span> (y <span class="op">-</span> mouseY)<span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (distSq <span class="op">&lt;</span> radius <span class="op">*</span> radius) {</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> type<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>Track mouse state on the canvas:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> isMouseDown <span class="op">=</span> <span class="kw">false</span><span class="op">;</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> mouseX <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> mouseY <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="fu">addEventListener</span>(<span class="st">&#39;mousedown&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> isMouseDown <span class="op">=</span> <span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="bu">window</span><span class="op">.</span><span class="fu">addEventListener</span>(<span class="st">&#39;mouseup&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> isMouseDown <span class="op">=</span> <span class="kw">false</span>)<span class="op">;</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="fu">addEventListener</span>(<span class="st">&#39;mousemove&#39;</span><span class="op">,</span> (e) <span class="kw">=&gt;</span> {</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rect <span class="op">=</span> canvas<span class="op">.</span><span class="fu">getBoundingClientRect</span>()<span class="op">;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  mouseX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>((e<span class="op">.</span><span class="at">clientX</span> <span class="op">-</span> rect<span class="op">.</span><span class="at">left</span>) <span class="op">*</span> (width <span class="op">/</span> rect<span class="op">.</span><span class="at">width</span>))<span class="op">;</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  mouseY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>((rect<span class="op">.</span><span class="at">bottom</span> <span class="op">-</span> e<span class="op">.</span><span class="at">clientY</span>) <span class="op">*</span> (height <span class="op">/</span> rect<span class="op">.</span><span class="at">height</span>))<span class="op">;</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="running-the-animation-loop">Running the Animation Loop</h3>
+<p>Combine the physics, interaction, and rendering within
+<code>requestAnimationFrame</code>:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentGrid <span class="op">=</span> <span class="kw">new</span> <span class="bu">Array</span>(height)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">0</span>)<span class="op">.</span><span class="fu">map</span>(() <span class="kw">=&gt;</span> <span class="kw">new</span> <span class="bu">Array</span>(width)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">0</span>))<span class="op">;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">loop</span>() {</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (isMouseDown) {</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    currentGrid <span class="op">=</span> <span class="fu">addParticles</span>(currentGrid<span class="op">,</span> mouseX<span class="op">,</span> mouseY<span class="op">,</span> <span class="dv">8</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  currentGrid <span class="op">=</span> <span class="fu">updateSand</span>(currentGrid)<span class="op">;</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">render</span>(currentGrid)<span class="op">;</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">requestAnimationFrame</span>(loop)<span class="op">;</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a><span class="fu">requestAnimationFrame</span>(loop)<span class="op">;</span></span></code></pre></div>
+<h3 id="optimization-considerations">Optimization Considerations</h3>
+<ol type="1">
+<li><strong>Avoid CPU-GPU Transfers:</strong> Ensure all intermediate
+state passes via <code>.setPipeline(true)</code>. Transferring arrays to
+and from CPU memory destroys real-time performance.</li>
+<li><strong>Directional Bias Mitigation:</strong> Alternate the
+evaluation of left and right diagonal checks across consecutive frames
+to prevent sand from disproportionately sliding in one direction.</li>
+<li><strong>Material Diversity:</strong> Expand the cell value scale to
+simulate other materials—such as water (which spreads horizontally
+further) or solid stone barriers (which ignore gravity completely).</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

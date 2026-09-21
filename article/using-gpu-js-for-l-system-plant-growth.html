@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using gpu.js for L-System Plant Growth - gpu.js</title>
+    <meta name="description" content="Evaluating and rasterizing Lindenmayer systems (L-systems) with gpu.js is technically possible, but it requires dividing the pipeline between symbolic logic and parallel numerical processing. While the parallel rewriting of strings is restricted by the m">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-gpu-js-for-l-system-plant-growth">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using gpu.js for L-System Plant Growth - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-gpu-js-for-l-system-plant-growth" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Evaluating and rasterizing Lindenmayer systems (L-systems) with gpu.js is technically possible, but it requires dividing the pipeline between symbolic logic and parallel numerical processing. While the parallel rewriting of strings is restricted by the m" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-gpujs-for-l-system-plant-growth">Using gpu.js for L-System
+Plant Growth</h1>
+<p>Evaluating and rasterizing Lindenmayer systems (L-systems) with
+gpu.js is technically possible, but it requires dividing the pipeline
+between symbolic logic and parallel numerical processing. While the
+parallel rewriting of strings is restricted by the memory and data-type
+constraints of WebGL shaders, gpu.js excels at computing spatial
+transformations, evaluating numerical branch positions, and rasterizing
+final branch structures to an HTML5 canvas.</p>
+<h3 id="evaluating-l-system-rewrite-rules">Evaluating L-System Rewrite
+Rules</h3>
+<p>gpu.js compiles a subset of JavaScript into WebGL fragment shaders.
+Because WebGL shaders lack dynamic memory allocation, pointers, and
+native string manipulation, you cannot run standard string-based
+L-system rewriting directly inside a gpu.js kernel.</p>
+<p>To evaluate production rules using gpu.js, the system must be
+converted into a matrix- or array-based numeric representation:</p>
+<ul>
+<li><strong>Numeric Encoding:</strong> Replace alphabet symbols (such as
+<code>F</code>, <code>+</code>, <code>-</code>, <code>[</code>,
+<code>]</code>) with integer tokens.</li>
+<li><strong>Fixed-Memory Buffers:</strong> Pre-allocate maximum buffer
+sizes for generation steps. Because GPU threads cannot easily append
+dynamic amounts of data, a kernel must evaluate token expansion using
+parallel prefix sums (stream compaction) to compute output offsets.</li>
+<li><strong>Array-to-Array Transformations:</strong> Each thread
+inspects an input token and writes the corresponding expansion into an
+allocated output array.</li>
+</ul>
+<p>Due to the architectural overhead of managing stream compaction in
+WebGL via gpu.js, evaluating the symbolic string rewrite on the CPU and
+sending the resulting numerical data to the GPU is often more practical
+for small to medium iteration depths.</p>
+<h3 id="interpreting-turtle-graphics-on-the-gpu">Interpreting Turtle
+Graphics on the GPU</h3>
+<p>Standard L-system interpretation relies on "turtle graphics," which
+processes symbols sequentially using a state stack (<code>[</code> to
+push state, <code>]</code> to pop state). This sequential dependency
+presents a bottleneck for standard parallel architectures.</p>
+<p>To process this step efficiently with gpu.js:</p>
+<ol type="1">
+<li><strong>Pre-compute Line Segments:</strong> The CPU can perform a
+single-pass turtle traversal to build a flat buffer of line segments
+represented by starting coordinates <span class="math inline">\((x_1,
+y_1, z_1)\)</span> and ending coordinates <span
+class="math inline">\((x_2, y_2, z_2)\)</span>, along with branch
+thickness and angles.</li>
+<li><strong>Parallel Coordinate Transformations:</strong> If growth over
+time involves wind physics, bending, or scale interpolation, gpu.js can
+run a kernel over every branch segment simultaneously, applying matrix
+transformations in parallel across thousands of nodes.</li>
+</ol>
+<h3 id="rasterizing-l-systems-with-gpujs">Rasterizing L-Systems with
+gpu.js</h3>
+<p>gpu.js provides a <code>graphical: true</code> mode that allows a
+kernel to output directly to an HTML5 canvas using WebGL. You can
+rasterize an L-system plant using one of two primary GPU techniques:</p>
+<h4 id="1-distance-field-raymarching-volumetric-rasterization">1.
+Distance Field Raymarching (Volumetric Rasterization)</h4>
+<p>Each pixel on the screen corresponds to a thread in the gpu.js
+kernel. By passing the array of line segments as flat uniform arrays
+into the kernel:</p>
+<ul>
+<li>The kernel computes the shortest distance from the pixel's
+world-space coordinate to each line segment (capsule or cylinder
+distance function).</li>
+<li>The pixel color is determined by the minimum distance found,
+creating smooth, anti-aliased branches with native support for lighting,
+shadows, and ambient occlusion.</li>
+</ul>
+<h4 id="2-screen-space-line-accumulation">2. Screen-Space Line
+Accumulation</h4>
+<p>For 2D L-systems, each pixel thread checks whether it lies within the
+bounding box and width of any segment in the array. If the distance
+falls within the branch radius, the kernel writes the color value to
+that pixel.</p>
+<h3 id="summary-of-feasibility">Summary of Feasibility</h3>
+<ul>
+<li><strong>Symbolic Evaluation:</strong> Poorly suited for native
+gpu.js execution due to the absence of native string handling and
+dynamic memory in WebGL shaders. Requires encoding symbols as numeric
+arrays and implementing custom stream compaction.</li>
+<li><strong>Spatial Transformation:</strong> Highly suited. gpu.js can
+manipulate thousands of branch endpoints, apply growth vectors, and
+compute wind deformation in parallel.</li>
+<li><strong>Rasterization:</strong> Highly suited. By leveraging
+<code>graphical: true</code>, gpu.js can rasterize the resulting
+geometry using signed distance fields or screen-space projection
+directly to an interactive canvas.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

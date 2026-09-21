@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hydraulic Erosion on Heightmaps with GPU.js - gpu.js</title>
+    <meta name="description" content="This article details how to implement real-time hydraulic erosion on 2D heightmap terrains using GPU.js. It covers setting up grid-based simulation data, executing hydrodynamic kernels across GPU threads to calculate water flow and sediment transport, an">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/hydraulic-erosion-on-heightmaps-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Hydraulic Erosion on Heightmaps with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/hydraulic-erosion-on-heightmaps-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article details how to implement real-time hydraulic erosion on 2D heightmap terrains using GPU.js. It covers setting up grid-based simulation data, executing hydrodynamic kernels across GPU threads to calculate water flow and sediment transport, an" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="hydraulic-erosion-on-heightmaps-with-gpujs">Hydraulic Erosion on
+Heightmaps with GPU.js</h1>
+<p>This article details how to implement real-time hydraulic erosion on
+2D heightmap terrains using GPU.js. It covers setting up grid-based
+simulation data, executing hydrodynamic kernels across GPU threads to
+calculate water flow and sediment transport, and optimizing read-write
+cycles using textures to achieve fast terrain generation in a browser or
+Node.js environment.</p>
+<h3 id="1-heightmap-representation-and-pipeline-architecture">1.
+Heightmap Representation and Pipeline Architecture</h3>
+<p>Hydraulic erosion over heightmaps on a GPU is most efficiently
+implemented using a grid-based shallow water model rather than
+independent droplet particles. This avoids race conditions inherent to
+parallel droplet writes.</p>
+<p>The simulation maintains four primary floating-point 2D grids of
+identical dimensions (<span class="math inline">\(W \times
+H\)</span>):</p>
+<ul>
+<li><strong>Terrain Height (<span
+class="math inline">\(T\)</span>):</strong> The base elevation of the
+bedrock.</li>
+<li><strong>Water Depth (<span
+class="math inline">\(W\)</span>):</strong> The layer of water resting
+on top of the terrain.</li>
+<li><strong>Sediment (<span class="math inline">\(S\)</span>):</strong>
+The suspended sediment carried by the water.</li>
+<li><strong>Outflow Flux (<span
+class="math inline">\(F\)</span>):</strong> A 4-channel grid (Left,
+Right, Top, Bottom) tracking directional water movement.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span></code></pre></div>
+<h3 id="2-the-four-simulation-kernels">2. The Four Simulation
+Kernels</h3>
+<p>The simulation loop executes four sequential stages per iteration:
+water arrival, flow simulation, erosion/deposition, and sediment
+advection followed by evaporation.</p>
+<h4 id="step-a-water-addition">Step A: Water Addition</h4>
+<p>Water is added uniformly across the map to simulate rainfall:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> addRainKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(waterMap<span class="op">,</span> rainRate) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> waterMap[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> rainRate<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h4 id="step-b-outflow-flux-calculation">Step B: Outflow Flux
+Calculation</h4>
+<p>Water flows toward lower adjacent cells based on hydrostatic
+pressure. The kernel calculates the difference between the total height
+(terrain + water) of the current cell and its four neighbors, updating
+outflow fluxes:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateFluxKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(terrain<span class="op">,</span> water<span class="op">,</span> flux<span class="op">,</span> dt) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> h <span class="op">=</span> terrain[y][x] <span class="op">+</span> water[y][x]<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read neighbor total heights with boundary clamping</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hL <span class="op">=</span> terrain[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> x <span class="op">-</span> <span class="dv">1</span>)] <span class="op">+</span> water[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> x <span class="op">-</span> <span class="dv">1</span>)]<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hR <span class="op">=</span> terrain[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> x <span class="op">+</span> <span class="dv">1</span>)] <span class="op">+</span> water[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> x <span class="op">+</span> <span class="dv">1</span>)]<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hT <span class="op">=</span> terrain[<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> y <span class="op">+</span> <span class="dv">1</span>)][x] <span class="op">+</span> water[<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> y <span class="op">+</span> <span class="dv">1</span>)][x]<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> hB <span class="op">=</span> terrain[<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> y <span class="op">-</span> <span class="dv">1</span>)][x] <span class="op">+</span> water[<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> y <span class="op">-</span> <span class="dv">1</span>)][x]<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dL <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> h <span class="op">-</span> hL)<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dR <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> h <span class="op">-</span> hR)<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> h <span class="op">-</span> hT)<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dB <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> h <span class="op">-</span> hB)<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fL <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> flux[y][x][<span class="dv">0</span>] <span class="op">+</span> dt <span class="op">*</span> dL)<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fR <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> flux[y][x][<span class="dv">1</span>] <span class="op">+</span> dt <span class="op">*</span> dR)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> flux[y][x][<span class="dv">2</span>] <span class="op">+</span> dt <span class="op">*</span> dT)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fB <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> flux[y][x][<span class="dv">3</span>] <span class="op">+</span> dt <span class="op">*</span> dB)<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sumFlux <span class="op">=</span> fL <span class="op">+</span> fR <span class="op">+</span> fT <span class="op">+</span> fB<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentWater <span class="op">=</span> water[y][x]<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (sumFlux <span class="op">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> scale <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="fl">1.0</span><span class="op">,</span> currentWater <span class="op">/</span> (sumFlux <span class="op">*</span> dt))<span class="op">;</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>        fL <span class="op">*=</span> scale<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>        fR <span class="op">*=</span> scale<span class="op">;</span></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>        fT <span class="op">*=</span> scale<span class="op">;</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>        fB <span class="op">*=</span> scale<span class="op">;</span></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(fL<span class="op">,</span> fR<span class="op">,</span> fT<span class="op">,</span> fB)<span class="op">;</span></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h4 id="step-c-water-and-velocity-updates">Step C: Water and Velocity
+Updates</h4>
+<p>Update water levels according to inflow and outflow, deriving the
+local velocity vector <span class="math inline">\((\vec{u}_x,
+\vec{u}_y)\)</span>:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateWaterKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(water<span class="op">,</span> flux<span class="op">,</span> dt) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fSelf <span class="op">=</span> flux[y][x]<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fL <span class="op">=</span> flux[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> x <span class="op">-</span> <span class="dv">1</span>)][<span class="dv">1</span>]<span class="op">;</span> <span class="co">// Inflow from left neighbor&#39;s right flux</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fR <span class="op">=</span> flux[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> x <span class="op">+</span> <span class="dv">1</span>)][<span class="dv">0</span>]<span class="op">;</span> <span class="co">// Inflow from right neighbor&#39;s left flux</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fB <span class="op">=</span> flux[<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> y <span class="op">-</span> <span class="dv">1</span>)][x][<span class="dv">2</span>]<span class="op">;</span> <span class="co">// Inflow from bottom neighbor&#39;s top flux</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fT <span class="op">=</span> flux[<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> y <span class="op">+</span> <span class="dv">1</span>)][x][<span class="dv">3</span>]<span class="op">;</span> <span class="co">// Inflow from top neighbor&#39;s bottom flux</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> inFlux <span class="op">=</span> fL <span class="op">+</span> fR <span class="op">+</span> fB <span class="op">+</span> fT<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> outFlux <span class="op">=</span> fSelf[<span class="dv">0</span>] <span class="op">+</span> fSelf[<span class="dv">1</span>] <span class="op">+</span> fSelf[<span class="dv">2</span>] <span class="op">+</span> fSelf[<span class="dv">3</span>]<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> water[y][x] <span class="op">+</span> (inFlux <span class="op">-</span> outFlux) <span class="op">*</span> dt)<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h4 id="step-d-erosion-deposition-and-transport">Step D: Erosion,
+Deposition, and Transport</h4>
+<p>Compute terrain modification based on sediment capacity <span
+class="math inline">\(C\)</span>. The capacity is proportional to local
+tilt angle and flow velocity. If the carried sediment <span
+class="math inline">\(S\)</span> is lower than <span
+class="math inline">\(C\)</span>, a portion of the bedrock dissolves
+into the water; if <span class="math inline">\(S &gt; C\)</span>, the
+excess sediment deposits onto the terrain:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> erodeAndDepositKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(terrain<span class="op">,</span> sediment<span class="op">,</span> water<span class="op">,</span> dt<span class="op">,</span> K_erode<span class="op">,</span> K_deposit<span class="op">,</span> capacityFactor) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Height differential for slope estimation</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> slope <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(terrain[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> x <span class="op">+</span> <span class="dv">1</span>)] <span class="op">-</span> terrain[y][<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> x <span class="op">-</span> <span class="dv">1</span>)]) <span class="op">+</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>                  <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(terrain[<span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="dv">511</span><span class="op">,</span> y <span class="op">+</span> <span class="dv">1</span>)][x] <span class="op">-</span> terrain[<span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> y <span class="op">-</span> <span class="dv">1</span>)][x])<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> c <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="fl">0.01</span><span class="op">,</span> slope) <span class="op">*</span> water[y][x] <span class="op">*</span> capacityFactor<span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentSediment <span class="op">=</span> sediment[y][x]<span class="op">;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> newTerrain <span class="op">=</span> terrain[y][x]<span class="op">;</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> newSediment <span class="op">=</span> currentSediment<span class="op">;</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (currentSediment <span class="op">&lt;</span> c) {</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> eroded <span class="op">=</span> K_erode <span class="op">*</span> (c <span class="op">-</span> currentSediment) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>        newTerrain <span class="op">-=</span> eroded<span class="op">;</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>        newSediment <span class="op">+=</span> eroded<span class="op">;</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> deposited <span class="op">=</span> K_deposit <span class="op">*</span> (currentSediment <span class="op">-</span> c) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>        newTerrain <span class="op">+=</span> deposited<span class="op">;</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>        newSediment <span class="op">-=</span> deposited<span class="op">;</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(newTerrain<span class="op">,</span> newSediment<span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="3-execution-loop-and-performance-best-practices">3. Execution
+Loop and Performance Best Practices</h3>
+<p>To avoid CPU-GPU transfer bottlenecks:</p>
+<ol type="1">
+<li><strong>Enable <code>.setPipeline(true)</code></strong>: This keeps
+computation results in WebGL texture memory between iterations rather
+than copying data back to JavaScript typed arrays.</li>
+<li><strong>Ping-Pong Textures</strong>: Alternate between read and
+write textures in successive frames to ensure thread safety without
+creating new allocations.</li>
+<li><strong>Download Selectively</strong>: Only call
+<code>.toArray()</code> or output directly to a WebGL canvas once the
+full simulation cycle (typically 50 to 500 iterations) completes.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

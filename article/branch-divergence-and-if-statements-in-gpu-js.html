@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Branch Divergence and If-Statements in gpu.js - gpu.js</title>
+    <meta name="description" content="In gpu.js, using if-else statements within compute kernels can severely reduce execution speed due to a hardware phenomenon known as branch divergence. Because gpu.js compiles JavaScript functions into WebGL shaders that run across massive arrays of para">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/branch-divergence-and-if-statements-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Branch Divergence and If-Statements in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/branch-divergence-and-if-statements-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, using if-else statements within compute kernels can severely reduce execution speed due to a hardware phenomenon known as branch divergence. Because gpu.js compiles JavaScript functions into WebGL shaders that run across massive arrays of para" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="branch-divergence-and-if-statements-in-gpujs">Branch Divergence
+and If-Statements in gpu.js</h1>
+<p>In gpu.js, using <code>if-else</code> statements within compute
+kernels can severely reduce execution speed due to a hardware phenomenon
+known as branch divergence. Because gpu.js compiles JavaScript functions
+into WebGL shaders that run across massive arrays of parallel GPU
+threads, introducing conditional logic forces threads within the same
+execution group to serialize their workloads. This article explains the
+mechanics of branch divergence in gpu.js, outlines its measurable impact
+on kernel runtime, and provides strategies to minimize performance
+loss.</p>
+<h3 id="understanding-gpu-execution-the-simt-model">Understanding GPU
+Execution: The SIMT Model</h3>
+<p>Modern GPUs process computations using a Single Instruction, Multiple
+Threads (SIMT) architecture. Instead of managing threads independently
+like a multi-core CPU, a GPU schedules threads in fixed-size
+batches—typically 32 threads (known as a "warp" on NVIDIA hardware) or
+64 threads (a "wavefront" on AMD hardware).</p>
+<p>All threads in a single warp execute the exact same instruction at
+the exact same clock cycle, but each operates on different data
+elements.</p>
+<h3 id="the-mechanics-of-branch-divergence">The Mechanics of Branch
+Divergence</h3>
+<p>Branch divergence occurs when threads within the same warp evaluate a
+conditional statement (an <code>if</code> condition) differently.</p>
+<p>For example, consider a kernel processing an array where even indices
+take the <code>if</code> branch and odd indices take the
+<code>else</code> branch:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (data) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="op">-</span><span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span>])<span class="op">;</span></span></code></pre></div>
+<p>Because adjacent threads share the same warp, the hardware cannot
+execute both branches simultaneously. To resolve this:</p>
+<ol type="1">
+<li>The GPU disables (masks off) the threads where the condition
+evaluated to <code>false</code> while executing the <code>if</code>
+block.</li>
+<li>The GPU then reverses the mask, executing the <code>else</code>
+block for the remaining threads while idling the first group.</li>
+</ol>
+<h3 id="the-impact-on-execution-speed">The Impact on Execution
+Speed</h3>
+<p>When branch divergence occurs in gpu.js, execution time transitions
+from being determined by the fastest path to the sum of all paths:</p>
+<ul>
+<li><strong>Additive Latency:</strong> The execution time of a divergent
+warp is roughly equal to the runtime of the <code>if</code> block plus
+the runtime of the <code>else</code> block (<span
+class="math inline">\(T_{\text{total}} \approx T_{\text{true}} +
+T_{\text{false}}\)</span>).</li>
+<li><strong>Reduced Hardware Utilization:</strong> Half or more of the
+processing cores allocated to a warp remain idle during branch
+execution, cutting compute throughput significantly.</li>
+<li><strong>Nested Conditional Penalties:</strong> Nesting multiple
+<code>if-else</code> blocks compounds the divergence exponentially,
+forcing threads through numerous serialized passes and destroying GPU
+acceleration benefits.</li>
+</ul>
+<p>If every thread in a warp evaluates the condition in the same
+direction (uniform branching), no divergence occurs, and performance
+remains high. The penalty only applies when threads within the same
+execution group disagree.</p>
+<h3 id="how-to-mitigate-divergence-in-gpujs">How to Mitigate Divergence
+in gpu.js</h3>
+<p>To preserve high throughput in gpu.js kernels, conditional logic
+should be avoided or refactored:</p>
+<ul>
+<li><strong>Arithmetic Replacement:</strong> Replace binary conditions
+with mathematical equivalents. Instead of branching to set values to
+zero, multiply results by zero or one using comparisons converted into
+numerical values.</li>
+<li><strong>Built-in Functions:</strong> Leverage GPU-friendly functions
+such as <code>Math.min()</code>, <code>Math.max()</code>, or GLSL-native
+equivalents like <code>clamp()</code> and <code>step()</code>, which are
+often implemented as single, branchless hardware instructions.</li>
+<li><strong>Data Pre-sorting:</strong> If conditional logic is
+unavoidable, pre-sort the input data on the CPU before passing it to the
+GPU. Grouping similar data together ensures that adjacent threads follow
+the same execution branch, eliminating divergence within warps.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

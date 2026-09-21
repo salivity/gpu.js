@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circular Hough Transform in GPU.js for Iris Detection - gpu.js</title>
+    <meta name="description" content="The Circular Hough Transform (CHT) is a foundational feature extraction technique used to detect circular patterns in digital images, making it ideal for pinpointing pupil and iris boundaries. Because 3D accumulator voting (covering center coordinates $x">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/circular-hough-transform-in-gpu-js-for-iris-detection">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Circular Hough Transform in GPU.js for Iris Detection - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/circular-hough-transform-in-gpu-js-for-iris-detection" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The Circular Hough Transform (CHT) is a foundational feature extraction technique used to detect circular patterns in digital images, making it ideal for pinpointing pupil and iris boundaries. Because 3D accumulator voting (covering center coordinates $x" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="circular-hough-transform-in-gpujs-for-iris-detection">Circular
+Hough Transform in GPU.js for Iris Detection</h1>
+<p>The Circular Hough Transform (CHT) is a foundational feature
+extraction technique used to detect circular patterns in digital images,
+making it ideal for pinpointing pupil and iris boundaries. Because 3D
+accumulator voting (covering center coordinates <span
+class="math inline">\(x, y\)</span> and radius <span
+class="math inline">\(r\)</span>) is computationally intensive in
+standard JavaScript, offloading this workload to the GPU via gpu.js
+allows for real-time execution in the browser or Node.js. This guide
+details the complete process of structuring and executing a
+hardware-accelerated Circular Hough Transform for ocular biometric
+extraction using gpu.js.</p>
+<h2 id="the-detection-pipeline">The Detection Pipeline</h2>
+<p>Detecting the iris and pupil follows a multi-stage computer vision
+pipeline:</p>
+<ol type="1">
+<li><strong>Preprocessing:</strong> Convert the input image to grayscale
+and apply a blur to suppress noise.</li>
+<li><strong>Edge Extraction:</strong> Run a Sobel or Canny filter to
+identify high-gradient boundary pixels.</li>
+<li><strong>Accumulator Voting:</strong> Map edge pixels into parameter
+space <span class="math inline">\((a, b, r)\)</span> where <span
+class="math inline">\((x - a)^2 + (y - b)^2 = r^2\)</span>.</li>
+<li><strong>Peak Selection:</strong> Locate the coordinates with the
+highest votes to determine the center and radius.</li>
+</ol>
+<p>Because the pupil is smaller and exhibits a starker dark-to-light
+boundary than the outer iris contour, detection is split into two
+targeted radius bands: a smaller radius range for the pupil (<span
+class="math inline">\(r_{min\_pupil}\)</span> to <span
+class="math inline">\(r_{max\_pupil}\)</span>) and a larger radius range
+for the iris (<span class="math inline">\(r_{min\_iris}\)</span> to
+<span class="math inline">\(r_{max\_iris}\)</span>).</p>
+<h2 id="preprocessing-edge-detection-kernel">Preprocessing: Edge
+Detection Kernel</h2>
+<p>Before voting, edges must be isolated. Using gpu.js, you can compute
+image gradients using a Sobel operator to generate a binary or
+thresholded edge map.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sobelKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(image<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">&lt;=</span> <span class="dv">0</span> <span class="op">||</span> x <span class="op">&gt;=</span> width <span class="op">-</span> <span class="dv">1</span> <span class="op">||</span> y <span class="op">&lt;=</span> <span class="dv">0</span> <span class="op">||</span> y <span class="op">&gt;=</span> height <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Sobel kernels</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gx <span class="op">=</span> </span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">2</span> <span class="op">*</span> image[y][x <span class="op">-</span> <span class="dv">1</span>]     <span class="op">+</span> <span class="dv">2</span> <span class="op">*</span> image[y][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gy <span class="op">=</span> </span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">-</span> <span class="dv">2</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x] <span class="op">-</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">-</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>] <span class="op">+</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>         <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">-</span> <span class="dv">1</span>] <span class="op">+</span> <span class="dv">2</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x] <span class="op">+</span> <span class="dv">1</span> <span class="op">*</span> image[y <span class="op">+</span> <span class="dv">1</span>][x <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> magnitude <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(gx <span class="op">*</span> gx <span class="op">+</span> gy <span class="op">*</span> gy)<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> magnitude <span class="op">&gt;</span> <span class="fl">0.3</span> <span class="op">?</span> <span class="fl">1.0</span> <span class="op">:</span> <span class="fl">0.0</span><span class="op">;</span> <span class="co">// Binary threshold</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<h2 id="circular-hough-transform-kernel">Circular Hough Transform
+Kernel</h2>
+<p>In traditional CPU approaches, every edge pixel votes for all
+possible center points along a circular trajectory. On the GPU, inverted
+mapping is more efficient: each thread represents a candidate center
+<span class="math inline">\((a, b)\)</span> for a fixed radius <span
+class="math inline">\(r\)</span> and evaluates how many edge pixels
+intersect its circumference.</p>
+<p>The kernel below computes the accumulator vote for a specific circle
+radius:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> houghVoteKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(edgeMap<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> radius<span class="op">,</span> numSamples) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> a <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// Candidate center X</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span> <span class="co">// Candidate center Y</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> votes <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> PI2 <span class="op">=</span> <span class="fl">6.28318530718</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> numSamples<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> theta <span class="op">=</span> (i <span class="op">/</span> numSamples) <span class="op">*</span> PI2<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> edgeX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(a <span class="op">+</span> radius <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(theta))<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> edgeY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(b <span class="op">+</span> radius <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(theta))<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (edgeX <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> edgeX <span class="op">&lt;</span> width <span class="op">&amp;&amp;</span> edgeY <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> edgeY <span class="op">&lt;</span> height) {</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (edgeMap[edgeY][edgeX] <span class="op">&gt;</span> <span class="fl">0.5</span>) {</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>                votes <span class="op">+=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> votes<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<h2 id="implementing-two-stage-detection">Implementing Two-Stage
+Detection</h2>
+<p>Because the pupil and iris are roughly concentric, you can optimize
+execution time by detecting the pupil first and narrowing the iris
+search space to the pupil's localized neighborhood.</p>
+<h3 id="1-pupil-detection">1. Pupil Detection</h3>
+<p>The pupil boundary has strong gradient contrast. Search within the
+pupil's expected radius range:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">detectPupil</span>(edgeMap<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> minR<span class="op">,</span> maxR<span class="op">,</span> stepR <span class="op">=</span> <span class="dv">1</span>) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> maxVotes <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> bestCircle <span class="op">=</span> { <span class="dt">x</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span> <span class="dt">y</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span> <span class="dt">r</span><span class="op">:</span> <span class="dv">0</span> }<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> numSamples <span class="op">=</span> <span class="dv">64</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> r <span class="op">=</span> minR<span class="op">;</span> r <span class="op">&lt;=</span> maxR<span class="op">;</span> r <span class="op">+=</span> stepR) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> accumulator <span class="op">=</span> <span class="fu">houghVoteKernel</span>(edgeMap<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> r<span class="op">,</span> numSamples)<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> votes <span class="op">=</span> accumulator[y][x]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> (votes <span class="op">&gt;</span> maxVotes) {</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>                    maxVotes <span class="op">=</span> votes<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>                    bestCircle <span class="op">=</span> { x<span class="op">,</span> y<span class="op">,</span> r }<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>                }</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> bestCircle<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="2-iris-detection">2. Iris Detection</h3>
+<p>The iris boundary is larger and often occluded by eyelids and
+eyelashes. Restrict the center coordinates <span
+class="math inline">\((a, b)\)</span> to within a small offset (e.g.,
+<span class="math inline">\(\pm 5\)</span> to <span
+class="math inline">\(10\)</span> pixels) of the detected pupil center
+to eliminate false positives:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">detectIris</span>(edgeMap<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> pupilCenter<span class="op">,</span> minR<span class="op">,</span> maxR<span class="op">,</span> stepR <span class="op">=</span> <span class="dv">2</span>) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> maxVotes <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> bestIris <span class="op">=</span> { <span class="dt">x</span><span class="op">:</span> pupilCenter<span class="op">.</span><span class="at">x</span><span class="op">,</span> <span class="dt">y</span><span class="op">:</span> pupilCenter<span class="op">.</span><span class="at">y</span><span class="op">,</span> <span class="dt">r</span><span class="op">:</span> minR }<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> numSamples <span class="op">=</span> <span class="dv">128</span><span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> centerTolerance <span class="op">=</span> <span class="dv">8</span><span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> r <span class="op">=</span> minR<span class="op">;</span> r <span class="op">&lt;=</span> maxR<span class="op">;</span> r <span class="op">+=</span> stepR) {</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> accumulator <span class="op">=</span> <span class="fu">houghVoteKernel</span>(edgeMap<span class="op">,</span> width<span class="op">,</span> height<span class="op">,</span> r<span class="op">,</span> numSamples)<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> minY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> pupilCenter<span class="op">.</span><span class="at">y</span> <span class="op">-</span> centerTolerance)<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> maxY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(height <span class="op">-</span> <span class="dv">1</span><span class="op">,</span> pupilCenter<span class="op">.</span><span class="at">y</span> <span class="op">+</span> centerTolerance)<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> minX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="dv">0</span><span class="op">,</span> pupilCenter<span class="op">.</span><span class="at">x</span> <span class="op">-</span> centerTolerance)<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> maxX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(width <span class="op">-</span> <span class="dv">1</span><span class="op">,</span> pupilCenter<span class="op">.</span><span class="at">x</span> <span class="op">+</span> centerTolerance)<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> minY<span class="op">;</span> y <span class="op">&lt;=</span> maxY<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> minX<span class="op">;</span> x <span class="op">&lt;=</span> maxX<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> votes <span class="op">=</span> accumulator[y][x]<span class="op">;</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>                <span class="cf">if</span> (votes <span class="op">&gt;</span> maxVotes) {</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>                    maxVotes <span class="op">=</span> votes<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>                    bestIris <span class="op">=</span> { x<span class="op">,</span> y<span class="op">,</span> r }<span class="op">;</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>                }</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> bestIris<span class="op">;</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Sampling Density:</strong> In <code>houghVoteKernel</code>,
+<code>numSamples</code> dictates the angular resolution. A value between
+64 and 128 balances precision with high frame rates.</li>
+<li><strong>Pipeline Memory Management:</strong> Ensure data remains on
+the GPU across operations by setting <code>pipeline: true</code> in the
+kernel options if chaining preprocessing kernels directly into the Hough
+accumulator.</li>
+<li><strong>Radius Step Size:</strong> Use an adaptive step size for the
+radius sweep. A step of 1 pixel is suitable for the pupil, while a step
+of 2 or 3 pixels accelerates the wider radius range required for the
+iris.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

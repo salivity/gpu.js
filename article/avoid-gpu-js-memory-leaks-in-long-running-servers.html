@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Avoid gpu.js Memory Leaks in Long-Running Servers - gpu.js</title>
+    <meta name="description" content="Running gpu.js in long-lived server environments like Node.js requires aggressive resource management to avoid fatal memory leaks. Because gpu.js relies on native WebGL bindings (such as headless-gl) to interface with physical hardware, standard V8 garba">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/avoid-gpu-js-memory-leaks-in-long-running-servers">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Avoid gpu.js Memory Leaks in Long-Running Servers - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/avoid-gpu-js-memory-leaks-in-long-running-servers" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running gpu.js in long-lived server environments like Node.js requires aggressive resource management to avoid fatal memory leaks. Because gpu.js relies on native WebGL bindings (such as headless-gl) to interface with physical hardware, standard V8 garba" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="avoid-gpujs-memory-leaks-in-long-running-servers">Avoid gpu.js
+Memory Leaks in Long-Running Servers</h1>
+<p>Running <code>gpu.js</code> in long-lived server environments like
+Node.js requires aggressive resource management to avoid fatal memory
+leaks. Because <code>gpu.js</code> relies on native WebGL bindings (such
+as <code>headless-gl</code>) to interface with physical hardware,
+standard V8 garbage collection cannot automatically track or deallocate
+native GPU memory. Ensuring long-term process stability requires
+explicitly destroying unused contexts, pooling compiled kernels,
+manually clearing texture data, and structuring execution cycles to
+isolate unmanaged native memory.</p>
+<h3 id="reuse-kernels-instead-of-recreating-them">Reuse Kernels Instead
+of Recreating Them</h3>
+<p>Compiling a kernel via <code>gpu.createKernel()</code> is an
+expensive operation that allocates native WebGL shaders and GPU-bound
+program buffers. A common anti-pattern in server routes is generating a
+new kernel per incoming request.</p>
+<p>Define kernels once at application startup or maintain an
+instantiated worker pool. Re-run calculations by passing new arguments
+to the existing kernel instance rather than instantiating new pipelines
+dynamically.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Good: Define once at startup</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span>])<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Inside request handler: reuse existing instance</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span><span class="fu">post</span>(<span class="st">&#39;/compute&#39;</span><span class="op">,</span> (req<span class="op">,</span> res) <span class="kw">=&gt;</span> {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> <span class="fu">renderKernel</span>(req<span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="at">data</span>)<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  res<span class="op">.</span><span class="fu">json</span>(<span class="bu">Array</span><span class="op">.</span><span class="fu">from</span>(result))<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="explicitly-destroy-dynamic-kernels">Explicitly Destroy Dynamic
+Kernels</h3>
+<p>If your application architecture strictly requires creating kernels
+on the fly (for example, with variable output sizes), you must manually
+release the native GPU resources. The JavaScript garbage collector only
+reclaims the wrapper object, leaving the native WebGL program loaded in
+GPU memory.</p>
+<p>Invoke the <code>.destroy()</code> method explicitly within a
+<code>try...finally</code> block to guarantee execution cleanup even
+when exceptions occur:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> dynamicKernel <span class="op">=</span> <span class="kw">null</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span> {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  dynamicKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(myFunction)<span class="op">.</span><span class="fu">setOutput</span>([dynamicSize])<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> <span class="fu">dynamicKernel</span>(payload)<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> result<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>} <span class="cf">finally</span> {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (dynamicKernel) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    dynamicKernel<span class="op">.</span><span class="fu">destroy</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// pass true to clean up sub-dependencies</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="clean-up-output-textures">Clean Up Output Textures</h3>
+<p>When operating in pipeline mode (<code>pipeline: true</code>),
+<code>gpu.js</code> returns an intermediate <code>Texture</code>
+instance instead of a flattened JavaScript array to keep memory on the
+GPU for chained calculations.</p>
+<p>Leaving these textures floating in memory without explicit
+deallocation creates rapid native memory accumulation. When you are done
+reading from or passing an intermediate texture, delete it directly:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> texture <span class="op">=</span> <span class="fu">chainedKernel</span>(data)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalResult <span class="op">=</span> <span class="fu">finalKernel</span>(texture)<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Explicitly free the intermediate GPU texture memory</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>texture<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="prevent-webgl-context-exhaustion">Prevent WebGL Context
+Exhaustion</h3>
+<p>The underlying <code>headless-gl</code> implementation enforces an
+operating-system-level cap on simultaneously active WebGL contexts
+(often between 8 and 16 contexts per process). Creating multiple
+<code>new GPU()</code> instances will quickly exhaust this limit,
+leading to silent calculation failures or unrecoverable context loss
+errors.</p>
+<p>Maintain a single global <code>GPU</code> instance across your entire
+Node.js runtime, or initialize a strictly regulated pool where instances
+are checked out and returned. When tearing down an entire
+<code>GPU</code> instance, call:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span></code></pre></div>
+<h3
+id="isolate-calculations-in-worker-threads-or-child-processes">Isolate
+Calculations in Worker Threads or Child Processes</h3>
+<p>V8's garbage collector triggers based on heap usage and remains
+unaware of off-heap V8 memory and GPU VRAM pressure. Consequently,
+Node.js may not initiate garbage collection cycles frequently enough to
+release native bindings before system memory saturates.</p>
+<p>Offloading <code>gpu.js</code> tasks to <code>worker_threads</code>
+or dedicated child processes offers the highest stability for
+long-running servers. Terminating a worker thread or recycling an
+isolated child process after a set number of operations forces the
+underlying operating system to instantly reclaim all allocated native
+WebGL contexts, eliminating leak risks entirely.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

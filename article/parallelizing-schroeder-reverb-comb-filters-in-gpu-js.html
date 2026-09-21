@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelizing Schroeder Reverb Comb Filters in gpu.js - gpu.js</title>
+    <meta name="description" content="Parallelizing the comb filter feedback loops of a Schroeder reverberator across audio channels in gpu.js is entirely possible and computationally efficient. While individual Infinite Impulse Response (IIR) feedback loops are inherently sequential over ti">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelizing-schroeder-reverb-comb-filters-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelizing Schroeder Reverb Comb Filters in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelizing-schroeder-reverb-comb-filters-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Parallelizing the comb filter feedback loops of a Schroeder reverberator across audio channels in gpu.js is entirely possible and computationally efficient. While individual Infinite Impulse Response (IIR) feedback loops are inherently sequential over ti" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="parallelizing-schroeder-reverb-comb-filters-in-gpujs">Parallelizing
+Schroeder Reverb Comb Filters in gpu.js</h1>
+<p>Parallelizing the comb filter feedback loops of a Schroeder
+reverberator across audio channels in gpu.js is entirely possible and
+computationally efficient. While individual Infinite Impulse Response
+(IIR) feedback loops are inherently sequential over time, the separate
+delay networks and independent audio channels in a Schroeder topology do
+not depend on one another. By assigning distinct audio channels and
+filter banks to independent GPU threads, developers can execute multiple
+comb filter loops concurrently using gpu.js kernels.</p>
+<h2 id="understanding-the-dependency-model">Understanding the Dependency
+Model</h2>
+<p>A classic Schroeder reverberator uses a bank of parallel feedback
+comb filters followed by a series of allpass filters. The discrete-time
+equation for a feedback comb filter is:</p>
+<p><span class="math display">\[y[n] = x[n] + g \cdot y[n -
+D]\]</span></p>
+<p>Because sample <span class="math inline">\(y[n]\)</span> depends
+directly on the delayed output sample <span class="math inline">\(y[n -
+D]\)</span>, parallelizing a single comb filter across the time axis
+(<span class="math inline">\(n\)</span>) is inefficient and requires
+complex parallel-scan algorithms.</p>
+<p>However, cross-channel and cross-filter parallelism does not have
+this limitation:</p>
+<ul>
+<li><strong>Filter Independence:</strong> Each of the four or more comb
+filters in the bank processes the input independently.</li>
+<li><strong>Channel Independence:</strong> Channel streams (such as
+Left, Right, Surround, or Ambisonic channels) process their own signals
+without cross-talk inside the comb filter bank.</li>
+</ul>
+<h2 id="parallelizing-across-channels-in-gpujs">Parallelizing Across
+Channels in gpu.js</h2>
+<p>In gpu.js, you execute operations across multi-dimensional thread
+grids using WebGL compute shaders. You can map the kernel output
+dimensions to handle channel and filter parallelization
+simultaneously.</p>
+<h3 id="thread-mapping-strategy">Thread Mapping Strategy</h3>
+<ol type="1">
+<li><strong>Kernel Dimensions:</strong> Configure the gpu.js kernel
+output size to match <code>[num_filters, num_channels]</code>. For a
+stereo Schroeder reverb using 4 comb filters, the thread grid size is
+<code>[4, 2]</code>.</li>
+<li><strong>Sequential Time Execution Inside the Kernel:</strong> Each
+thread handles the entire time buffer for one specific comb filter on
+one specific channel. The thread reads the delay length <span
+class="math inline">\(D\)</span> and feedback gain <span
+class="math inline">\(g\)</span>, then runs a sequential loop through
+the time array:</li>
+</ol>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> processCombFilters <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(audioInputs<span class="op">,</span> delayLengths<span class="op">,</span> gains<span class="op">,</span> bufferSize) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> filterIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> channelIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> delay <span class="op">=</span> delayLengths[filterIdx]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gain <span class="op">=</span> gains[filterIdx]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Allocate local ring buffer logic or state array access</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Each thread sequentially calculates:</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// y[n] = audioInputs[channelIdx][n] + gain * history[n - delay]</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Returns the processed sample buffer for this specific filter and channel</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [<span class="dv">4</span><span class="op">,</span> <span class="dv">2</span>] <span class="co">// 4 comb filters, 2 channels</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>Because each thread runs independently on the GPU, all 8 filter
+computations execute concurrently. Once complete, a secondary summation
+kernel can add the outputs of the parallel comb filters together before
+routing them into the series allpass filters.</p>
+<h2 id="performance-and-architecture-considerations">Performance and
+Architecture Considerations</h2>
+<h3 id="memory-transfers-and-latency">Memory Transfers and Latency</h3>
+<p>While gpu.js accelerates parallel processing, moving sample buffers
+between the CPU (RAM) and GPU (VRAM) creates measurable overhead. For
+standard real-time low-latency stereo audio (e.g., 128-sample buffer
+sizes in standard Web Audio contexts), the bus transfer latency often
+outweighs GPU compute gains.</p>
+<h3 id="scaling-thresholds">Scaling Thresholds</h3>
+<p>GPU parallelization becomes advantageous under specific
+conditions:</p>
+<ul>
+<li><strong>High Channel Counts:</strong> Multichannel setups such as
+7.1.4 Dolby Atmos, higher-order ambisonics, or spatial audio
+installations with dozens of concurrent sources.</li>
+<li><strong>Offline Rendering:</strong> Batch processing large audio
+files or pre-rendering impulse responses.</li>
+<li><strong>Massive Filter Banks:</strong> Extended reverberator designs
+containing dozens or hundreds of parallel feedback loops rather than the
+classic 4-comb configuration.</li>
+</ul>
+<p>Using gpu.js for Schroeder comb filter banks is architecturally sound
+across channels and filter indices. The key to maintaining high
+throughput is ensuring each thread computes the time-series feedback
+loop internally, avoiding fine-grained synchronization across time
+steps.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

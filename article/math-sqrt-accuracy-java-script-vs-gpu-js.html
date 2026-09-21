@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Math.sqrt Accuracy: JavaScript vs gpu.js - gpu.js</title>
+    <meta name="description" content="When computing square roots in standard JavaScript compared to gpu.js, developers encounter measurable discrepancies in numerical precision, rounding behavior, and cross-platform consistency. Standard JavaScript executes Math.sqrt on the CPU using 64-bit">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/math-sqrt-accuracy-java-script-vs-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Math.sqrt Accuracy: JavaScript vs gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/math-sqrt-accuracy-java-script-vs-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When computing square roots in standard JavaScript compared to gpu.js, developers encounter measurable discrepancies in numerical precision, rounding behavior, and cross-platform consistency. Standard JavaScript executes Math.sqrt on the CPU using 64-bit" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="mathsqrt-accuracy-javascript-vs-gpujs">Math.sqrt Accuracy:
+JavaScript vs gpu.js</h1>
+<p>When computing square roots in standard JavaScript compared to
+gpu.js, developers encounter measurable discrepancies in numerical
+precision, rounding behavior, and cross-platform consistency. Standard
+JavaScript executes <code>Math.sqrt</code> on the CPU using 64-bit
+double-precision floating-point arithmetic, whereas gpu.js compiles
+kernel functions into WebGL shaders that typically evaluate operations
+using 32-bit single-precision floating-point units. This guide breaks
+down the core technical differences between the two implementations, why
+numerical drift occurs, and how it impacts computational results.</p>
+<h3 id="64-bit-vs-32-bit-floating-point-precision">64-Bit vs. 32-Bit
+Floating-Point Precision</h3>
+<p>The primary driver of accuracy differences is data width. Standard
+JavaScript engines (such as V8 or SpiderMonkey) represent all standard
+numbers as 64-bit IEEE 754 double-precision floats (<code>f64</code>). A
+double-precision float dedicates 53 bits to the significand (mantissa),
+providing roughly 15 to 17 significant decimal digits of precision.</p>
+<p>In contrast, gpu.js runs code on the GPU by translating functions
+into GLSL (OpenGL Shading Language) shaders. WebGL generally operates on
+32-bit single-precision floats (<code>f32</code>), even when
+<code>highp</code> (high precision) qualifiers are declared. A 32-bit
+float allocates only 24 bits to the significand, limiting numerical
+precision to approximately 6 to 9 significant decimal digits.
+Consequently, <code>Math.sqrt</code> in gpu.js truncates lower-order
+bits that standard JavaScript preserves, leading to rounding
+discrepancies beyond the sixth or seventh decimal place.</p>
+<h3 id="algorithmic-and-hardware-approximation">Algorithmic and Hardware
+Approximation</h3>
+<p>CPU and GPU silicon handle mathematical instructions differently at
+the microarchitectural level:</p>
+<ul>
+<li><strong>CPU Execution:</strong> Modern x86 and ARM processors use
+dedicated mathematical instructions (like <code>SQRTSD</code> on x86)
+that adhere strictly to IEEE 754-2008 specifications, ensuring correct
+rounding (typically round-to-nearest, ties to even) across all edge
+cases.</li>
+<li><strong>GPU Execution:</strong> Graphics processing units prioritize
+parallel throughput and rendering speed over strict IEEE compliance. In
+WebGL/GLSL, <code>sqrt()</code> is frequently computed using
+hardware-level reciprocal square root units followed by limited
+Newton-Raphson approximation steps. These hardware intrinsic functions
+may sacrifice the least significant bits to maximize processing
+speed.</li>
+</ul>
+<h3 id="cross-platform-determinism">Cross-Platform Determinism</h3>
+<p>Standard JavaScript's <code>Math.sqrt</code> yields deterministic
+results across nearly all modern operating systems and CPU
+architectures. However, gpu.js depends entirely on the underlying
+graphics hardware and driver implementation:</p>
+<ul>
+<li>Different GPU vendors (NVIDIA, AMD, Intel, Apple Silicon) implement
+different native approximations and subnormal number handling in their
+shader cores.</li>
+<li>Mobile chipsets often downgrade precision to <code>mediump</code>
+(16-bit half-precision) if <code>highp</code> is not fully supported in
+the target WebGL context, drastically reducing <code>Math.sqrt</code>
+accuracy to roughly 3 to 4 decimal digits.</li>
+<li>The exact result of a gpu.js <code>Math.sqrt</code> calculation can
+vary from one machine to another, whereas the CPU JavaScript result
+remains stable.</li>
+</ul>
+<h3 id="practical-impact">Practical Impact</h3>
+<p>For machine learning, graphics rendering, particle simulations, and
+image processing, the accuracy trade-off of gpu.js is negligible
+compared to the massive performance gains of parallel execution.
+However, for applications requiring high numerical stability—such as
+cryptographic primitives, coordinate geometry with extreme scale
+factors, or financial modeling—the 32-bit limit and vendor-specific
+approximations of gpu.js will introduce cumulative drift compared to
+standard JavaScript.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

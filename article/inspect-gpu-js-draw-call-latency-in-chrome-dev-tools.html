@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inspect gpu.js Draw Call Latency in Chrome DevTools - gpu.js</title>
+    <meta name="description" content="This guide details how to leverage the Chrome DevTools Performance panel to detect, measure, and minimize draw call latency in gpu.js applications. By capturing and analyzing runtime profiles, developers can inspect the handoff between JavaScript executi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/inspect-gpu-js-draw-call-latency-in-chrome-dev-tools">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Inspect gpu.js Draw Call Latency in Chrome DevTools - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/inspect-gpu-js-draw-call-latency-in-chrome-dev-tools" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide details how to leverage the Chrome DevTools Performance panel to detect, measure, and minimize draw call latency in gpu.js applications. By capturing and analyzing runtime profiles, developers can inspect the handoff between JavaScript executi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="inspect-gpujs-draw-call-latency-in-chrome-devtools">Inspect
+gpu.js Draw Call Latency in Chrome DevTools</h1>
+<p>This guide details how to leverage the Chrome DevTools Performance
+panel to detect, measure, and minimize draw call latency in gpu.js
+applications. By capturing and analyzing runtime profiles, developers
+can inspect the handoff between JavaScript execution on the main thread
+and shader processing on the GPU. You will learn how to configure
+DevTools for GPU profiling, identify gpu.js execution phases, and
+isolate bottlenecks such as synchronous texture readbacks and pipeline
+stalls.</p>
+<h3 id="1-configure-the-devtools-performance-panel">1. Configure the
+DevTools Performance Panel</h3>
+<p>To capture accurate timing metrics for WebGL-based operations
+executed by gpu.js, the DevTools environment must be properly
+configured:</p>
+<ol type="1">
+<li>Open Chrome DevTools (<code>F12</code> or <code>Ctrl+Shift+I</code>
+/ <code>Cmd+Option+I</code>).</li>
+<li>Navigate to the <strong>Performance</strong> tab.</li>
+<li>Click the <strong>Capture settings</strong> (gear icon) in the
+top-right corner.</li>
+<li>Enable <strong>Advanced paint instrumentation (slow)</strong>. While
+this adds minor overhead, it provides deeper visibility into
+rasterization and rendering events.</li>
+<li>Optional: Under <strong>CPU</strong>, select <strong>4x
+slowdown</strong> or <strong>6x slowdown</strong> if you need to
+simulate performance on lower-tier hardware.</li>
+</ol>
+<h3 id="2-record-the-kernel-execution">2. Record the Kernel
+Execution</h3>
+<p>To isolate the latency of a gpu.js kernel:</p>
+<ol type="1">
+<li>Click the <strong>Record</strong> button (the solid circle) in the
+Performance panel.</li>
+<li>Trigger the gpu.js kernel run in your application (for example,
+clicking a button or letting an animation loop complete a few
+cycles).</li>
+<li>Click <strong>Stop</strong> once the kernel execution finishes.</li>
+<li>Allow DevTools to finish processing the profile trace.</li>
+</ol>
+<h3 id="3-locate-the-main-thread-javascript-calls">3. Locate the Main
+Thread JavaScript Calls</h3>
+<p>In the generated trace, locate the <strong>Main</strong> thread track
+to inspect how the CPU issues instructions to the GPU:</p>
+<ul>
+<li><strong>Identify the Call Stack:</strong> Look for your custom
+JavaScript function calling the gpu.js kernel. Underneath it, gpu.js
+will invoke internal WebGL functions.</li>
+<li><strong>Locate WebGL Dispatches:</strong> Zoom in (using the
+<code>W</code> and <code>S</code> keys) on the kernel execution block.
+Look for low-level WebGL API calls such as <code>drawArrays</code>,
+<code>drawElements</code>, <code>useProgram</code>, and
+<code>bindTexture</code>.</li>
+<li><strong>Measure Dispatch Duration:</strong> The total width of the
+JavaScript block containing these calls represents the CPU overhead
+required to set up parameters, uniforms, and dispatch the draw
+command.</li>
+</ul>
+<h3 id="4-inspect-the-gpu-track">4. Inspect the GPU Track</h3>
+<p>Scroll to the <strong>GPU</strong> track, situated beneath or
+alongside the Main and Compositor tracks:</p>
+<ul>
+<li><strong>GPU Activity Blocks:</strong> The green blocks in the GPU
+track indicate when the GPU hardware is actively processing
+commands.</li>
+<li><strong>Measuring Draw Call Latency:</strong> Check the interval
+between the moment the main thread issues the WebGL draw call (e.g.,
+<code>gl.drawArrays</code>) and when the corresponding GPU block
+finishes processing. The time gap between dispatch and completion is
+your total latency.</li>
+<li><strong>Pipeline Stalls:</strong> If there is an extensive gap where
+the CPU is waiting and the GPU shows no activity, the pipeline may be
+waiting for resource uploads, compilation, or context switches.</li>
+</ul>
+<h3 id="5-identify-synchronous-readback-bottlenecks">5. Identify
+Synchronous Readback Bottlenecks</h3>
+<p>The most common cause of high latency in gpu.js is retrieving data
+back to the CPU:</p>
+<ul>
+<li>Look for calls to <code>gl.readPixels</code> or gpu.js functions
+that convert textures back to arrays (e.g., returning numeric arrays
+instead of texture outputs).</li>
+<li><code>gl.readPixels</code> forces synchronous CPU-GPU
+synchronization, blocking the Main thread completely until the GPU
+finishes all queued commands and returns the pixel data.</li>
+<li>If a prominent red marker appears in the Main thread over these
+calls, the thread is blocked waiting for the GPU.</li>
+</ul>
+<h3 id="6-interpret-results-to-optimize-gpujs-performance">6. Interpret
+Results to Optimize gpu.js Performance</h3>
+<ul>
+<li><strong>Long CPU Duration, Short GPU Duration:</strong> The overhead
+of setting up the kernel and parsing input arrays outweighs the actual
+parallel computation. Mitigate this by passing textures directly into
+kernels (<code>pipeline: true</code>) instead of raw JavaScript
+arrays.</li>
+<li><strong>Long GPU Execution:</strong> The kernel computation itself
+is heavy. Optimize shader logic, reduce output dimensions, or decrease
+loop iterations inside the kernel.</li>
+<li><strong>Frequent Main Thread Stalls:</strong> Keep computations on
+the GPU by chaining multiple kernels together using texture outputs,
+deferring CPU readback until the final calculation step.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

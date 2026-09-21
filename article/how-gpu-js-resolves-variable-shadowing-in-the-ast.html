@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Resolves Variable Shadowing in the AST - gpu.js</title>
+    <meta name="description" content="This article explains the mechanism through which gpu.js handles variable scope shadowing within nested JavaScript blocks during its transpilation to shader languages such as GLSL. Because JavaScript allows lexical re-declarations using let and const ins">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-resolves-variable-shadowing-in-the-ast">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Resolves Variable Shadowing in the AST - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-resolves-variable-shadowing-in-the-ast" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains the mechanism through which gpu.js handles variable scope shadowing within nested JavaScript blocks during its transpilation to shader languages such as GLSL. Because JavaScript allows lexical re-declarations using let and const ins" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-resolves-variable-shadowing-in-the-ast">How gpu.js
+Resolves Variable Shadowing in the AST</h1>
+<p>This article explains the mechanism through which gpu.js handles
+variable scope shadowing within nested JavaScript blocks during its
+transpilation to shader languages such as GLSL. Because JavaScript
+allows lexical re-declarations using <code>let</code> and
+<code>const</code> inside inner blocks, while target GPU environments
+require explicit and unambiguous variable resolution, gpu.js utilizes an
+Abstract Syntax Tree (AST) parser alongside a visitor-based symbol
+management system. Through hierarchical scope stack tracking, identifier
+lookup ordering, and identifier mangling, gpu.js ensures that shadowed
+inner-scope variables do not conflict with or overwrite outer-scope
+declarations in the final compiled GPU kernel.</p>
+<h3 id="the-problem-of-shadowing-across-transpilation-targets">The
+Problem of Shadowing Across Transpilation Targets</h3>
+<p>In modern JavaScript, declaring a variable with the same identifier
+in an inner block creates a shadowed variable:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> x <span class="op">=</span> <span class="dv">10</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (condition) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> x <span class="op">=</span> <span class="dv">20</span><span class="op">;</span> <span class="co">// Shadows the outer x</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Target shading languages, such as WebGL's GLSL (specifically versions
+targeting WebGL 1.0/2.0), handle variable scope and re-declarations more
+rigidly. Certain GPU drivers exhibit inconsistencies when compiling
+shaders with nested re-declarations of identical names, and register
+allocation in low-level shader compilers can lead to undefined behavior
+or compile-time failures. To address this, the AST engine in gpu.js must
+normalize and resolve scoping before outputting shader code.</p>
+<h3 id="lexical-scope-tracking-via-the-scope-stack">Lexical Scope
+Tracking via the Scope Stack</h3>
+<p>When a kernel function is passed to gpu.js, the library parses the
+function string into an AST using a JavaScript parser (such as Acorn).
+Transpilation relies on internal compiler classes—principally extending
+<code>WebGLFunctionNode</code>—to traverse the syntax nodes.</p>
+<ol type="1">
+<li><strong>Entering Blocks:</strong> When the AST walker encounters
+block-inducing nodes (e.g., <code>BlockStatement</code>,
+<code>ForStatement</code>, <code>FunctionDeclaration</code>), a new
+scope frame is pushed onto a lexical scope stack.</li>
+<li><strong>Recording Declarations:</strong> When a
+<code>VariableDeclaration</code> node is parsed, the declared
+identifiers are added directly to the current (top-most) frame on the
+scope stack along with their inferred or explicit types.</li>
+<li><strong>Exiting Blocks:</strong> Upon finishing the traversal of a
+block's child nodes, the current scope frame is popped, discarding the
+local visibility of those identifiers for subsequent sibling
+statements.</li>
+</ol>
+<h3 id="identifying-shadowed-declarations">Identifying Shadowed
+Declarations</h3>
+<p>During the traversal of a <code>VariableDeclaration</code>, the
+compiler queries the scope stack to see if the declared identifier
+already exists in any enclosing (parent) frame:</p>
+<ul>
+<li>If the identifier exists in the current scope frame, the parser
+treats it as an invalid re-declaration (consistent with JavaScript’s
+<code>let</code>/<code>const</code> rules).</li>
+<li>If the identifier exists only in an outer scope frame, a shadowing
+condition is detected.</li>
+</ul>
+<h3 id="disambiguation-and-name-mangling">Disambiguation and Name
+Mangling</h3>
+<p>Once a shadowed variable is identified, gpu.js prevents naming
+collisions in the generated GLSL by applying a renaming transformation
+(name mangling):</p>
+<ul>
+<li><strong>Unique Suffix Assignment:</strong> The inner variable is
+assigned a unique generated identifier, typically formed by appending a
+counter, block index, or scope-depth identifier (for example,
+transforming an inner <code>x</code> into <code>x_1</code> or
+<code>_gpu_x</code>).</li>
+<li><strong>Symbol Mapping:</strong> The transformed identifier is
+mapped to the current scope frame. Any subsequent
+<code>Identifier</code> node evaluated within that nested block checks
+the active scope hierarchy from top to bottom (innermost to
+outermost).</li>
+<li><strong>Target Mapping:</strong> The lookup resolves to the nearest
+declaration, which now maps to the uniquely mangled identifier.</li>
+</ul>
+<h3 id="reference-resolution-and-glsl-output">Reference Resolution and
+GLSL Output</h3>
+<p>When AST expressions referencing identifiers (such as
+<code>BinaryExpression</code> or <code>AssignmentExpression</code>) are
+visited, the compiler runs an identifier resolution algorithm:</p>
+<ol type="1">
+<li>The compiler traverses the scope stack from the innermost frame
+outward.</li>
+<li>It selects the first matching entry, ensuring standard lexical scope
+resolution order.</li>
+<li>The identifier in the generated GLSL abstract tree or output buffer
+is replaced with the corresponding unique or mangled name.</li>
+</ol>
+<p>Through this scope-stack-driven traversal and automatic identifier
+renaming, gpu.js flattens nested lexical scopes safely, producing valid,
+deterministic GLSL that strictly mirrors the original JavaScript scoping
+semantics.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

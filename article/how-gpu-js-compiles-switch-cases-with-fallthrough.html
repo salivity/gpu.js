@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Compiles Switch Cases with Fallthrough - gpu.js</title>
+    <meta name="description" content="This article examines how the gpu.js compiler translates JavaScript switch-case statements that use fallthrough behavior into GPU-compatible shader code. Because target shading languages like GLSL either lack native switch support or strictly disallow fa">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-switch-cases-with-fallthrough">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Compiles Switch Cases with Fallthrough - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-switch-cases-with-fallthrough" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the gpu.js compiler translates JavaScript switch-case statements that use fallthrough behavior into GPU-compatible shader code. Because target shading languages like GLSL either lack native switch support or strictly disallow fa" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-compiles-switch-cases-with-fallthrough">How GPU.js
+Compiles Switch Cases with Fallthrough</h1>
+<p>This article examines how the gpu.js compiler translates JavaScript
+<code>switch-case</code> statements that use fallthrough behavior into
+GPU-compatible shader code. Because target shading languages like GLSL
+either lack native <code>switch</code> support or strictly disallow
+fallthrough between non-empty cases, gpu.js employs an AST-level
+desugaring strategy. It transforms switch statements into sequential
+conditional blocks regulated by synthetic state-tracking flags, ensuring
+that JavaScript's dynamic fallthrough semantics execute predictably on
+parallel GPU hardware.</p>
+<h2 id="the-target-language-constraint">The Target Language
+Constraint</h2>
+<p>To understand the compilation strategy of gpu.js, one must first
+understand the limitations of its compilation target: OpenGL Shading
+Language (GLSL) for WebGL.</p>
+<p>In WebGL 1.0 (GLSL ES 1.00), the <code>switch</code> statement does
+not exist at all. In WebGL 2.0 (GLSL ES 3.00), <code>switch</code>
+statements exist, but the specification explicitly forbids fallthrough
+from one non-empty case block to another. If a case contains statements,
+it must end in an explicit jump like <code>break</code> or
+<code>return</code>. As a result, direct, one-to-one mapping from
+JavaScript's flexible switch fallthrough into native GLSL switch
+constructs is syntactically invalid across WebGL runtimes.</p>
+<h2 id="ast-desugaring-and-state-flag-emulation">AST Desugaring and
+State Flag Emulation</h2>
+<p>gpu.js resolves this discrepancy during its Abstract Syntax Tree
+(AST) parsing phase. Rather than emitting a hardware-native
+<code>switch</code>, the compiler desugars the JavaScript
+<code>SwitchStatement</code> into a flattened series of conditional
+statements governed by a boolean state variable.</p>
+<p>When the compiler encounters a switch block, it performs the
+following steps:</p>
+<ol type="1">
+<li><strong>Discriminant Caching:</strong> The switch expression (the
+discriminant) is evaluated once and assigned to an internal, temporary
+variable to prevent repeated evaluation side effects.</li>
+<li><strong>Flag Declaration:</strong> The compiler declares an internal
+boolean state flag (effectively a <code>matchFound</code> or
+<code>fallthrough</code> tracker) initialized to
+<code>false</code>.</li>
+<li><strong>Conditional Cascades:</strong> Each <code>SwitchCase</code>
+node is converted into an independent <code>if</code> block. Instead of
+relying solely on equality checks against the discriminant, the
+conditional check tests whether the fallthrough flag is already
+<code>true</code> OR if the discriminant equals the current case
+expression.</li>
+<li><strong>Flag Latching:</strong> Inside the case body, the flag is
+latched to <code>true</code>. This ensures that if this case executed,
+any subsequent case bodies will automatically evaluate as true,
+replicating JavaScript's fallthrough behavior.</li>
+</ol>
+<h2 id="handling-the-break-statement">Handling the <code>break</code>
+Statement</h2>
+<p>In native JavaScript, fallthrough continues sequentially until a
+<code>break</code> or <code>return</code> statement is encountered. In
+the transpiled GLSL output, standard <code>break</code> keywords cannot
+simply be retained if they are no longer inside an actual loop or native
+switch block.</p>
+<p>To handle <code>break</code> semantics within the desugared cascade,
+gpu.js applies one of two patterns depending on the backend
+pipeline:</p>
+<ul>
+<li><strong>Flag Resetting:</strong> The transpiler treats a
+<code>break</code> statement as an instruction to clear the fallthrough
+state or bypass the remaining case checks, often by wrapping the switch
+logic in a single-iteration execution block or tracking an active
+execution state.</li>
+<li><strong>Control-Flow Wrapping:</strong> The desugared sequence is
+enclosed within a single-iteration <code>do-while(false)</code> loop or
+labeled block. Inside this container, a <code>break</code> statement
+becomes syntactically valid in GLSL and immediately jumps to the end of
+the entire switch structure, terminating any active fallthrough
+instantly.</li>
+</ul>
+<h2 id="default-case-positioning-and-execution">Default Case Positioning
+and Execution</h2>
+<p>The <code>default</code> clause introduces an additional layer of
+complexity when fallthrough is present, especially if placed before
+standard <code>case</code> labels. gpu.js handles this by tracking
+whether any prior case matched before entering the default block, while
+still maintaining the fallthrough flag to allow execution to spill
+downward into lower cases if the default clause does not end in a
+<code>break</code>.</p>
+<h2 id="performance-implications-on-the-gpu">Performance Implications on
+the GPU</h2>
+<p>While this emulation strategy guarantees functional parity with the
+ECMAScript specification, it introduces control flow divergence at the
+hardware level. On SIMD/SIMT architectures, GPUs process threads in
+lockstep warps or wavefronts. Converting fallthrough switch structures
+into sequential conditional checks with boolean state dependencies can
+lead to branch divergence, where threads in the same warp must execute
+both sides of disabled branches, increasing execution latency compared
+to flat mathematical mapping or pure <code>if-else</code> trees.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

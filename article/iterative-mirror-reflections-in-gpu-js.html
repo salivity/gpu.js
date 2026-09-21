@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iterative Mirror Reflections in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to approximate recursive mirror reflections in gpu.js by converting recursion into unrolled, iterative ray-tracing steps. Because WebGL and GPU hardware generally prohibit recursive call stacks, ray tracers running in gpu.js can">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/iterative-mirror-reflections-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Iterative Mirror Reflections in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/iterative-mirror-reflections-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to approximate recursive mirror reflections in gpu.js by converting recursion into unrolled, iterative ray-tracing steps. Because WebGL and GPU hardware generally prohibit recursive call stacks, ray tracers running in gpu.js can" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="iterative-mirror-reflections-in-gpujs">Iterative Mirror
+Reflections in gpu.js</h1>
+<p>This article explains how to approximate recursive mirror reflections
+in gpu.js by converting recursion into unrolled, iterative ray-tracing
+steps. Because WebGL and GPU hardware generally prohibit recursive call
+stacks, ray tracers running in gpu.js cannot use traditional recursive
+functions to trace bouncing light. Instead, developers can achieve
+photorealistic multi-bounce reflections by employing a bounded iterative
+loop that advances ray states step by step across consecutive surface
+intersections.</p>
+<h3 id="the-gpu-recursion-limitation">The GPU Recursion Limitation</h3>
+<p>Graphics hardware is designed for massive parallelism rather than
+complex control flow. In standard WebGL—the underlying compilation
+target for gpu.js—functions cannot call themselves recursively because
+shaders do not maintain a dynamic execution stack. Writing a recursive
+function in a gpu.js kernel will either cause a transpilation error or
+result in invalid GLSL that fails shader compilation.</p>
+<h3 id="the-iterative-approximation">The Iterative Approximation</h3>
+<p>A recursive reflection algorithm calculates light by casting a
+primary ray, finding the intersection point, and recursively calling the
+ray-tracing function with a new reflected direction. Physically, this
+represents a linear sequence of events for a single photon path:</p>
+<ol type="1">
+<li>Intersect a surface.</li>
+<li>Calculate the reflection angle using the surface normal.</li>
+<li>Attenuate the ray energy by the material's reflectivity.</li>
+<li>Repeat for subsequent surfaces until energy dissipates or an
+environment boundary is hit.</li>
+</ol>
+<p>Because each bounce depends only on the output state of the previous
+bounce, this linear chain does not require a call tree. It can be fully
+simulated using a fixed-iteration loop that updates ray properties in
+place.</p>
+<h3 id="implementation-mechanics-in-gpujs">Implementation Mechanics in
+gpu.js</h3>
+<p>To approximate multi-bounce reflections iteratively, maintain the
+state of the ray throughout the kernel execution:</p>
+<ol type="1">
+<li><strong>Ray State Variables:</strong> Declare variables for current
+ray origin, ray direction, accumulated color, and the throughput mask
+(color attenuation).</li>
+<li><strong>Fixed-Count Loop:</strong> Use a standard <code>for</code>
+loop with a constant maximum depth (for example, 3 to 8 iterations).
+Gpu.js can translate this into a bounded GLSL loop or an unrolled
+sequence of instructions.</li>
+<li><strong>Intersection and Normal Calculation:</strong> In each
+iteration, test the current ray against the scene geometry to find the
+nearest hit point. If no hit occurs, sample the background/skybox color,
+multiply it by the throughput mask, add it to the accumulated color, and
+break the loop.</li>
+<li><strong>Reflection Vector:</strong> If a reflective surface is
+struck, compute the reflection vector using the formula: <span
+class="math display">\[R = D - 2(D \cdot N)N\]</span> where <span
+class="math inline">\(D\)</span> is the normalized incident ray
+direction and <span class="math inline">\(N\)</span> is the surface
+normal.</li>
+<li><strong>Ray Update and Offset:</strong> Set the new ray direction to
+<span class="math inline">\(R\)</span>. Update the ray origin to the
+intersection point, adding a small floating-point epsilon along the
+normal vector (<span class="math inline">\(O_{new} = P + N \times
+0.001\)</span>) to prevent self-intersection artifacts known as surface
+acne.</li>
+<li><strong>Energy Attenuation:</strong> Multiply the throughput mask by
+the surface's specular color or reflection coefficient.</li>
+</ol>
+<h3 id="performance-and-precision">Performance and Precision</h3>
+<p>Unrolling the iterative loop or keeping the iteration count bounded
+guarantees that the shader compiler knows execution limits at compile
+time. Higher bounce counts improve optical accuracy inside mirror mazes
+or between parallel reflectors, but each additional step increases the
+instruction count and register pressure within the kernel. For most
+real-time WebGL applications written with gpu.js, setting the loop limit
+between 3 and 5 bounces provides convincing recursive mirror reflections
+without degrading frame rates.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

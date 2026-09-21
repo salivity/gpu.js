@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapping Molecular Electrostatic Potential with GPU.js - gpu.js</title>
+    <meta name="description" content="Molecular electrostatic potential (MEP) grids are critical tools in drug discovery for evaluating charge distributions, predicting binding affinities, and understanding ligand-receptor interactions. By leveraging GPU.js, an open-source JavaScript library">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/mapping-molecular-electrostatic-potential-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Mapping Molecular Electrostatic Potential with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/mapping-molecular-electrostatic-potential-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Molecular electrostatic potential (MEP) grids are critical tools in drug discovery for evaluating charge distributions, predicting binding affinities, and understanding ligand-receptor interactions. By leveraging GPU.js, an open-source JavaScript library" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="mapping-molecular-electrostatic-potential-with-gpujs">Mapping
+Molecular Electrostatic Potential with GPU.js</h1>
+<p>Molecular electrostatic potential (MEP) grids are critical tools in
+drug discovery for evaluating charge distributions, predicting binding
+affinities, and understanding ligand-receptor interactions. By
+leveraging GPU.js, an open-source JavaScript library that transpiles
+standard JavaScript into WebGL shaders, developers and computational
+chemists can calculate and map these 3D electrostatic potential grids
+directly in a web browser or Node.js runtime. This approach enables
+rapid, client-side spatial calculations without requiring native CUDA
+setups or high-performance remote computing clusters.</p>
+<h3 id="the-computational-principle-of-mep">The Computational Principle
+of MEP</h3>
+<p>The electrostatic potential <span
+class="math inline">\(V(\mathbf{r})\)</span> at any spatial point <span
+class="math inline">\(\mathbf{r}\)</span> around a molecule can be
+approximated classically using Coulomb’s Law:</p>
+<p><span class="math display">\[V(\mathbf{r}) = \sum_{i=1}^{N}
+\frac{q_i}{4 \pi \varepsilon_0 |\mathbf{r} - \mathbf{r}_i|}\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(N\)</span> is the total number of atoms
+in the molecule.</li>
+<li><span class="math inline">\(q_i\)</span> represents the partial
+atomic charge of atom <span class="math inline">\(i\)</span>.</li>
+<li><span class="math inline">\(\mathbf{r}_i\)</span> is the position
+coordinate of atom <span class="math inline">\(i\)</span>.</li>
+<li><span class="math inline">\(\varepsilon_0\)</span> is the vacuum
+permittivity constant.</li>
+</ul>
+<p>Mapping an MEP involves evaluating this formula across a discrete 3D
+bounding box (grid) surrounding the drug molecule. A typical grid of
+<span class="math inline">\(100 \times 100 \times 100\)</span> points
+requires one million potential evaluations, each iterating over every
+atom in the molecule. Because every grid point calculation is
+independent of the others, this problem is embarrassingly parallel,
+making it an ideal candidate for GPU acceleration.</p>
+<h3 id="how-gpujs-accelerates-mep-calculations">How GPU.js Accelerates
+MEP Calculations</h3>
+<p>GPU.js bridges the gap between high-level web applications and the
+graphical processing hardware. It accepts standard JavaScript functions,
+compiles them into GLSL (OpenGL Shading Language) on the fly, and runs
+them across the GPU’s parallel execution units.</p>
+<p>To map MEP grids with GPU.js:</p>
+<ol type="1">
+<li><strong>Data Preparation</strong>: A drug molecule's 3D coordinates
+(<span class="math inline">\(x, y, z\)</span>) and partial atomic
+charges (such as those generated via Gasteiger, AM1-BCC, or RESP
+methods) are flattened into numerical arrays.</li>
+<li><strong>Grid Construction</strong>: The boundaries of the drug
+molecule are established, adding a padding distance (typically 4 to 8
+Ångströms) to encompass the solvent-accessible surface. The 3D grid
+resolution (e.g., 0.5 Å spacing) dictates the output dimensions.</li>
+<li><strong>Kernel Execution</strong>: A GPU.js kernel is instantiated
+with the dimensions of the grid. Inside the kernel, each thread computes
+the potential at a specific coordinate <span class="math inline">\((x,
+y, z)\)</span> by summing the Coulombic contributions of all atoms.</li>
+<li><strong>Data Retrieval and Visualization</strong>: The resulting 3D
+scalar field can either be extracted as a typed array or piped directly
+into WebGL renderers (such as Three.js) to generate isocontour surfaces
+or color-mapped van der Waals envelopes.</li>
+</ol>
+<h3 id="advantages-of-using-gpujs-for-mep-mapping">Advantages of Using
+GPU.js for MEP Mapping</h3>
+<ul>
+<li><strong>Zero-Installation Client Computing</strong>: End users can
+analyze molecular properties inside standard web browsers without
+installing drivers, software packages, or specialized computational
+chemistry suites.</li>
+<li><strong>Cost Efficiency</strong>: Computation is offloaded to the
+user's local hardware, eliminating the need to provision and maintain
+expensive cloud GPU instances for simple molecular screening tools.</li>
+<li><strong>Real-Time Responsiveness</strong>: For typical drug-like
+small molecules (20–70 heavy atoms), GPU.js can calculate a complete MEP
+grid in milliseconds, allowing users to interactively rotate bonds or
+swap functional groups and view real-time potential changes.</li>
+</ul>
+<h3 id="technical-constraints-and-limitations">Technical Constraints and
+Limitations</h3>
+<p>While feasible and performant, using GPU.js for MEP calculations has
+several technical trade-offs:</p>
+<ul>
+<li><strong>Approximation Limits</strong>: GPU.js is best suited for
+classical point-charge electrostatic calculations. Generating rigorous
+<em>ab initio</em> quantum mechanical MEPs requires solving the
+electronic wave function, which exceeds the scope of simple shader-based
+arithmetic.</li>
+<li><strong>Precision Constraints</strong>: WebGL implementations often
+rely on 32-bit single-precision floating-point arithmetic (FP32) or
+medium precision (FP16) on mobile devices, which can introduce minor
+rounding errors compared to double-precision (FP64) scientific
+software.</li>
+<li><strong>Memory Bandwidth</strong>: Passing very large molecular
+systems (such as entire protein-ligand complexes with tens of thousands
+of atoms) to GPU.js can lead to memory bottlenecks when binding large
+uniform arrays or textures in WebGL.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>GPU.js is fully capable of calculating and mapping molecular
+electrostatic potential grids for small to medium-sized drug molecules.
+It provides a practical, high-performance bridge for web-based
+cheminformatics tools, interactive educational platforms, and rapid
+early-stage drug design workflows.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

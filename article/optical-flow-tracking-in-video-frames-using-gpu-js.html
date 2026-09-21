@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optical Flow Tracking in Video Frames Using GPU.js - gpu.js</title>
+    <meta name="description" content="Optical flow tracking estimates the motion of objects between consecutive video frames by calculating vector fields of apparent velocities. In client-side web applications, real-time pixel-level calculations can cause CPU bottlenecks. By leveraging GPU.j">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/optical-flow-tracking-in-video-frames-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Optical Flow Tracking in Video Frames Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/optical-flow-tracking-in-video-frames-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Optical flow tracking estimates the motion of objects between consecutive video frames by calculating vector fields of apparent velocities. In client-side web applications, real-time pixel-level calculations can cause CPU bottlenecks. By leveraging GPU.j" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="optical-flow-tracking-in-video-frames-using-gpujs">Optical Flow
+Tracking in Video Frames Using GPU.js</h1>
+<p>Optical flow tracking estimates the motion of objects between
+consecutive video frames by calculating vector fields of apparent
+velocities. In client-side web applications, real-time pixel-level
+calculations can cause CPU bottlenecks. By leveraging GPU.js, you can
+offload intense matrix operations and pixel-neighborhood evaluations to
+the GPU via WebGL shaders, achieving high-frame-rate optical flow
+directly in the browser.</p>
+<h2 id="core-principles-of-lucas-kanade-optical-flow">Core Principles of
+Lucas-Kanade Optical Flow</h2>
+<p>The Lucas-Kanade method is the most common algorithm for sparse and
+dense optical flow. It relies on the brightness constancy assumption,
+which states that pixel intensities do not change drastically from frame
+to frame:</p>
+<p><span class="math display">\[I(x, y, t) = I(x + \delta x, y + \delta
+y, t + \delta t)\]</span></p>
+<p>For small movements, this yields the optical flow constraint
+equation:</p>
+<p><span class="math display">\[I_x u + I_y v + I_t = 0\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(I_x = \frac{\partial I}{\partial
+x}\)</span> and <span class="math inline">\(I_y = \frac{\partial
+I}{\partial y}\)</span> are spatial gradients.</li>
+<li><span class="math inline">\(I_t = \frac{\partial I}{\partial
+t}\)</span> is the temporal gradient between the previous and current
+frame.</li>
+<li><span class="math inline">\(u\)</span> and <span
+class="math inline">\(v\)</span> represent horizontal and vertical
+velocity components.</li>
+</ul>
+<p>Assuming a local neighborhood (window) of pixels moves with the same
+velocity, we solve this overdetermined system for each window using
+least-squares:</p>
+<p><span class="math display">\[\begin{bmatrix} u \\ v \end{bmatrix} =
+\begin{bmatrix} \sum I_x^2 &amp; \sum I_x I_y \\ \sum I_x I_y &amp; \sum
+I_y^2 \end{bmatrix}^{-1} \begin{bmatrix} -\sum I_x I_t \\ -\sum I_y I_t
+\end{bmatrix}\]</span></p>
+<h2 id="setting-up-gpujs">Setting Up GPU.js</h2>
+<p>Install GPU.js via npm or import it via a CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdnjs.cloudflare.com/ajax/libs/gpu.js/2.16.0/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<p>Initialize the <code>GPU</code> instance and configure the canvas
+size. To maximize performance, use the same dimensions as your target
+downsampled video stream:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">320</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">240</span><span class="op">;</span></span></code></pre></div>
+<h2 id="creating-the-gpu-kernels">Creating the GPU Kernels</h2>
+<p>Optical flow processing requires two primary steps: grayscale
+conversion and gradient-based flow vector calculation.</p>
+<h3 id="1-grayscale-conversion-kernel">1. Grayscale Conversion
+Kernel</h3>
+<p>Convert consecutive RGBA frames to single-channel intensity
+arrays:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> toGrayscale <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(videoFrame) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pixel <span class="op">=</span> videoFrame[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Standard luminosity formula</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.299</span> <span class="op">*</span> pixel[<span class="dv">0</span>] <span class="op">+</span> <span class="fl">0.587</span> <span class="op">*</span> pixel[<span class="dv">1</span>] <span class="op">+</span> <span class="fl">0.114</span> <span class="op">*</span> pixel[<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<h3 id="2-lucas-kanade-flow-kernel">2. Lucas-Kanade Flow Kernel</h3>
+<p>The optical flow kernel computes spatial gradients (<span
+class="math inline">\(I_x, I_y\)</span>), temporal differences (<span
+class="math inline">\(I_t\)</span>), aggregates them over a local window
+(e.g., <span class="math inline">\(3 \times 3\)</span>), and inverts the
+<span class="math inline">\(2 \times 2\)</span> matrix to compute <span
+class="math inline">\(u\)</span> and <span
+class="math inline">\(v\)</span>:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeOpticalFlow <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(prevFrame<span class="op">,</span> currFrame) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> radius <span class="op">=</span> <span class="dv">1</span><span class="op">;</span> <span class="co">// 3x3 window</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumIx2 <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumIy2 <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumIxIy <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumIxIt <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sumIyIt <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Boundary check</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">&gt;=</span> radius <span class="op">&amp;&amp;</span> x <span class="op">&lt;</span> (<span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">-</span> radius) <span class="op">&amp;&amp;</span> </span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>        y <span class="op">&gt;=</span> radius <span class="op">&amp;&amp;</span> y <span class="op">&lt;</span> (<span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span> <span class="op">-</span> radius)) {</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> wy <span class="op">=</span> <span class="op">-</span>radius<span class="op">;</span> wy <span class="op">&lt;=</span> radius<span class="op">;</span> wy<span class="op">++</span>) {</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> (<span class="kw">let</span> wx <span class="op">=</span> <span class="op">-</span>radius<span class="op">;</span> wx <span class="op">&lt;=</span> radius<span class="op">;</span> wx<span class="op">++</span>) {</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> px <span class="op">=</span> x <span class="op">+</span> wx<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> py <span class="op">=</span> y <span class="op">+</span> wy<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Central differences for spatial gradients</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> ix <span class="op">=</span> (currFrame[py][px <span class="op">+</span> <span class="dv">1</span>] <span class="op">-</span> currFrame[py][px <span class="op">-</span> <span class="dv">1</span>]) <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> iy <span class="op">=</span> (currFrame[py <span class="op">+</span> <span class="dv">1</span>][px] <span class="op">-</span> currFrame[py <span class="op">-</span> <span class="dv">1</span>][px]) <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>                </span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Temporal gradient</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> it <span class="op">=</span> currFrame[py][px] <span class="op">-</span> prevFrame[py][px]<span class="op">;</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>                sumIx2 <span class="op">+=</span> ix <span class="op">*</span> ix<span class="op">;</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>                sumIy2 <span class="op">+=</span> iy <span class="op">*</span> iy<span class="op">;</span></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>                sumIxIy <span class="op">+=</span> ix <span class="op">*</span> iy<span class="op">;</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>                sumIxIt <span class="op">+=</span> ix <span class="op">*</span> it<span class="op">;</span></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>                sumIyIt <span class="op">+=</span> iy <span class="op">*</span> it<span class="op">;</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Determinant of A^T * A</span></span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> det <span class="op">=</span> (sumIx2 <span class="op">*</span> sumIy2) <span class="op">-</span> (sumIxIy <span class="op">*</span> sumIxIy)<span class="op">;</span></span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Threshold to avoid division by zero in homogeneous regions</span></span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(det) <span class="op">&gt;</span> <span class="fl">0.0001</span>) {</span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> u <span class="op">=</span> (<span class="op">-</span>sumIy2 <span class="op">*</span> sumIxIt <span class="op">+</span> sumIxIy <span class="op">*</span> sumIyIt) <span class="op">/</span> det<span class="op">;</span></span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> v <span class="op">=</span> (<span class="op">-</span>sumIx2 <span class="op">*</span> sumIyIt <span class="op">+</span> sumIxIy <span class="op">*</span> sumIxIt) <span class="op">/</span> det<span class="op">;</span></span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> [u<span class="op">,</span> v]<span class="op">;</span></span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [<span class="fl">0.0</span><span class="op">,</span> <span class="fl">0.0</span>]<span class="op">;</span></span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>    <span class="dt">constants</span><span class="op">:</span> { width<span class="op">,</span> height }<span class="op">,</span></span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [width<span class="op">,</span> height]<span class="op">,</span></span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>    <span class="dt">returnType</span><span class="op">:</span> <span class="st">&#39;Array(2)&#39;</span></span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h2 id="running-the-tracking-loop">Running the Tracking Loop</h2>
+<p>Capture video frames using an HTML5 <code>&lt;video&gt;</code>
+element, draw them to a hidden canvas, pass the pixel arrays to the GPU
+kernels, and process the output across animation frames.</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> video <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">getElementById</span>(<span class="st">&#39;webcamVideo&#39;</span>)<span class="op">;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">&#39;canvas&#39;</span>)<span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="at">width</span> <span class="op">=</span> width<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="at">height</span> <span class="op">=</span> height<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> ctx <span class="op">=</span> canvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;2d&#39;</span>)<span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> prevGrayscale <span class="op">=</span> <span class="kw">null</span><span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">processFrame</span>() {</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    ctx<span class="op">.</span><span class="fu">drawImage</span>(video<span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameData <span class="op">=</span> ctx<span class="op">.</span><span class="fu">getImageData</span>(<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> width<span class="op">,</span> height)<span class="op">.</span><span class="at">data</span><span class="op">;</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Restructure 1D Uint8ClampedArray into a 2D/3D array [height][width][4]</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> formattedFrame <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> idx <span class="op">=</span> (y <span class="op">*</span> width <span class="op">+</span> x) <span class="op">*</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>            row<span class="op">.</span><span class="fu">push</span>([</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>                frameData[idx] <span class="op">/</span> <span class="dv">255</span><span class="op">,</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>                frameData[idx <span class="op">+</span> <span class="dv">1</span>] <span class="op">/</span> <span class="dv">255</span><span class="op">,</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>                frameData[idx <span class="op">+</span> <span class="dv">2</span>] <span class="op">/</span> <span class="dv">255</span><span class="op">,</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>                frameData[idx <span class="op">+</span> <span class="dv">3</span>] <span class="op">/</span> <span class="dv">255</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>            ])<span class="op">;</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>        formattedFrame<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currGrayscale <span class="op">=</span> <span class="fu">toGrayscale</span>(formattedFrame)<span class="op">;</span></span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (prevGrayscale) {</span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Execute the optical flow computation on GPU</span></span>
+<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> flowVectors <span class="op">=</span> <span class="fu">computeOpticalFlow</span>(prevGrayscale<span class="op">,</span> currGrayscale)<span class="op">;</span></span>
+<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>        <span class="co">// flowVectors is a 2D array [height][width] where each item is [u, v]</span></span>
+<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>        <span class="fu">renderFlow</span>(flowVectors)<span class="op">;</span></span>
+<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Keep reference for next frame</span></span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>    prevGrayscale <span class="op">=</span> currGrayscale<span class="op">;</span></span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(processFrame)<span class="op">;</span></span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">renderFlow</span>(flow) {</span>
+<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Example: Read velocity at center of screen</span></span>
+<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> midY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(height <span class="op">/</span> <span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> midX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(width <span class="op">/</span> <span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> [u<span class="op">,</span> v] <span class="op">=</span> flow[midY][midX]<span class="op">;</span></span>
+<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Use u and v to drive gesture controls or visual vector fields</span></span>
+<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a><span class="co">// Start processing once video metadata is available</span></span>
+<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>video<span class="op">.</span><span class="fu">addEventListener</span>(<span class="st">&#39;play&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> {</span>
+<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(processFrame)<span class="op">;</span></span>
+<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h2 id="optimization-techniques">Optimization Techniques</h2>
+<ul>
+<li><strong>Use Kernel Pipelining:</strong> Configure
+<code>pipeline: true</code> on intermediate kernels like
+<code>toGrayscale</code>. This retains data as WebGL textures on the GPU
+rather than transferring large multidimensional arrays back to the CPU
+memory.</li>
+<li><strong>Downsample Input Resolutions:</strong> Optical flow
+complexity scales linearly with total pixel count. Tracking at
+resolutions between <code>160x120</code> and <code>320x240</code>
+captures large-scale gesture dynamics without high GPU utilization.</li>
+<li><strong>Window Sizing:</strong> Increasing the local neighborhood
+radius increases accuracy on texture-less objects, but adds loops to the
+fragment shader. A radius of <code>1</code> or <code>2</code> provides
+an optimal balance between accuracy and rendering time in WebGL.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

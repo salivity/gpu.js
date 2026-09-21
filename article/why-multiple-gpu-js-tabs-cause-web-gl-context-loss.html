@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Multiple gpu.js Tabs Cause WebGL Context Loss - gpu.js</title>
+    <meta name="description" content="Running gpu.js across multiple browser tabs frequently causes the oldest tabs to stop computing or throw errors due to automatic WebGL context eviction. This article examines the underlying browser mechanics responsible for this behavior, specifically fo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-multiple-gpu-js-tabs-cause-web-gl-context-loss">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why Multiple gpu.js Tabs Cause WebGL Context Loss - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-multiple-gpu-js-tabs-cause-web-gl-context-loss" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running gpu.js across multiple browser tabs frequently causes the oldest tabs to stop computing or throw errors due to automatic WebGL context eviction. This article examines the underlying browser mechanics responsible for this behavior, specifically fo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-multiple-gpujs-tabs-cause-webgl-context-loss">Why Multiple
+gpu.js Tabs Cause WebGL Context Loss</h1>
+<p>Running gpu.js across multiple browser tabs frequently causes the
+oldest tabs to stop computing or throw errors due to automatic WebGL
+context eviction. This article examines the underlying browser mechanics
+responsible for this behavior, specifically focusing on hardware
+resource limits, the browser’s internal context-caching policies, and
+how the Least Recently Used (LRU) algorithm forces background gpu.js
+instances to terminate their graphics pipelines.</p>
+<h3 id="the-underlying-dependency-on-webgl">The Underlying Dependency on
+WebGL</h3>
+<p>gpu.js operates by translating standard JavaScript functions into
+GLSL (OpenGL Shading Language) and executing them on the device’s
+graphics processing unit. To communicate with the GPU, the library
+instantiates a <code>WebGLRenderingContext</code> or
+<code>WebGL2RenderingContext</code> using an HTML5
+<code>&lt;canvas&gt;</code> element behind the scenes. Consequently,
+gpu.js is bound entirely to the lifecycle rules, security sandboxes, and
+resource constraints that modern web browsers impose on WebGL.</p>
+<h3 id="browser-webgl-context-limits">Browser WebGL Context Limits</h3>
+<p>Every operating system and GPU driver has a finite amount of video
+RAM (VRAM) and hardware pipeline handles available to user-space
+processes. To prevent a malicious or poorly optimized website from
+consuming all available VRAM, locking the operating system, or crashing
+graphics drivers, web browsers implement a hard limit on the number of
+concurrent, active WebGL contexts allowed across all tabs and
+frames.</p>
+<p>In Chromium-based browsers (such as Google Chrome, Microsoft Edge,
+and Brave) and Mozilla Firefox, this limit typically defaults to between
+8 and 16 active contexts, depending on the platform, underlying GPU
+architecture, and whether hardware acceleration is fully supported.</p>
+<h3 id="the-least-recently-used-lru-eviction-mechanism">The Least
+Recently Used (LRU) Eviction Mechanism</h3>
+<p>When a browser tab initializes a new gpu.js instance, it requests a
+new WebGL context. If the total number of open contexts across all open
+tabs exceeds the browser's predetermined threshold, the browser graphics
+engine does not refuse the new request. Instead, it frees up resources
+by evicting an existing context using a Least Recently Used (LRU)
+eviction strategy.</p>
+<p>Under the LRU policy, the browser identifies the context that has
+remained inactive for the longest duration—which is almost always the
+oldest background tab. The browser then dispatches a
+<code>webglcontextlost</code> event to that context, releases its
+allocated textures, framebuffers, and shaders from VRAM, and hands the
+freshly cleared hardware resources to the newest tab.</p>
+<h3 id="the-impact-on-gpujs-kernels">The Impact on gpu.js Kernels</h3>
+<p>Because gpu.js relies on persistent textures and pre-compiled shaders
+cached inside the WebGL state machine, an eviction immediately breaks
+the computation pipeline in the affected tab. If the user returns to the
+older tab or if that tab attempts to run a background computation:</p>
+<ul>
+<li>Kernels will fail silently or throw runtime errors indicating that
+the WebGL context is null or unavailable.</li>
+<li>Cached data stored inside GPU textures becomes invalid, meaning
+input matrices and calculated outputs cannot be read back to the
+CPU.</li>
+<li>The execution cannot automatically recover unless the application
+explicitly handles context recreation.</li>
+</ul>
+<h3 id="mitigating-context-loss-in-gpujs">Mitigating Context Loss in
+gpu.js</h3>
+<p>To prevent or handle context eviction when running multi-tab or
+compute-heavy web applications:</p>
+<ol type="1">
+<li><strong>Destroy Inactive Instances:</strong> Explicitly invoke the
+<code>destroy()</code> method on the gpu.js instance whenever a
+calculation completes or when a user navigates away from the page. This
+immediately releases the WebGL context instead of leaving it in an idle
+state.</li>
+<li><strong>Listen for Context Events:</strong> Attach event listeners
+to the underlying canvas element for <code>webglcontextlost</code> and
+<code>webglcontextrestored</code>. When lost, prevent default behavior
+to signal to the browser that recovery is intended, and recompile the
+required gpu.js kernels when restored.</li>
+<li><strong>Use CPU Fallbacks:</strong> Initialize gpu.js with fallback
+settings enabled (<code>mode: 'gpu'</code>, which falls back to CPU if
+initialization fails or context is unavailable) to ensure that
+background tasks continue executing, albeit at non-accelerated
+speeds.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

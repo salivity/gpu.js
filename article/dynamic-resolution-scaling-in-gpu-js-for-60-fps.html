@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Resolution Scaling in GPU.js for 60 FPS - gpu.js</title>
+    <meta name="description" content="This article outlines how to implement Dynamic Resolution Scaling (DRS) in gpu.js to maintain a stable 60 frames per second (FPS) on low-tier mobile devices. By continuously tracking frame times via requestAnimationFrame and dynamically resizing the comp">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/dynamic-resolution-scaling-in-gpu-js-for-60-fps">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Dynamic Resolution Scaling in GPU.js for 60 FPS - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/dynamic-resolution-scaling-in-gpu-js-for-60-fps" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article outlines how to implement Dynamic Resolution Scaling (DRS) in gpu.js to maintain a stable 60 frames per second (FPS) on low-tier mobile devices. By continuously tracking frame times via requestAnimationFrame and dynamically resizing the comp" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="dynamic-resolution-scaling-in-gpujs-for-60-fps">Dynamic
+Resolution Scaling in GPU.js for 60 FPS</h1>
+<p>This article outlines how to implement Dynamic Resolution Scaling
+(DRS) in gpu.js to maintain a stable 60 frames per second (FPS) on
+low-tier mobile devices. By continuously tracking frame times via
+<code>requestAnimationFrame</code> and dynamically resizing the compute
+output or the target WebGL canvas, you can shed rendering workload
+during heavy operations before frame drops occur. The following sections
+break down the performance budget, scaling algorithm, and practical
+implementation details needed to keep your GPU-accelerated web
+applications fluid.</p>
+<h3 id="the-60-fps-budget-on-low-tier-hardware">The 60 FPS Budget on
+Low-Tier Hardware</h3>
+<p>To maintain 60 FPS, the GPU and CPU combined have a strict frame
+budget of 16.67 milliseconds. Low-end smartphone chipsets typically
+suffer from limited memory bandwidth and weak fill rates. When
+high-resolution mobile screens (often 1080p to 1440p) are coupled with
+compute-heavy gpu.js kernels, the fill rate bottleneck quickly causes
+frame times to exceed 16.67ms.</p>
+<p>Dynamic Resolution Scaling solves this by decoupling internal
+calculation resolution from the native display resolution. When frame
+times rise, the calculation resolution drops; when frame times
+normalize, resolution is restored.</p>
+<h3 id="managing-gpujs-kernels-efficiently">Managing GPU.js Kernels
+Efficiently</h3>
+<p>Calling <code>kernel.setOutput([width, height])</code> dynamically in
+gpu.js can trigger an expensive pipeline recompilation or framebuffer
+reallocation if done incorrectly. For optimal performance on mobile:</p>
+<ol type="1">
+<li><strong>Avoid Frequent Recompilation</strong>: Quantize scaling
+factors (e.g., scale steps of <code>1.0</code>, <code>0.85</code>,
+<code>0.75</code>, <code>0.5</code>) rather than recalculating arbitrary
+resolutions every frame.</li>
+<li><strong>Use Integer Scaling Dimensions</strong>: Ensure resulting
+dimensions are rounded to even integers to prevent WebGL coordinate
+alignment issues.</li>
+<li><strong>Upscale via CSS</strong>: Render the gpu.js output to an
+offscreen canvas or smaller canvas element, then let the hardware
+compositor stretch it across the screen using CSS
+(<code>image-rendering: auto</code> or <code>bilinear</code>).</li>
+</ol>
+<h3 id="implementation-strategy">Implementation Strategy</h3>
+<p>The implementation consists of three core components:</p>
+<ul>
+<li><strong>A Frame Timer</strong>: Measures delta time over a rolling
+average to filter out single-frame outliers.</li>
+<li><strong>A Dynamic Scaler</strong>: Evaluates performance against
+upper (e.g., &gt; 18ms) and lower (e.g., &lt; 14ms) thresholds.</li>
+<li><strong>A Kernel Controller</strong>: Updates the dimensions passed
+to gpu.js and resizes the target canvas.</li>
+</ul>
+<h3 id="complete-implementation">Complete Implementation</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// 1. Initialize GPU.js</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentScale <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> minScale <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> maxScale <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> scaleStep <span class="op">=</span> <span class="fl">0.1</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> baseWidth <span class="op">=</span> <span class="bu">window</span><span class="op">.</span><span class="at">innerWidth</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> baseHeight <span class="op">=</span> <span class="bu">window</span><span class="op">.</span><span class="at">innerHeight</span><span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="co">// 2. Create the kernel</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">// Render to a canvas to allow CSS upscaling</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(width<span class="op">,</span> height) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> width<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> height<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Example compute work: plasma effect</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> v <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">10.0</span>) <span class="op">+</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(y <span class="op">*</span> <span class="fl">10.0</span>)<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(v<span class="op">,</span> v <span class="op">*</span> <span class="fl">0.5</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">-</span> v<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(baseWidth <span class="op">*</span> currentScale)<span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(baseHeight <span class="op">*</span> currentScale)])</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> renderKernel<span class="op">.</span><span class="at">canvas</span><span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(canvas)<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="co">// Ensure CSS fills the viewport while internal resolution changes</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">width</span> <span class="op">=</span> <span class="st">&quot;100vw&quot;</span><span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">height</span> <span class="op">=</span> <span class="st">&quot;100vh&quot;</span><span class="op">;</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a><span class="co">// 3. Setup performance monitoring</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> lastTime <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> rollingDelta <span class="op">=</span> <span class="fl">16.67</span><span class="op">;</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> smoothingFactor <span class="op">=</span> <span class="fl">0.9</span><span class="op">;</span> <span class="co">// Exponential moving average</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">updateResolution</span>(newScale) {</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    currentScale <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(maxScale<span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(minScale<span class="op">,</span> newScale))<span class="op">;</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> newWidth <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(baseWidth <span class="op">*</span> currentScale)<span class="op">;</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> newHeight <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(baseHeight <span class="op">*</span> currentScale)<span class="op">;</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    renderKernel<span class="op">.</span><span class="fu">setOutput</span>([newWidth<span class="op">,</span> newHeight])<span class="op">;</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a><span class="co">// 4. Execution Loop</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">render</span>(now) {</span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> delta <span class="op">=</span> now <span class="op">-</span> lastTime<span class="op">;</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>    lastTime <span class="op">=</span> now<span class="op">;</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate smoothed frame time</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>    rollingDelta <span class="op">=</span> (rollingDelta <span class="op">*</span> smoothingFactor) <span class="op">+</span> (delta <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> smoothingFactor))<span class="op">;</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Dynamic scaling logic</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Thresholds: drop scale if over 18ms (below ~55 FPS), increase if under 14ms (above ~70 FPS headroom)</span></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (rollingDelta <span class="op">&gt;</span> <span class="fl">18.0</span> <span class="op">&amp;&amp;</span> currentScale <span class="op">&gt;</span> minScale) {</span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>        <span class="fu">updateResolution</span>(currentScale <span class="op">-</span> scaleStep)<span class="op">;</span></span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> <span class="cf">if</span> (rollingDelta <span class="op">&lt;</span> <span class="fl">14.0</span> <span class="op">&amp;&amp;</span> currentScale <span class="op">&lt;</span> maxScale) {</span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>        <span class="fu">updateResolution</span>(currentScale <span class="op">+</span> scaleStep)<span class="op">;</span></span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> activeWidth <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(baseWidth <span class="op">*</span> currentScale)<span class="op">;</span></span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> activeHeight <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">round</span>(baseHeight <span class="op">*</span> currentScale)<span class="op">;</span></span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Run compute kernel</span></span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a>    <span class="fu">renderKernel</span>(activeWidth<span class="op">,</span> activeHeight)<span class="op">;</span></span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(render)<span class="op">;</span></span>
+<span id="cb1-68"><a href="#cb1-68" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-69"><a href="#cb1-69" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-70"><a href="#cb1-70" aria-hidden="true" tabindex="-1"></a><span class="fu">requestAnimationFrame</span>(render)<span class="op">;</span></span></code></pre></div>
+<h3 id="mobile-optimization-considerations">Mobile Optimization
+Considerations</h3>
+<p>To ensure the scaling algorithm behaves reliably on mobile
+browsers:</p>
+<ul>
+<li><strong>Thermal Throttling Hysteresis</strong>: Low-tier smartphones
+drop performance significantly as they heat up. Implement an
+asymmetrical scaling speed—drop resolution quickly when frames stutter,
+but delay scale increases to prevent oscillation.</li>
+<li><strong>Device Pixel Ratio (DPR)</strong>: Never render at native
+DPR (which can be 2.0x to 3.0x on low-end phones) for heavy compute
+workloads. Cap your <code>baseWidth</code> and <code>baseHeight</code>
+to a logical CSS size (<code>window.innerWidth</code>,
+<code>window.innerHeight</code>) before applying resolution scaling
+factors.</li>
+<li><strong>Garbage Collection</strong>: Avoid instantiating arrays,
+objects, or strings inside the rendering loop to prevent garbage
+collection pauses, which mimic GPU lag and trigger unnecessary
+downscaling.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

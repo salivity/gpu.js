@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why gpu.js Graphical Mode Is Faster Than Canvas 2D - gpu.js</title>
+    <meta name="description" content="Using the graphical mode in gpu.js offers massive performance advantages over the traditional method of computing data on the GPU, reading it back as a JavaScript array, and painting it to an HTML5 Canvas 2D context. This article explains the architectur">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-graphical-mode-is-faster-than-canvas-2-d">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why gpu.js Graphical Mode Is Faster Than Canvas 2D - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-graphical-mode-is-faster-than-canvas-2-d" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Using the graphical mode in gpu.js offers massive performance advantages over the traditional method of computing data on the GPU, reading it back as a JavaScript array, and painting it to an HTML5 Canvas 2D context. This article explains the architectur" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-graphical-mode-is-faster-than-canvas-2d">Why gpu.js
+Graphical Mode Is Faster Than Canvas 2D</h1>
+<p>Using the graphical mode in gpu.js offers massive performance
+advantages over the traditional method of computing data on the GPU,
+reading it back as a JavaScript array, and painting it to an HTML5
+Canvas 2D context. This article explains the architectural differences
+between both approaches, focusing on the GPU-to-CPU memory bottleneck,
+the overhead of Canvas 2D rasterization, and how direct WebGL
+framebuffer rendering eliminates unnecessary data transfers to achieve
+high-performance real-time graphics.</p>
+<h3 id="eliminating-the-cpu-gpu-bus-bottleneck">Eliminating the CPU-GPU
+Bus Bottleneck</h3>
+<p>The primary bottleneck in copying arrays to a Canvas 2D context is
+the physical transfer of data across the PCI Express (PCIe) bus. When a
+standard gpu.js kernel finishes computing an array:</p>
+<ol type="1">
+<li>The data sits in GPU Video RAM (VRAM).</li>
+<li>The browser must issue a read command (such as
+<code>gl.readPixels</code> under the hood) to transfer this data from
+VRAM across the bus to system RAM.</li>
+<li>The JavaScript engine wraps this memory in a native typed
+array.</li>
+<li>You loop through or transfer this array to an <code>ImageData</code>
+object.</li>
+<li>Canvas 2D's <code>putImageData()</code> processes the buffer back to
+the display system.</li>
+</ol>
+<p>Transferring millions of values back and forth across hardware
+boundaries introduces high latency and forces the CPU and GPU to
+synchronize, which stalls execution pipelines. In graphical mode
+(<code>graphical: true</code>), the output is written directly to a
+WebGL texture or framebuffer already residing in VRAM. The data never
+leaves the GPU, completely bypassing the PCIe bus transfer.</p>
+<h3 id="hardware-acceleration-vs-cpu-rasterization">Hardware
+Acceleration vs. CPU Rasterization</h3>
+<p>The HTML5 Canvas 2D context is largely optimized for vector
+operations, text rendering, and simple 2D drawing. When you write raw
+pixel buffers using <code>ctx.putImageData()</code>, the operation
+relies on CPU-driven pixel manipulation and software blending routines
+before blitting to the screen.</p>
+<p>In contrast, graphical mode compiles your JavaScript code directly
+into an OpenGL Shading Language (GLSL) fragment shader. Each pixel
+calculation runs as an individual GPU execution thread. The resulting
+color—assigned via <code>this.color(r, g, b, a)</code>—is written
+straight to an internal WebGL canvas texture. This enables
+hardware-accelerated rasterization at native monitor refresh rates
+without invoking Canvas 2D processing pipelines.</p>
+<h3
+id="zero-allocation-rendering-and-garbage-collection">Zero-Allocation
+Rendering and Garbage Collection</h3>
+<p>Copying output arrays repeatedly creates severe memory management
+overhead in JavaScript. Generating multi-dimensional arrays or large
+<code>Uint8ClampedArray</code> buffers on every animation frame
+allocates megabytes of data in heap memory. This leads to:</p>
+<ul>
+<li>Frequent Garbage Collection (GC) sweeps, causing noticeable
+stuttering and frame drops.</li>
+<li>High CPU utilization dedicated entirely to memory allocation and
+deallocation.</li>
+</ul>
+<p>Graphical mode reuses persistent WebGL buffers on the graphics
+hardware. Because the output stays on the GPU as a render target, no
+JavaScript memory is allocated, avoiding GC pauses entirely and
+maintaining steady frame rates.</p>
+<h3 id="summary-of-performance-advantages">Summary of Performance
+Advantages</h3>
+<ul>
+<li><strong>Zero-Copy Pipeline:</strong> Data remains in VRAM from
+calculation to display.</li>
+<li><strong>No Synchronization Stalls:</strong> The GPU does not have to
+wait to dump its memory back into the JavaScript runtime.</li>
+<li><strong>Hardware-Level Parallelism:</strong> Renders every pixel
+simultaneously via fragment shaders rather than iterating over pixel
+arrays sequentially in JavaScript.</li>
+<li><strong>Deterministic Frame Timing:</strong> Eliminates GC-induced
+frame drops by avoiding heap allocations during render loops.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

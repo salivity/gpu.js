@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Sky and Rayleigh Scattering in GPU.js - gpu.js</title>
+    <meta name="description" content="Procedural sky rendering based on atmospheric Rayleigh scattering models can be successfully implemented using gpu.js. By compiling JavaScript functions into WebGL fragment shaders, gpu.js allows developers to execute the heavy raymarching and numerical">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/procedural-sky-and-rayleigh-scattering-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Procedural Sky and Rayleigh Scattering in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/procedural-sky-and-rayleigh-scattering-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Procedural sky rendering based on atmospheric Rayleigh scattering models can be successfully implemented using gpu.js. By compiling JavaScript functions into WebGL fragment shaders, gpu.js allows developers to execute the heavy raymarching and numerical" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="procedural-sky-and-rayleigh-scattering-in-gpujs">Procedural Sky
+and Rayleigh Scattering in GPU.js</h1>
+<p>Procedural sky rendering based on atmospheric Rayleigh scattering
+models can be successfully implemented using gpu.js. By compiling
+JavaScript functions into WebGL fragment shaders, gpu.js allows
+developers to execute the heavy raymarching and numerical integration
+required for atmospheric simulation directly on the graphics card. While
+dedicated graphics frameworks like Three.js or raw GLSL are
+traditionally used for these tasks, gpu.js provides a viable,
+pure-JavaScript approach to compute light scattering values per pixel
+and render dynamic, physically inspired skies directly to an HTML5
+canvas.</p>
+<h3 id="the-physics-of-rayleigh-scattering">The Physics of Rayleigh
+Scattering</h3>
+<p>Rayleigh scattering describes the elastic scattering of light by
+particles much smaller than the wavelength of the light, such as
+molecules in Earth's atmosphere. This phenomenon accounts for the blue
+color of the daytime sky and the red, orange hues seen at sunrise and
+sunset.</p>
+<p>To render a procedural sky, the engine must simulate two primary
+components:</p>
+<ol type="1">
+<li><strong>Out-scattering and Extinction:</strong> As sunlight
+traverses the atmosphere toward the camera, portions of the light are
+scattered away. Shorter wavelengths (blue light) scatter significantly
+more than longer wavelengths (red light), adhering to the relationship
+<span class="math inline">\(I \propto \frac{1}{\lambda^4}\)</span>.</li>
+<li><strong>In-scattering:</strong> Light traveling from the sun enters
+the view ray toward the camera after scattering off air molecules.
+Computing this requires evaluating a phase function, typically defined
+for Rayleigh scattering as: <span class="math display">\[P(\theta) =
+\frac{3}{16\pi}(1 + \cos^2\theta)\]</span> where <span
+class="math inline">\(\theta\)</span> is the angle between the sun's
+rays and the view direction.</li>
+</ol>
+<h3 id="implementing-scattering-in-gpujs">Implementing Scattering in
+GPU.js</h3>
+<p>To render this model in gpu.js, you utilize a graphical kernel. When
+initialized with <code>{ graphical: true }</code>, gpu.js binds the
+execution output to an HTML canvas, treating each kernel thread as a
+pixel renderer analogous to a fragment shader.</p>
+<p>The procedural pipeline operates as follows:</p>
+<ul>
+<li><strong>Ray Generation:</strong> For every pixel on the canvas,
+compute a normalized view ray vector pointing outward from the camera's
+position into the hemisphere.</li>
+<li><strong>Atmosphere Intersection:</strong> Calculate the intersection
+distances between the view ray and the spherical shells representing the
+planet's surface and the top of the atmosphere.</li>
+<li><strong>Raymarching:</strong> Sample multiple points along the
+primary view ray between the viewer and the atmosphere boundary.</li>
+<li><strong>Optical Depth Calculation:</strong> At each primary sample
+point, cast a secondary ray toward the sun to compute the optical
+density and determine how much sunlight reaches that point without being
+scattered away.</li>
+<li><strong>Integration and Color Output:</strong> Accumulate the
+in-scattered light scaled by the Rayleigh phase function and atmospheric
+density. Finally, assign the result using
+<code>this.color(r, g, b, 1)</code> to render the pixel.</li>
+</ul>
+<h3 id="technical-limitations-and-workarounds">Technical Limitations and
+Workarounds</h3>
+<p>While gpu.js can handle the mathematical calculations, certain
+architectural constraints must be addressed:</p>
+<ul>
+<li><strong>Fixed Loop Boundaries:</strong> gpu.js requires loops to
+have static, compile-time bounds. Dynamic step counts for raymarching
+are not supported, meaning the number of integration steps along the
+view ray and sun ray must remain constant.</li>
+<li><strong>Limited Data Types:</strong> gpu.js translates JavaScript
+primitives to GLSL. Because custom structs and complex object
+orientations are unsupported inside the kernel, mathematical vectors
+(such as 3D ray directions) must be flattened into separate numerical
+variables or 1D arrays.</li>
+<li><strong>Scene Integration:</strong> gpu.js generates output directly
+to its own canvas context. Integrating an atmospheric model generated
+via gpu.js into an existing 3D scene (such as one with terrain and
+geometry) requires either drawing the sky as a pre-computed background
+texture or generating dynamic cubemaps/lookup tables (LUTs) that another
+WebGL context can consume.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>gpu.js is fully capable of rendering procedural skies and calculating
+Rayleigh scattering models. It offers an accessible bridge for
+developers who want to harness GPU-accelerated raymarching without
+writing raw WebGL boilerplate. For standalone sky domes, atmospheric
+lookup table generation, or real-time 2D horizon simulations, gpu.js
+provides sufficient performance and mathematical precision.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Avoid toArray in GPU.js Real-Time Loops - gpu.js</title>
+    <meta name="description" content="Invoking toArray() inside tight real-time loops in GPU.js severely degrades application performance by forcing expensive GPU-to-CPU data transfers, stalling asynchronous processing pipelines, and triggering intensive garbage collection. While GPU.js allo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-avoid-to-array-in-gpu-js-real-time-loops">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why Avoid toArray in GPU.js Real-Time Loops - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-avoid-to-array-in-gpu-js-real-time-loops" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Invoking toArray() inside tight real-time loops in GPU.js severely degrades application performance by forcing expensive GPU-to-CPU data transfers, stalling asynchronous processing pipelines, and triggering intensive garbage collection. While GPU.js allo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-avoid-toarray-in-gpujs-real-time-loops">Why Avoid toArray in
+GPU.js Real-Time Loops</h1>
+<p>Invoking <code>toArray()</code> inside tight real-time loops in
+GPU.js severely degrades application performance by forcing expensive
+GPU-to-CPU data transfers, stalling asynchronous processing pipelines,
+and triggering intensive garbage collection. While GPU.js allows
+developers to execute massively parallel computations in WebGL, reading
+data back into standard JavaScript arrays every frame eliminates the
+performance benefits of GPU acceleration. To maintain high frame rates
+in real-time environments like games, animations, and simulations,
+computation must remain entirely on the GPU.</p>
+<h3 id="the-cost-of-the-bus-transfer">The Cost of the Bus Transfer</h3>
+<p>When a kernel executes in GPU.js, operations take place in parallel
+across thousands of cores, and the resulting data lives directly in
+Video RAM (VRAM) as a WebGL texture. Calling <code>toArray()</code>
+demands that this data be extracted from VRAM and sent across the system
+bus (such as PCIe) back to system RAM for CPU consumption.</p>
+<p>Transferring data across the hardware bus is inherently slow compared
+to the internal bandwidth of the GPU. Repeating this readback operation
+at 60 or 120 frames per second creates a severe I/O bottleneck that
+quickly saturates the bus and caps your application's frame rate.</p>
+<h3 id="pipeline-stalls-and-synchronization">Pipeline Stalls and
+Synchronization</h3>
+<p>GPU computation is naturally asynchronous. When you run a GPU.js
+kernel, the CPU issues draw calls to the graphics pipeline and continues
+executing JavaScript without waiting for the GPU to finish.</p>
+<p>Invoking <code>toArray()</code> forces an immediate synchronization
+point. The CPU must halt execution and wait for the GPU to flush its
+queue, complete all calculations, and return the pixel buffer. This
+synchronous blocking eliminates the concurrency between the CPU and GPU,
+causing idle cycles on both processors and producing perceptible frame
+stutter.</p>
+<h3 id="memory-overhead-and-garbage-collection">Memory Overhead and
+Garbage Collection</h3>
+<p>In JavaScript, creating and destroying large objects in a loop
+introduces significant memory churn. Each execution of
+<code>toArray()</code> dynamically allocates new native arrays or
+multi-dimensional nested arrays.</p>
+<p>Allocating thousands of floating-point values inside an animation
+loop quickly fills the V8 engine's heap. This forces the browser’s
+Garbage Collector (GC) to trigger frequent stop-the-world collection
+cycles. These GC pauses introduce unpredictable micro-freezes, rendering
+real-time performance impossible to maintain.</p>
+<h3 id="recommended-alternatives">Recommended Alternatives</h3>
+<p>To maximize efficiency in tight rendering or computation loops, apply
+these architectural patterns instead:</p>
+<ul>
+<li><strong>Keep Data as Textures:</strong> Configure kernels to output
+textures by setting <code>pipeline: true</code> or utilizing the texture
+mode. Pass the resulting texture directly as an argument to subsequent
+kernels. This keeps intermediate data inside VRAM throughout the entire
+computation pipeline.</li>
+<li><strong>Render Directly to WebGL Canvas:</strong> If the end goal is
+visual output, allow GPU.js to render directly to a
+<code>&lt;canvas&gt;</code> element using its built-in graphical
+capabilities rather than translating numeric matrices to Canvas 2D
+contexts on the CPU.</li>
+<li><strong>Throttle Readbacks:</strong> If CPU analysis of the data is
+strictly required, decouple the readback from the render loop. Fetch
+data only every <em>N</em> frames, or poll the data using
+requestIdleCallback or web workers so the main thread remains
+responsive.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

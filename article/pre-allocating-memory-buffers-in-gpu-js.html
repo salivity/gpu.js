@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pre-Allocating Memory Buffers in GPU.js - gpu.js</title>
+    <meta name="description" content="While gpu.js does not provide an explicit low-level API for pre-allocating raw WebGL buffers, developers can effectively mitigate runtime allocation spikes by leveraging texture pipelining and persistent GPU textures. By avoiding frequent conversions bet">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/pre-allocating-memory-buffers-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Pre-Allocating Memory Buffers in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/pre-allocating-memory-buffers-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="While gpu.js does not provide an explicit low-level API for pre-allocating raw WebGL buffers, developers can effectively mitigate runtime allocation spikes by leveraging texture pipelining and persistent GPU textures. By avoiding frequent conversions bet" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="pre-allocating-memory-buffers-in-gpujs">Pre-Allocating Memory
+Buffers in GPU.js</h1>
+<p>While gpu.js does not provide an explicit low-level API for
+pre-allocating raw WebGL buffers, developers can effectively mitigate
+runtime allocation spikes by leveraging texture pipelining and
+persistent GPU textures. By avoiding frequent conversions between
+JavaScript arrays and GPU textures, you can prevent garbage collection
+pauses and texture re-instantiation overhead during performance-critical
+loops.</p>
+<h2 id="the-memory-management-challenge-in-gpujs">The Memory Management
+Challenge in gpu.js</h2>
+<p>Under the hood, gpu.js compiles JavaScript-like functions into WebGL
+shaders. In typical WebGL architectures, data is stored and passed using
+textures or vertex buffers.</p>
+<p>When you pass a standard JavaScript array or TypedArray into a gpu.js
+kernel, the library automatically creates a new WebGL texture, uploads
+the array data, runs the computation, and then translates the result
+back into a JavaScript array. This workflow creates two significant
+bottlenecks:</p>
+<ol type="1">
+<li><strong>CPU-to-GPU memory transfer overhead:</strong> Creating and
+uploading textures repeatedly inside a frame loop.</li>
+<li><strong>Garbage collection (GC) pressure:</strong> JavaScript arrays
+and temporary WebGL structures are repeatedly generated and discarded,
+causing intermittent runtime frame drops.</li>
+</ol>
+<p>Because gpu.js abstracts raw WebGL contexts, you cannot directly call
+methods like <code>gl.bufferData()</code> to manage fixed memory blocks.
+However, you can achieve the same stability using alternative
+architectural patterns within the library.</p>
+<h2 id="solution-1-enable-kernel-pipelining">Solution 1: Enable Kernel
+Pipelining</h2>
+<p>The most effective way to eliminate runtime allocation spikes is to
+enable pipelining on your kernels via
+<code>setPipeline(true)</code>.</p>
+<p>When pipelining is enabled, the kernel outputs a <code>Texture</code>
+object instead of reading the pixels back to the CPU as a JavaScript
+array. This output texture resides directly in GPU VRAM and can be
+supplied directly as an input to subsequent kernel executions.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span>])</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Keeps output on the GPU</span></span></code></pre></div>
+<p>By chaining operations through textures, you avoid the continuous
+cycle of allocating new host-side arrays and newly bound WebGL
+framebuffers.</p>
+<h2 id="solution-2-reuse-gpu-textures-as-inputs">Solution 2: Reuse GPU
+Textures as Inputs</h2>
+<p>Instead of supplying raw JavaScript arrays on every iteration,
+convert your initial data into a persistent texture once, and feed that
+texture into your update loops.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Step 1: Initial upload creates the texture</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentData <span class="op">=</span> <span class="fu">computeKernel</span>(initialArray)<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">step</span>() {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 2: Feed the existing GPU texture back into the kernel</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="co">// This reuses GPU-side texture memory rather than allocating anew</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> nextData <span class="op">=</span> <span class="fu">computeKernel</span>(currentData)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 3: Delete the intermediate texture to avoid VRAM leaks</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  currentData<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  currentData <span class="op">=</span> nextData<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>When managing textures this way, make sure to call
+<code>.delete()</code> on intermediate textures that are no longer
+needed. While gpu.js will allocate new texture handles if not tightly
+cycled, explicitly disposing of old textures ensures VRAM usage remains
+constant without triggering host-side GC spikes.</p>
+<h2 id="solution-3-warm-up-and-kernel-re-use">Solution 3: Warm-Up and
+Kernel Re-use</h2>
+<p>A common source of perceived allocation lag is kernel compilation and
+shader linking, which occurs the first time a kernel is invoked. To keep
+runtime smooth:</p>
+<ul>
+<li><strong>Pre-compile kernels:</strong> Run your kernels once with
+dummy data during application initialization.</li>
+<li><strong>Maintain fixed output dimensions:</strong> Altering output
+dimensions at runtime forces gpu.js to reallocate the underlying render
+targets and reconfigure viewport parameters. Keep output shapes
+constant.</li>
+</ul>
+<h2 id="summary">Summary</h2>
+<p>You cannot pre-allocate static memory buffers using a dedicated
+allocation API in gpu.js. Instead, prevent runtime spikes by keeping
+your data on the GPU with <code>.setPipeline(true)</code>, passing
+persistent <code>Texture</code> instances instead of raw arrays, and
+compiling your kernels during an initial warm-up phase.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

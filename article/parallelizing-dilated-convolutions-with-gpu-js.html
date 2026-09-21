@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelizing Dilated Convolutions with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement and parallelize dilated causal 1D convolutions for WaveNet-style neural network architectures using gpu.js. By mapping output sequence timesteps and feature channels to a two-dimensional GPU execution grid, you can">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelizing-dilated-convolutions-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelizing Dilated Convolutions with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelizing-dilated-convolutions-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement and parallelize dilated causal 1D convolutions for WaveNet-style neural network architectures using gpu.js. By mapping output sequence timesteps and feature channels to a two-dimensional GPU execution grid, you can" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelizing-dilated-convolutions-with-gpujs">Parallelizing
+Dilated Convolutions with GPU.js</h1>
+<p>This article explains how to implement and parallelize dilated causal
+1D convolutions for WaveNet-style neural network architectures using
+gpu.js. By mapping output sequence timesteps and feature channels to a
+two-dimensional GPU execution grid, you can bypass the sequential
+processing of CPU loops and compute feedforward inference or training
+passes across full audio sequences concurrently.</p>
+<h3 id="understanding-dilated-causal-1d-convolutions">Understanding
+Dilated Causal 1D Convolutions</h3>
+<p>In WaveNet models, dilated causal 1D convolutions allow the network
+to handle long-range temporal dependencies with an exponentially growing
+receptive field while preventing future information leakage.</p>
+<p>Mathematically, for a 1D input sequence <span
+class="math inline">\(x\)</span>, filter weights <span
+class="math inline">\(W\)</span> of size <span
+class="math inline">\(K\)</span>, and dilation rate <span
+class="math inline">\(d\)</span>, the causal dilated convolution at time
+<span class="math inline">\(t\)</span> for a given channel is defined
+as:</p>
+<p><span class="math display">\[y[t] = \sum_{k=0}^{K-1} W[k] \cdot x[t -
+k \cdot d] + b\]</span></p>
+<p>The operation is strictly causal because <span
+class="math inline">\(y[t]\)</span> depends only on inputs at time <span
+class="math inline">\(t, t-d, t-2d, \dots\)</span>. Inputs where <span
+class="math inline">\(t - k \cdot d &lt; 0\)</span> are treated as zero
+(zero-padding).</p>
+<h3 id="parallelization-strategy-in-gpujs">Parallelization Strategy in
+GPU.js</h3>
+<p>While autoregressive generation (sample-by-sample output) is
+inherently sequential, evaluating a WaveNet layer over an entire input
+sequence during training or teacher-forced inference is embarrassingly
+parallel. Every output sample <span class="math inline">\(y[t]\)</span>
+at every channel <span class="math inline">\(c_{out}\)</span> can be
+evaluated independently.</p>
+<p>In gpu.js, this parallelization is structured by creating a compute
+kernel with a 2D output topology:</p>
+<ul>
+<li><strong>X-dimension (<code>this.thread.x</code>):</strong> Temporal
+dimension (sequence length <span class="math inline">\(T\)</span>).</li>
+<li><strong>Y-dimension (<code>this.thread.y</code>):</strong> Output
+channel dimension (<span class="math inline">\(C_{out}\)</span>).</li>
+</ul>
+<p>Each GPU thread computes the dot product between the kernel weights
+and the dilated inputs for its designated time index and output
+channel.</p>
+<h3 id="gpujs-kernel-implementation">GPU.js Kernel Implementation</h3>
+<p>To implement this kernel in gpu.js, the inputs, weights, and bias are
+supplied as arrays or textures.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createDilatedConv1DKernel <span class="op">=</span> (seqLength<span class="op">,</span> inChannels<span class="op">,</span> outChannels<span class="op">,</span> kernelSize) <span class="kw">=&gt;</span> {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(input<span class="op">,</span> weights<span class="op">,</span> bias<span class="op">,</span> dilation) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span>        <span class="co">// Current time step</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> outC <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span>     <span class="co">// Current output channel</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> bias[outC]<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Convolve over kernel width and input channels</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">kernelSize</span><span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> sourceTime <span class="op">=</span> t <span class="op">-</span> (k <span class="op">*</span> dilation)<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Enforce causality with zero-padding for past boundaries</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (sourceTime <span class="op">&gt;=</span> <span class="dv">0</span>) {</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> inC <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> inC <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inChannels</span><span class="op">;</span> inC<span class="op">++</span>) {</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>          <span class="co">// Flattened indices:</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>          <span class="co">// input shape assumed: [inChannels, seqLength]</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>          <span class="co">// weights shape assumed: [outChannels, inChannels, kernelSize]</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>          <span class="kw">const</span> inputVal <span class="op">=</span> input[inC][sourceTime]<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>          <span class="kw">const</span> weightVal <span class="op">=</span> weights[outC][inC][k]<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>          </span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>          sum <span class="op">+=</span> inputVal <span class="op">*</span> weightVal<span class="op">;</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setConstants</span>({ kernelSize<span class="op">,</span> inChannels })</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([seqLength<span class="op">,</span> outChannels])<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span></code></pre></div>
+<h3 id="execution-pipeline">Execution Pipeline</h3>
+<ol type="1">
+<li><strong>Kernel Compilation:</strong> Define the kernel using static
+constants (<code>kernelSize</code> and <code>inChannels</code>) so the
+WebGL/WebGPU shader compiler can unroll inner loops for higher
+instruction-level parallelism.</li>
+<li><strong>Dilation Scheduling:</strong> In a stacked WaveNet
+architecture, invoke the kernel sequentially across layers, multiplying
+the <code>dilation</code> parameter by 2 at each layer (e.g., <span
+class="math inline">\(d \in \{1, 2, 4, 8, \dots, 512\}\)</span>).</li>
+<li><strong>Pipeline Chaining:</strong> Set <code>pipeline: true</code>
+on the gpu.js kernel options to keep intermediate representations on the
+GPU as textures, avoiding expensive round-trip memory transfers between
+the CPU host and GPU device memory between layers.</li>
+</ol>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li><strong>Branch Divergence:</strong> The conditional check
+<code>sourceTime &gt;= 0</code> introduces minimal branch divergence
+because it only diverges for the first <span class="math inline">\((K -
+1) \cdot d\)</span> threads of the sequence. For long audio sequences
+(e.g., <span class="math inline">\(T \ge 16,000\)</span>), this overhead
+is negligible.</li>
+<li><strong>Memory Layout:</strong> Passing inputs as 2D arrays where
+spatial/temporal coordinates occupy the fastest-moving memory axis
+optimizes texture cache locality during reads.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

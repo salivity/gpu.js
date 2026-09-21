@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Can GPU.js Run Viewshed Analysis on Complex DEMs? - gpu.js</title>
+    <meta name="description" content="GPU.js can compute raster viewshed calculations across complex digital elevation models (DEMs) by translating JavaScript functions into WebGL shader code to process elevation matrices in parallel. By treating elevation grids as 2D textures, developers ca">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/can-gpu-js-run-viewshed-analysis-on-complex-de-ms">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Can GPU.js Run Viewshed Analysis on Complex DEMs? - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/can-gpu-js-run-viewshed-analysis-on-complex-de-ms" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can compute raster viewshed calculations across complex digital elevation models (DEMs) by translating JavaScript functions into WebGL shader code to process elevation matrices in parallel. By treating elevation grids as 2D textures, developers ca" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="can-gpujs-run-viewshed-analysis-on-complex-dems">Can GPU.js Run
+Viewshed Analysis on Complex DEMs?</h1>
+<p>GPU.js can compute raster viewshed calculations across complex
+digital elevation models (DEMs) by translating JavaScript functions into
+WebGL shader code to process elevation matrices in parallel. By treating
+elevation grids as 2D textures, developers can accelerate radial
+line-of-sight algorithms significantly faster than single-threaded CPU
+implementations. However, while viable for small to medium-sized DEMs in
+web environments, deploying GPU.js on highly complex or massive
+elevation datasets introduces key architectural constraints regarding
+texture memory limits, floating-point precision, and memory paging.</p>
+<h3 id="how-gpujs-processes-viewsheds">How GPU.js Processes
+Viewsheds</h3>
+<p>A raster viewshed algorithm determines whether target cells in a DEM
+are visible from a defined observer cell by calculating the
+line-of-sight (LOS) angle. GPU.js achieves parallelization by running a
+custom kernel where each output pixel represents a DEM cell.</p>
+<p>In this setup:</p>
+<ul>
+<li>The DEM is converted into a 2D numerical array or encoded as an
+image texture passed into the GPU kernel.</li>
+<li>Each thread calculates the ray path from the observer coordinate to
+its designated cell coordinate using algorithms like Bresenham's line
+algorithm or reference plane interpolation.</li>
+<li>The thread compares the vertical angle (elevation angle) of
+intervening cells against the target cell to determine visibility (1 for
+visible, 0 for hidden).</li>
+</ul>
+<p>Because every grid cell’s line-of-sight can be calculated
+independently of other finished cells, viewshed operations are an ideal
+fit for the SIMD (Single Instruction, Multiple Data) architecture
+provided by WebGL through GPU.js.</p>
+<h3 id="technical-limitations-with-complex-dems">Technical Limitations
+with Complex DEMs</h3>
+<p>While GPU.js provides immediate browser-based acceleration, complex
+elevation models expose several hardware and API limitations:</p>
+<ol type="1">
+<li><strong>Texture Size Boundaries:</strong> WebGL relies on the
+client's GPU capabilities, specifically the
+<code>MAX_TEXTURE_SIZE</code> parameter. Many consumer GPUs cap texture
+dimensions at 4,096, 8,192, or 16,384 pixels per side. Extremely
+high-resolution models (such as LiDAR-derived 1-meter rasters over large
+geographic areas) exceed single-pass texture limits and must be
+tiled.</li>
+<li><strong>Floating-Point Precision:</strong> DEMs require precise
+floating-point elevation values. While GPU.js supports float textures,
+mobile devices or older WebGL 1 implementations often lack native 32-bit
+floating-point read/write support, requiring elevations to be packed
+into standard 8-bit RGBA channels.</li>
+<li><strong>Execution Branching:</strong> Shaders suffer performance
+penalties when threads inside the same warp encounter dynamic branching.
+Varying distance checks and conditional sightline blockages can lead to
+branch divergence, diminishing the raw speed advantage over native
+compiled languages like C++ or Rust.</li>
+<li><strong>Memory Transfers:</strong> Uploading multi-megabyte
+elevation arrays from the CPU to the GPU texture memory introduces a
+performance bottleneck. If the viewshed calculation is only run once,
+the overhead of data marshaling via GPU.js can offset the execution
+gains gained during computation.</li>
+</ol>
+<h3 id="best-practices-for-implementation">Best Practices for
+Implementation</h3>
+<p>To reliably execute viewshed calculations on complex terrains using
+GPU.js:</p>
+<ul>
+<li><strong>Use WebGL 2:</strong> Force GPU.js to prioritize WebGL 2
+mode to ensure hardware support for 32-bit float textures and reduce
+precision errors in elevation calculations.</li>
+<li><strong>Implement Tiling:</strong> Break massive elevation rasters
+into overlapping tiles that fit comfortably within local GPU texture
+constraints.</li>
+<li><strong>Limit Observer Radius:</strong> Constrain the maximum search
+distance inside the kernel to prevent outer pixels from iterating across
+thousands of empty checks, keeping shader loops uniform across execution
+groups.</li>
+</ul>
+<p>GPU.js is a capable, zero-install solution for interactive and
+near-real-time viewshed modeling in web-based GIS tools, provided the
+input DEMs are optimized to fit within WebGL texture limitations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Memory Allocation in GPU.js Kernels - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates JavaScript code by compiling functions into WebGL shaders that run directly on the graphics processing unit. However, developers frequently encounter architectural limitations when attempting to manage data, specifically regarding memo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/dynamic-memory-allocation-in-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Dynamic Memory Allocation in GPU.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/dynamic-memory-allocation-in-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates JavaScript code by compiling functions into WebGL shaders that run directly on the graphics processing unit. However, developers frequently encounter architectural limitations when attempting to manage data, specifically regarding memo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="dynamic-memory-allocation-in-gpujs-kernels">Dynamic Memory
+Allocation in GPU.js Kernels</h1>
+<p>GPU.js accelerates JavaScript code by compiling functions into WebGL
+shaders that run directly on the graphics processing unit. However,
+developers frequently encounter architectural limitations when
+attempting to manage data, specifically regarding memory allocation
+during execution. You cannot create new dynamic arrays, push elements to
+existing structures, or allocate dynamic memory inside an executing
+GPU.js kernel. This article explains the underlying technical
+constraints of GPU hardware that prevent dynamic memory allocation and
+details how to properly structure your data pipeline using fixed output
+dimensions and pre-allocated buffers.</p>
+<h2 id="why-dynamic-allocation-is-unsupported">Why Dynamic Allocation Is
+Unsupported</h2>
+<p>GPU.js kernels do not execute in standard JavaScript engines like V8.
+Instead, the library parses the JavaScript function and translates it
+into a WebGL fragment shader written in GLSL (OpenGL Shading
+Language).</p>
+<p>GLSL enforces strict constraints due to the parallel nature of
+graphics hardware:</p>
+<ol type="1">
+<li><strong>No Dynamic Heap:</strong> GPUs run thousands of threads
+concurrently across hardware execution units. There is no central heap
+memory or dynamic memory manager (such as <code>malloc</code> or
+JavaScript's garbage-collected memory model) available to individual
+shader threads.</li>
+<li><strong>Fixed Register and Stack Limits:</strong> Every variable
+instantiated within a thread must have a predictable, static size known
+at compile time. Variable-length arrays, dynamic resizing (such as
+<code>array.push()</code>), and object instantiation are forbidden.</li>
+<li><strong>Execution Model:</strong> In GPU computing, the output
+buffer memory is pre-allocated by the host (the CPU) before the kernel
+launches. Each thread is assigned a coordinate in that memory space and
+simply writes its computed value to its corresponding location.</li>
+</ol>
+<h2 id="managing-output-dimensions-upfront">Managing Output Dimensions
+Upfront</h2>
+<p>Because a kernel cannot create or resize an array on the fly, you
+must declare the shape and size of your output data before executing the
+kernel. This is accomplished using the <code>.setOutput()</code>
+method.</p>
+<p>The return value of the kernel function determines the value written
+to that thread's position in the pre-allocated output array. For
+instance, rather than building an array iteratively inside a loop:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(inputData) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Access current coordinates</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> index <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Return a single scalar or vector value for this slot</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> inputData[index] <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000</span>])<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">computeKernel</span>(myInputArray)<span class="op">;</span></span></code></pre></div>
+<p>In this setup, GPU.js creates a fixed-size 1D array of length 1,000
+in video memory. Each thread executes concurrently for indices
+<code>0</code> through <code>999</code> and writes its return value
+directly into its pre-assigned memory slot.</p>
+<h2 id="working-with-fixed-local-storage">Working with Fixed Local
+Storage</h2>
+<p>While dynamic arrays are not allowed, you can use local, fixed-size
+variables to store intermediate results during a thread's
+calculation.</p>
+<p>To perform multi-step arithmetic inside a thread:</p>
+<ul>
+<li>Use primitive variables (<code>let</code>, <code>const</code>)
+representing numbers (floats or integers).</li>
+<li>Avoid any JavaScript array methods like <code>.concat()</code>,
+<code>.slice()</code>, or <code>.push()</code>.</li>
+<li>If you need a small collection of items inside a thread, represent
+them as separate scalar variables (e.g.,
+<code>let val1 = 0; let val2 = 0;</code>) rather than a dynamic
+list.</li>
+</ul>
+<h2 id="passing-pre-allocated-arrays-and-multi-pass-workflows">Passing
+Pre-Allocated Arrays and Multi-Pass Workflows</h2>
+<p>If an algorithm requires intermediate arrays or expanding dataset
+transformations, the host JavaScript environment must manage the
+allocations between kernel runs.</p>
+<h3 id="multi-pass-architectures">Multi-Pass Architectures</h3>
+<p>If an algorithm requires multiple computational steps where step two
+depends on the full output of step one, run them as separate kernels or
+use GPU.js pipelines:</p>
+<ol type="1">
+<li><strong>Kernel A (First Pass):</strong> Allocates an output buffer
+via <code>.setOutput([N])</code> and writes intermediate data.</li>
+<li><strong>Transfer or Pipe:</strong> The resulting texture remains in
+GPU memory if using <code>.setPipeline(true)</code>.</li>
+<li><strong>Kernel B (Second Pass):</strong> Reads the output of Kernel
+A as an input parameter and writes to another pre-allocated buffer via
+its own <code>.setOutput([M])</code>.</li>
+</ol>
+<h3 id="resizing-and-filtering-data">Resizing and Filtering Data</h3>
+<p>Because a kernel cannot dynamically discard or add elements,
+operations like filtering (removing elements from an array) cannot
+shrink an array in-place inside the GPU. To filter or resize data:</p>
+<ol type="1">
+<li>Flag unwanted values using a sentinel number (like <code>NaN</code>
+or <code>-1</code>) inside the kernel output.</li>
+<li>Read the fixed-dimension array back to the CPU.</li>
+<li>Use native JavaScript methods (such as
+<code>Array.prototype.filter()</code>) on the CPU side to construct the
+final dynamic array.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

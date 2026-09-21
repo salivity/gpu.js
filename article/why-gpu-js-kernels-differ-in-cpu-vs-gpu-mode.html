@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why GPU.js Kernels Differ in CPU vs GPU Mode - gpu.js</title>
+    <meta name="description" content="GPU.js allows developers to write complex parallel computations in JavaScript that compile to WebGL shaders on the GPU, while providing a pure JavaScript fallback for CPU execution. While the library strives for parity between these two runtime environme">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-kernels-differ-in-cpu-vs-gpu-mode">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why GPU.js Kernels Differ in CPU vs GPU Mode - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-kernels-differ-in-cpu-vs-gpu-mode" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js allows developers to write complex parallel computations in JavaScript that compile to WebGL shaders on the GPU, while providing a pure JavaScript fallback for CPU execution. While the library strives for parity between these two runtime environme" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-kernels-differ-in-cpu-vs-gpu-mode">Why GPU.js Kernels
+Differ in CPU vs GPU Mode</h1>
+<p>GPU.js allows developers to write complex parallel computations in
+JavaScript that compile to WebGL shaders on the GPU, while providing a
+pure JavaScript fallback for CPU execution. While the library strives
+for parity between these two runtime environments, identical kernel code
+can yield divergent results or unexpected behaviors when switching
+between modes. These discrepancies primarily stem from differences in
+floating-point precision, static versus dynamic typing, array boundary
+handling, and underlying hardware implementations of mathematical
+functions.</p>
+<h3 id="floating-point-precision">Floating-Point Precision</h3>
+<p>The most frequent cause of calculation divergence is precision.
+JavaScript running on the CPU natively uses IEEE 754 double-precision
+64-bit floating-point numbers. Conversely, GPU mode transpiles your code
+into WebGL/GLSL shaders, which typically execute using single-precision
+32-bit (or even 16-bit medium-precision) floats depending on device
+capabilities and WebGL settings. Cumulative operations, such as deep
+iterative loops, trigonometric reductions, or matrix multiplications,
+can rapidly accumulate rounding errors that cause GPU output to drift
+significantly from CPU output.</p>
+<h3 id="type-coercion-and-strictness">Type Coercion and Strictness</h3>
+<p>JavaScript is weakly and dynamically typed, allowing operations like
+adding an integer to a float or implicit boolean-to-number casting
+without warnings. GLSL (OpenGL Shading Language), the target language
+for GPU mode, is strictly and statically typed. While the GPU.js
+compiler attempts to infer and coerce types automatically, ambiguous
+syntax can behave differently. For instance, an expression like
+<code>1 / 2</code> evaluates to <code>0.5</code> in JavaScript on the
+CPU, but if parsed as integer division in GLSL, it evaluates to
+<code>0</code>.</p>
+<h3 id="array-bounds-and-out-of-range-access">Array Bounds and
+Out-of-Range Access</h3>
+<p>When indexing an array beyond its declared boundaries in CPU mode,
+JavaScript safely returns <code>undefined</code> (which evaluates to
+<code>NaN</code> in arithmetic expressions). In GPU mode, arrays are
+mapped directly to WebGL textures. Reading outside the boundary of a
+texture does not yield <code>undefined</code>; instead, depending on the
+texture wrapping mode configured in the GPU pipeline, it may return
+clamped edge values, wrapped-around values from the other side, or raw
+memory artifacts, completely altering the calculation's state.</p>
+<h3 id="hardware-level-math-implementations">Hardware-Level Math
+Implementations</h3>
+<p>Functions provided by JavaScript's standard <code>Math</code> library
+(such as <code>Math.sin()</code>, <code>Math.pow()</code>, and
+<code>Math.sqrt()</code>) map directly to native GLSL functions on the
+GPU. Modern GPU architectures prioritize speed over extreme accuracy for
+trigonometric and transcendental functions, often relying on hardware
+lookup tables and specialized approximations. As a result, the low-level
+bit representation of a math operation on the CPU will rarely match the
+GPU's hardware-accelerated equivalent precisely.</p>
+<h3 id="branching-and-loop-constraints">Branching and Loop
+Constraints</h3>
+<p>CPUs excel at complex branching and non-deterministic loops,
+executing conditional paths with low latency. GPUs, however, execute
+threads in parallel lockstep (warps or wavefronts). In GPU mode, loops
+with dynamic, runtime-determined termination conditions may fail to
+compile or may execute every branch of a conditional statement
+internally, masking off unselected results. If a kernel contains complex
+control flow or early returns that the transpiler cannot map cleanly to
+GLSL, CPU mode may execute the logic as intended while GPU mode produces
+execution stalls, unexpected branch evaluations, or silent failures.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

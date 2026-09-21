@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Credit Risk Simulation with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to leverage GPU.js to execute high-throughput Monte Carlo default probability simulations across large loan pools. By compiling standard JavaScript calculations into WebGL compute shaders, GPU.js distributes thousands of simulat">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-credit-risk-simulation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel Credit Risk Simulation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-credit-risk-simulation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to leverage GPU.js to execute high-throughput Monte Carlo default probability simulations across large loan pools. By compiling standard JavaScript calculations into WebGL compute shaders, GPU.js distributes thousands of simulat" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-credit-risk-simulation-with-gpujs">Parallel Credit Risk
+Simulation with GPU.js</h1>
+<p>This article explains how to leverage GPU.js to execute
+high-throughput Monte Carlo default probability simulations across large
+loan pools. By compiling standard JavaScript calculations into WebGL
+compute shaders, GPU.js distributes thousands of simulation paths across
+thousands of loan assets simultaneously. Readers will learn the
+underlying simulation logic, how to structure multi-dimensional loan
+data for GPU processing, and how to execute parallel portfolio loss
+calculations in Node.js or browser environments.</p>
+<h2 id="the-computational-bottleneck-in-credit-risk">The Computational
+Bottleneck in Credit Risk</h2>
+<p>Credit risk assessment for loan portfolios typically relies on Monte
+Carlo simulations. In a standard model, each loan <span
+class="math inline">\(i\)</span> has an Exposure at Default (<span
+class="math inline">\(EAD_i\)</span>), Loss Given Default (<span
+class="math inline">\(LGD_i\)</span>), and an unconditional Probability
+of Default (<span class="math inline">\(PD_i\)</span>). Defaults are
+often driven by a structural factor model (such as the Vasicek
+model):</p>
+<p><span class="math display">\[Y_i = \sqrt{\rho} X + \sqrt{1 - \rho}
+Z_i\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(X\)</span> is the systemic market factor
+common to all borrowers.</li>
+<li><span class="math inline">\(Z_i\)</span> is the idiosyncratic risk
+factor unique to borrower <span class="math inline">\(i\)</span>.</li>
+<li><span class="math inline">\(\rho\)</span> is the asset
+correlation.</li>
+</ul>
+<p>Borrower <span class="math inline">\(i\)</span> defaults if <span
+class="math inline">\(Y_i\)</span> falls below a threshold <span
+class="math inline">\(\Phi^{-1}(PD_i)\)</span>. Evaluating <span
+class="math inline">\(N\)</span> loans across <span
+class="math inline">\(M\)</span> simulated economic scenarios requires
+<span class="math inline">\(N \times M\)</span> evaluations. When
+evaluating 50,000 loans across 100,000 scenarios, a single-threaded CPU
+must compute 5 billion independent mathematical evaluations, leading to
+severe latency.</p>
+<h2 id="why-gpujs-for-financial-simulations">Why GPU.js for Financial
+Simulations?</h2>
+<p>GPU.js is an open-source JavaScript library that transpiles a subset
+of JavaScript into GLSL (OpenGL Shading Language). It executes
+computations on the graphics card via WebGL without requiring low-level
+C++ or CUDA programming.</p>
+<p>Because each simulation iteration for a given loan can be evaluated
+independently, the task is embarrassingly parallel. GPU.js maps these
+calculations directly to shader threads, processing thousands of
+iterations in a single clock cycle.</p>
+<h2 id="designing-the-gpu-kernel">Designing the GPU Kernel</h2>
+<p>GPUs excel at uniform operations over flat data arrays. WebGL shaders
+cannot easily handle complex object hierarchies, so loan attributes must
+be unpacked into flat Float32 arrays or matrices.</p>
+<h3 id="1-pseudo-random-number-generation-on-the-gpu">1. Pseudo-Random
+Number Generation on the GPU</h3>
+<p>Shaders lack built-in random number generators like
+<code>Math.random()</code>. You must supply a pseudo-random function
+inside the kernel using thread coordinates and a dynamic seed. A common
+implementation uses a high-frequency sine function:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">pseudoRandom</span>(x<span class="op">,</span> y<span class="op">,</span> seed) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> seed) <span class="op">*</span> <span class="fl">43758.5453</span>) <span class="op">%</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="2-setting-up-the-simulation-kernel">2. Setting Up the Simulation
+Kernel</h3>
+<p>Install the library using <code>npm install gpu.js</code> (for
+Node.js) or load it via CDN.</p>
+<p>The following script defines a GPU kernel to simulate default losses
+across a portfolio:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Configuration</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numLoans <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> numSimulations <span class="op">=</span> <span class="dv">10000</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> correlation <span class="op">=</span> <span class="fl">0.2</span><span class="op">;</span> <span class="co">// Rho</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Register helper functions</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(<span class="kw">function</span> <span class="fu">pseudoRandom</span>(x<span class="op">,</span> y<span class="op">,</span> seed) {</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> dt <span class="op">=</span> x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> seed<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> sn <span class="op">=</span> dt <span class="op">%</span> <span class="fl">3.14159</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>((<span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(sn) <span class="op">*</span> <span class="fl">43758.5453123</span>) <span class="op">%</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co">// Simple approximation of the standard normal inverse cumulative distribution</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(<span class="kw">function</span> <span class="fu">normInv</span>(p) {</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> a <span class="op">=</span> <span class="fl">2.515517</span><span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> b <span class="op">=</span> <span class="fl">0.802853</span><span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> c <span class="op">=</span> <span class="fl">0.010328</span><span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> d <span class="op">=</span> <span class="fl">1.432788</span><span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> e <span class="op">=</span> <span class="fl">0.189269</span><span class="op">;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> f <span class="op">=</span> <span class="fl">0.001308</span><span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> t <span class="op">=</span> p <span class="op">&lt;</span> <span class="fl">0.5</span> <span class="op">?</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log</span>(p)) <span class="op">:</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log</span>(<span class="fl">1.0</span> <span class="op">-</span> p))<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> num <span class="op">=</span> a <span class="op">+</span> t <span class="op">*</span> (b <span class="op">+</span> t <span class="op">*</span> c)<span class="op">;</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> den <span class="op">=</span> <span class="fl">1.0</span> <span class="op">+</span> t <span class="op">*</span> (d <span class="op">+</span> t <span class="op">*</span> (e <span class="op">+</span> t <span class="op">*</span> f))<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> r <span class="op">=</span> t <span class="op">-</span> (num <span class="op">/</span> den)<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> p <span class="op">&lt;</span> <span class="fl">0.5</span> <span class="op">?</span> <span class="op">-</span>r <span class="op">:</span> r<span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a><span class="co">// Define the kernel: Output dimensions are [numLoans, numSimulations]</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> simulatePortfolio <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(thresholds<span class="op">,</span> eads<span class="op">,</span> lgds<span class="op">,</span> systemicShocks<span class="op">,</span> seed<span class="op">,</span> rho) {</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> loanIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> simIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> systemic <span class="op">=</span> systemicShocks[simIndex]<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Generate idiosyncratic shock</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> rawRand <span class="op">=</span> <span class="fu">pseudoRandom</span>(loanIndex<span class="op">,</span> simIndex<span class="op">,</span> seed)<span class="op">;</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Bound random number away from 0 and 1 for stability</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> clampedRand <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="fl">0.00001</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(<span class="fl">0.99999</span><span class="op">,</span> rawRand))<span class="op">;</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> idiosyncratic <span class="op">=</span> <span class="fu">normInv</span>(clampedRand)<span class="op">;</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Vasicek factor model</span></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> sqrtRho <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(rho)<span class="op">;</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> sqrtOneMinusRho <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(<span class="fl">1.0</span> <span class="op">-</span> rho)<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> compositeFactor <span class="op">=</span> (sqrtRho <span class="op">*</span> systemic) <span class="op">+</span> (sqrtOneMinusRho <span class="op">*</span> idiosyncratic)<span class="op">;</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>  <span class="co">// If compositeFactor falls below threshold, the loan defaults</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (compositeFactor <span class="op">&lt;</span> thresholds[loanIndex]) {</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> eads[loanIndex] <span class="op">*</span> lgds[loanIndex]<span class="op">;</span></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([numLoans<span class="op">,</span> numSimulations])</span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPrecision</span>(<span class="st">&#39;single&#39;</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="3-executing-the-simulation">3. Executing the Simulation</h3>
+<p>Run the simulation by passing standard arrays to the compiled
+kernel:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Sample data generation</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> thresholds <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(numLoans)<span class="op">.</span><span class="fu">fill</span>(<span class="op">-</span><span class="fl">1.645</span>)<span class="op">;</span> <span class="co">// Equivalent to ~5% default probability</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> eads <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(numLoans)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">10000</span>)<span class="op">;</span>        <span class="co">// $10,000 per loan</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> lgds <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(numLoans)<span class="op">.</span><span class="fu">fill</span>(<span class="fl">0.40</span>)<span class="op">;</span>         <span class="co">// 40% loss given default</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Systemic shocks per simulation scenario (precomputed on CPU)</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> systemicShocks <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(numSimulations)<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> numSimulations<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Box-Muller transform for standard normal sample</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> u1 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>()<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> u2 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>()<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  systemicShocks[i] <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log</span>(u1)) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">*</span> u2)<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> seed <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="fl">1000.0</span><span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="co">// Execute on GPU</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">time</span>(<span class="st">&#39;GPU Simulation&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> losses <span class="op">=</span> <span class="fu">simulatePortfolio</span>(thresholds<span class="op">,</span> eads<span class="op">,</span> lgds<span class="op">,</span> systemicShocks<span class="op">,</span> seed<span class="op">,</span> correlation)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">timeEnd</span>(<span class="st">&#39;GPU Simulation&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a><span class="co">// Calculate portfolio-level metrics</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> totalLossPathZero <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> numLoans<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>  totalLossPathZero <span class="op">+=</span> losses[<span class="dv">0</span>][i]<span class="op">;</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Simulation Path 0 Total Loss: $</span><span class="sc">${</span>totalLossPathZero<span class="op">.</span><span class="fu">toFixed</span>(<span class="dv">2</span>)<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="best-practices-and-optimization">Best Practices and
+Optimization</h2>
+<ol type="1">
+<li><strong>Avoid Frequent Host-to-Device Memory Transfers</strong>: The
+data transfer over the PCIe bus between the CPU (host) and GPU (device)
+creates latency. Group loans into static pools so loan attributes remain
+resident on the GPU across multi-period runs.</li>
+<li><strong>Handle Precision Limitations</strong>: WebGL shaders
+predominantly use 32-bit floating-point (<code>float</code>). Ensure
+that your threshold transformations and inverse cumulative calculations
+do not result in precision underflows, especially at extreme tails
+(<span class="math inline">\(PD &lt; 0.001\)</span>).</li>
+<li><strong>Pipeline Aggregations</strong>: The sample code outputs a 2D
+matrix of shape <code>[numLoans, numSimulations]</code>. For extremely
+large simulations, outputting this full matrix can exhaust system RAM.
+Instead, create a secondary GPU reduction kernel to sum losses across
+all loans for each scenario, returning a 1D array of size
+<code>[numSimulations]</code> containing total portfolio losses.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

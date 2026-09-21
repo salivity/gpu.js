@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Uses WEBGL_draw_buffers for SubKernels - gpu.js</title>
+    <meta name="description" content="This article provides an overview of how the GPU.js library executes multiple subKernels concurrently in a WebGL 1 environment by leveraging the WEBGLdrawbuffers extension. It explains the mechanics of Multiple Render Targets (MRT), how GPU.js bypasses t">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-uses-webgl-draw-buffers-for-sub-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Uses WEBGL_draw_buffers for SubKernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-uses-webgl-draw-buffers-for-sub-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides an overview of how the GPU.js library executes multiple subKernels concurrently in a WebGL 1 environment by leveraging the WEBGLdrawbuffers extension. It explains the mechanics of Multiple Render Targets (MRT), how GPU.js bypasses t" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-uses-webgl_draw_buffers-for-subkernels">How GPU.js
+Uses WEBGL_draw_buffers for SubKernels</h1>
+<p>This article provides an overview of how the GPU.js library executes
+multiple <code>subKernels</code> concurrently in a WebGL 1 environment
+by leveraging the <code>WEBGL_draw_buffers</code> extension. It explains
+the mechanics of Multiple Render Targets (MRT), how GPU.js bypasses the
+native single-output limitation of WebGL 1, and the step-by-step shader
+and framebuffer compilation pipeline used to write to multiple output
+textures in a single compute pass.</p>
+<h3 id="the-single-target-constraint-in-webgl-1">The Single-Target
+Constraint in WebGL 1</h3>
+<p>Standard WebGL 1 pipelines operate under a strict limitation: a
+fragment shader can only write to a single render target per draw call.
+In standard GLSL ES 1.00, output is assigned directly to the built-in
+<code>gl_FragColor</code> variable. Under this model, computing multiple
+distinct arrays or matrices from a single set of operations requires
+multipass rendering, where the application must re-render geometry and
+re-execute shared calculations for every individual output buffer.</p>
+<h3 id="multiple-render-targets-via-webgl_draw_buffers">Multiple Render
+Targets via WEBGL_draw_buffers</h3>
+<p>The <code>WEBGL_draw_buffers</code> extension introduces Multiple
+Render Targets (MRT) to WebGL 1. This extension enables an application
+to attach several color buffers to a single Framebuffer Object (FBO) and
+write to them simultaneously during a single rasterization pass.</p>
+<p>Instead of routing output exclusively to <code>gl_FragColor</code>,
+the extension unlocks the <code>gl_FragData</code> built-in array within
+the fragment shader:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#extension GL_EXT_draw_buffers : require</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co">// ...</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="va">gl_FragData</span><span class="op">[</span><span class="dv">0</span><span class="op">]</span> <span class="op">=</span> resultA<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="va">gl_FragData</span><span class="op">[</span><span class="dv">1</span><span class="op">]</span> <span class="op">=</span> resultB<span class="op">;</span></span></code></pre></div>
+<p>It also exposes the WebGL method <code>drawBuffersWEBGL()</code>,
+which defines an array of color attachments
+(<code>COLOR_ATTACHMENT0_WEBGL</code>,
+<code>COLOR_ATTACHMENT1_WEBGL</code>, etc.) that map directly to the
+corresponding indices in <code>gl_FragData</code>.</p>
+<h3 id="how-gpujs-implements-subkernels-with-the-extension">How GPU.js
+Implements subKernels with the Extension</h3>
+<p>GPU.js allows developers to bundle multiple computational outputs
+inside a single kernel execution using <code>subKernels</code>. When
+executing in a WebGL 1 context, GPU.js follows a structured process to
+utilize <code>WEBGL_draw_buffers</code>:</p>
+<ol type="1">
+<li><strong>Extension Detection and Feature Checking</strong>: Before
+kernel compilation, GPU.js queries the WebGL context for the
+<code>WEBGL_draw_buffers</code> extension using
+<code>gl.getExtension('WEBGL_draw_buffers')</code>. If unsupported,
+GPU.js cannot use MRT and must fall back to separate rendering passes or
+CPU execution.</li>
+<li><strong>Framebuffer and Texture Allocation</strong>: For each
+declared subKernel, GPU.js allocates a backing WebGL texture sized to
+the kernel's output dimensions. It attaches these textures sequentially
+to the active FBO as <code>ext.COLOR_ATTACHMENT0_WEBGL</code>,
+<code>ext.COLOR_ATTACHMENT1_WEBGL</code>, and so forth.</li>
+<li><strong>Buffer Mapping</strong>: GPU.js issues a call to
+<code>ext.drawBuffersWEBGL([ext.COLOR_ATTACHMENT0_WEBGL, ext.COLOR_ATTACHMENT1_WEBGL, ...])</code>.
+This informs the GPU pipeline that draw operations should route outputs
+to each attached texture concurrently.</li>
+<li><strong>GLSL Code Generation</strong>: During kernel parsing, GPU.js
+compiles the JavaScript functions declared inside the
+<code>subKernels</code> object into a unified fragment shader:
+<ul>
+<li>It injects <code>#extension GL_EXT_draw_buffers : require</code> at
+the beginning of the shader source.</li>
+<li>It analyzes the return values of the individual subKernel
+functions.</li>
+<li>Instead of assigning results to <code>gl_FragColor</code>, it maps
+each subKernel's return value to an explicit index of
+<code>gl_FragData[n]</code>.</li>
+</ul></li>
+<li><strong>Single-Pass Dispatch</strong>: GPU.js executes a single draw
+call (typically rendering a screen-aligned quad). The GPU evaluates the
+shared logic, computes the specific results for each subKernel, and
+updates all bound textures simultaneously.</li>
+</ol>
+<h3 id="advantages-of-the-draw-buffers-implementation">Advantages of the
+Draw Buffers Implementation</h3>
+<p>Utilizing <code>WEBGL_draw_buffers</code> provides substantial
+performance gains when executing <code>subKernels</code>:</p>
+<ul>
+<li><strong>Elimination of Redundant Computations</strong>: Mathematical
+operations shared between subKernels are evaluated once per fragment
+rather than recalculated in separate render passes.</li>
+<li><strong>Reduced State Overhead</strong>: The WebGL pipeline avoids
+repeated FBO binding, uniform re-uploads, and draw call overhead.</li>
+<li><strong>Unified Texture Pipelining</strong>: Output textures are
+populated at the same instant, making them immediately ready to be bound
+as input textures for subsequent kernels in a GPGPU pipeline.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

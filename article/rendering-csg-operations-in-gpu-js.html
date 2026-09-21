@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rendering CSG Operations in GPU.js - gpu.js</title>
+    <meta name="description" content="Constructive Solid Geometry (CSG) operations such as union, intersection, and difference can be rendered in gpu.js by utilizing raymarching combined with Signed Distance Functions (SDFs). Because gpu.js compiles JavaScript functions into WebGL shaders, i">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/rendering-csg-operations-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Rendering CSG Operations in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/rendering-csg-operations-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Constructive Solid Geometry (CSG) operations such as union, intersection, and difference can be rendered in gpu.js by utilizing raymarching combined with Signed Distance Functions (SDFs). Because gpu.js compiles JavaScript functions into WebGL shaders, i" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="rendering-csg-operations-in-gpujs">Rendering CSG Operations in
+GPU.js</h1>
+<p>Constructive Solid Geometry (CSG) operations such as union,
+intersection, and difference can be rendered in gpu.js by utilizing
+raymarching combined with Signed Distance Functions (SDFs). Because
+gpu.js compiles JavaScript functions into WebGL shaders, it provides the
+parallel processing power required to compute pixel-by-pixel
+mathematical geometry on the GPU. While gpu.js is primarily designed for
+general-purpose parallel computing, its graphical output mode allows
+developers to render complex CSG scenes directly to a canvas.</p>
+<h3 id="the-mechanism-sdfs-and-raymarching">The Mechanism: SDFs and
+Raymarching</h3>
+<p>Traditional mesh-based CSG requires complex polygon clipping
+algorithms, which are difficult to implement efficiently on a parallel
+GPU pipeline. In a shader-based environment like gpu.js, CSG is
+implemented using Signed Distance Functions (SDFs) and sphere tracing
+(raymarching).</p>
+<p>An SDF is a mathematical function that takes a point in 3D space and
+returns the shortest distance from that point to the surface of a shape.
+Positive values represent points outside the shape, negative values
+represent points inside, and zero represents the exact surface.</p>
+<h3 id="mathematical-csg-operations">Mathematical CSG Operations</h3>
+<p>In an SDF-based raymarcher, Boolean CSG operations between two shapes
+(<span class="math inline">\(A\)</span> and <span
+class="math inline">\(B\)</span>) reduce to simple mathematical
+comparisons:</p>
+<ul>
+<li><strong>Union (<span class="math inline">\(A \cup
+B\)</span>):</strong> The combined volume of both shapes.<br />
+Formula: <code>Math.min(distanceA, distanceB)</code></li>
+<li><strong>Intersection (<span class="math inline">\(A \cap
+B\)</span>):</strong> The overlapping volume shared by both
+shapes.<br />
+Formula: <code>Math.max(distanceA, distanceB)</code></li>
+<li><strong>Difference (<span class="math inline">\(A -
+B\)</span>):</strong> Shape <span class="math inline">\(A\)</span> with
+the overlapping volume of shape <span class="math inline">\(B\)</span>
+subtracted.<br />
+Formula: <code>Math.max(distanceA, -distanceB)</code></li>
+</ul>
+<h3 id="implementing-in-gpujs">Implementing in gpu.js</h3>
+<p>To render these operations using gpu.js, you configure a kernel with
+the <code>graphical: true</code> setting. The basic workflow
+involves:</p>
+<ol type="1">
+<li><strong>Camera and Ray Setup:</strong> For each pixel processed by
+the kernel, calculate a ray starting at the camera origin and pointing
+through the screen space coordinate (<code>this.thread.x</code>,
+<code>this.thread.y</code>).</li>
+<li><strong>The Marching Loop:</strong> Step along the ray in discrete
+increments. At each step, evaluate the scene's global SDF. The step size
+is equal to the distance returned by the SDF.</li>
+<li><strong>Evaluating CSG:</strong> The scene's SDF combines primitive
+shapes (such as spheres, cubes, or cylinders) using the
+<code>Math.min</code> and <code>Math.max</code> rules defined
+above.</li>
+<li><strong>Surface Detection and Shading:</strong> If the distance
+returned by the SDF is smaller than a tiny threshold (e.g.,
+<code>0.001</code>), a surface hit is registered. You can then calculate
+surface normals using finite differences to apply lighting, and call
+<code>this.color(r, g, b, a)</code> to render the pixel.</li>
+</ol>
+<h3 id="limitations-and-considerations">Limitations and
+Considerations</h3>
+<p>While entirely possible, rendering CSG via gpu.js has specific
+constraints:</p>
+<ul>
+<li><strong>Branching and Loops:</strong> gpu.js translates JavaScript
+loops into GLSL. Raymarching requires fixed-bound loops, as dynamic
+while-loops can cause compilation issues or performance bottlenecks in
+WebGL.</li>
+<li><strong>Primitive Geometry:</strong> SDF-based CSG works best with
+mathematically defined shapes. Rendering arbitrary 3D triangle meshes
+using this method requires generating distance fields beforehand, which
+introduces significant memory overhead.</li>
+<li><strong>Abstraction Overhead:</strong> gpu.js introduces a layer of
+abstraction over raw GLSL. For purely visual raymarching and advanced
+CSG rendering, writing native GLSL inside a standard WebGL or Three.js
+pipeline is often more flexible and easier to debug. However, if your
+project already relies on gpu.js for compute tasks, rendering CSG
+directly within the same pipeline is fully achievable.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

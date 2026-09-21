@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Optimizing LU Decomposition with Pivoting in GPU.js - gpu.js</title>
+    <meta name="description" content="Implementing LU matrix decomposition with partial pivoting (LUP) in gpu.js presents unique performance challenges due to the sequential nature of pivot hunting and the latency of WebGL data readbacks. To achieve optimal throughput, developers must adopt">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/optimizing-lu-decomposition-with-pivoting-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Optimizing LU Decomposition with Pivoting in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/optimizing-lu-decomposition-with-pivoting-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Implementing LU matrix decomposition with partial pivoting (LUP) in gpu.js presents unique performance challenges due to the sequential nature of pivot hunting and the latency of WebGL data readbacks. To achieve optimal throughput, developers must adopt" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="optimizing-lu-decomposition-with-pivoting-in-gpujs">Optimizing
+LU Decomposition with Pivoting in GPU.js</h1>
+<p>Implementing LU matrix decomposition with partial pivoting (LUP) in
+gpu.js presents unique performance challenges due to the sequential
+nature of pivot hunting and the latency of WebGL data readbacks. To
+achieve optimal throughput, developers must adopt a hybrid execution
+strategy that uses texture pipelining to keep matrix data on the GPU,
+minimizes CPU-GPU memory synchronization, and leverages 2D parallel
+compute kernels for Gaussian elimination updates. This article outlines
+the architecture and execution pipeline required to achieve maximum
+performance for LUP decomposition in gpu.js.</p>
+<h3 id="the-architectural-bottleneck-of-partial-pivoting">The
+Architectural Bottleneck of Partial Pivoting</h3>
+<p>Standard LU decomposition factorizes an <span class="math inline">\(n
+\times n\)</span> matrix <span class="math inline">\(A\)</span> into a
+lower triangular matrix <span class="math inline">\(L\)</span> and an
+upper triangular matrix <span class="math inline">\(U\)</span>. Partial
+pivoting adds a permutation matrix <span
+class="math inline">\(P\)</span> such that <span
+class="math inline">\(PA = LU\)</span>, stabilizing the algorithm
+against division by zero and numerical instability.</p>
+<p>In each iteration <span class="math inline">\(k\)</span> (from <span
+class="math inline">\(0\)</span> to <span
+class="math inline">\(n-1\)</span>), the algorithm must:</p>
+<ol type="1">
+<li>Find the maximum absolute value in the sub-column <span
+class="math inline">\(k\)</span> (rows <span
+class="math inline">\(k\)</span> to <span
+class="math inline">\(n-1\)</span>).</li>
+<li>Swap row <span class="math inline">\(k\)</span> with the pivot
+row.</li>
+<li>Compute the multipliers <span class="math inline">\(L_{i,k} =
+A_{i,k} / A_{k,k}\)</span> for <span class="math inline">\(i &gt;
+k\)</span>.</li>
+<li>Update the trailing submatrix: <span class="math inline">\(A_{i,j} =
+A_{i,j} - L_{i,k} \times A_{k,j}\)</span> for <span
+class="math inline">\(i, j &gt; k\)</span>.</li>
+</ol>
+<p>Step 4 is embarrassingly parallel, making it an ideal candidate for
+WebGL acceleration. However, Steps 1 and 2 introduce sequential
+synchronization barriers that can easily degrade performance if matrix
+buffers repeatedly transfer between the GPU and CPU.</p>
+<h3 id="1-enable-kernel-pipelining-to-eliminate-readback">1. Enable
+Kernel Pipelining to Eliminate Readback</h3>
+<p>By default, gpu.js downloads computation results back to the CPU as a
+JavaScript array after each kernel run. Transferring an <span
+class="math inline">\(n \times n\)</span> array across the PCI-e bus
+<span class="math inline">\(n\)</span> times introduces massive latency
+that outweighs any compute acceleration.</p>
+<p>To optimize this:</p>
+<ul>
+<li>Enable <code>pipeline: true</code> on the elimination kernel.</li>
+<li>Keep the matrix representation inside GPU VRAM as a WebGL texture
+across all <span class="math inline">\(n\)</span> iterations.</li>
+<li>Run the algorithm iteratively by passing the output texture of step
+<span class="math inline">\(k\)</span> directly as the input to step
+<span class="math inline">\(k+1\)</span> (ping-pong buffering).</li>
+</ul>
+<h3 id="2-streamline-pivot-selection">2. Streamline Pivot Selection</h3>
+<p>Finding the maximum element along an axis (reduction) is structurally
+inefficient in WebGL fragment shaders compared to standard compute
+shaders. To handle pivot selection without stalling the execution
+pipeline, choose one of two strategies based on matrix dimension:</p>
+<ul>
+<li><strong>Parallel Tree Reduction (For <span class="math inline">\(n
+\ge 1024\)</span>):</strong> Implement a dedicated 1D reduction kernel
+that halves the search space iteratively on the GPU until the max
+element and row index are determined.</li>
+<li><strong>Batched Sub-vector Readback (For <span
+class="math inline">\(n &lt; 1024\)</span>):</strong> Extract only the
+active column segment (<span class="math inline">\(n - k\)</span>
+floats) to the CPU rather than the full <span class="math inline">\(n
+\times n\)</span> matrix. The CPU then performs a fast, single-threaded
+search to determine the pivot index, which is passed as a uniform
+variable to the GPU for the elimination phase.</li>
+</ul>
+<h3 id="3-virtual-row-swapping-in-the-elimination-kernel">3. Virtual Row
+Swapping in the Elimination Kernel</h3>
+<p>Physically copying entire rows in GPU memory during each pivot step
+incurs significant memory bandwidth overhead. Instead of executing a
+dedicated row-swapping kernel:</p>
+<ol type="1">
+<li>Maintain an index map (permutation array) on the CPU or in a 1D
+texture.</li>
+<li>Update the permutation array logically when a pivot is
+selected.</li>
+<li>Provide the pivot index directly to the trailing submatrix kernel as
+a uniform parameter (<code>uniform int pivotRow</code>,
+<code>uniform int currentRow</code>).</li>
+<li>Inside the kernel shader, dynamically read from
+<code>pivotRow</code> whenever accessing values from
+<code>currentRow</code>, effectively performing the swap inline during
+the read phase of the elimination step.</li>
+</ol>
+<h3 id="4-fused-multiplier-and-trailing-matrix-elimination">4. Fused
+Multiplier and Trailing Matrix Elimination</h3>
+<p>Rather than splitting the multiplier calculation and trailing
+submatrix subtraction into separate kernel calls, combine them into a
+single 2D kernel.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> lupStep <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(A<span class="op">,</span> k<span class="op">,</span> pivotRow<span class="op">,</span> n) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> row <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> col <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Determine virtual indices accounting for the pivot swap</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> actualRow <span class="op">=</span> row<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (row <span class="op">===</span> k) actualRow <span class="op">=</span> pivotRow<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (row <span class="op">===</span> pivotRow) actualRow <span class="op">=</span> k<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Leave previously factored components intact</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (actualRow <span class="op">&lt;</span> k <span class="op">||</span> col <span class="op">&lt;</span> k) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> A[actualRow][col]<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute multiplier on the active column</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (col <span class="op">===</span> k <span class="op">&amp;&amp;</span> actualRow <span class="op">&gt;</span> k) {</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> A[actualRow][k] <span class="op">/</span> A[k][k]<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Update trailing submatrix</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (actualRow <span class="op">&gt;</span> k <span class="op">&amp;&amp;</span> col <span class="op">&gt;</span> k) {</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> multiplier <span class="op">=</span> A[actualRow][k] <span class="op">/</span> A[k][k]<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> A[actualRow][col] <span class="op">-</span> (multiplier <span class="op">*</span> A[k][col])<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> A[actualRow][col]<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="summary-of-performance-gains">Summary of Performance Gains</h3>
+<p>The most efficient approach combines <strong>texture
+pipelining</strong>, <strong>virtual row pivoting via shader
+uniforms</strong>, and a <strong>single fused elimination pass</strong>.
+This guarantees that:</p>
+<ul>
+<li>Matrix values remain bound to texture memory for the duration of the
+factorization.</li>
+<li>CPU-GPU synchronization is restricted strictly to pivot row
+resolution.</li>
+<li>GPU memory writes are minimized to a single render pass per
+outer-loop iteration.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

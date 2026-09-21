@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Update Particles with GPU.js Pipeline Mode - gpu.js</title>
+    <meta name="description" content="Simulating particle systems in the browser often bottlenecks when repeatedly transferring large sets of coordinate and velocity data between the CPU and GPU. By leveraging the pipeline mode in GPU.js, developers can execute iterative calculations—such">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/update-particles-with-gpu-js-pipeline-mode">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Update Particles with GPU.js Pipeline Mode - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/update-particles-with-gpu-js-pipeline-mode" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating particle systems in the browser often bottlenecks when repeatedly transferring large sets of coordinate and velocity data between the CPU and GPU. By leveraging the pipeline mode in GPU.js, developers can execute iterative calculations—such" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="update-particles-with-gpujs-pipeline-mode">Update Particles with
+GPU.js Pipeline Mode</h1>
+<p>Simulating particle systems in the browser often bottlenecks when
+repeatedly transferring large sets of coordinate and velocity data
+between the CPU and GPU. By leveraging the pipeline mode in GPU.js,
+developers can execute iterative calculations—such as updating particle
+velocities and positions—entirely within GPU memory as WebGL textures.
+This article explains how pipeline mode works, how to configure the
+kernels for velocity and position integration, and how to execute the
+continuous update loop efficiently without transferring data back to
+JavaScript memory on every frame.</p>
+<h3 id="the-role-of-pipeline-mode">The Role of Pipeline Mode</h3>
+<p>By default, a GPU.js kernel executes on the graphics hardware and
+then converts the resulting WebGL texture back into a JavaScript array
+(CPU memory). In an iterative simulation running at 60 frames per
+second, transferring thousands or millions of floats back and forth
+creates severe memory bandwidth overhead.</p>
+<p>Setting <code>pipeline: true</code> in the kernel options instructs
+GPU.js to leave the output data on the GPU as a <code>Texture</code>
+object. This texture can be passed directly as an input into the next
+kernel execution, allowing position and velocity calculations to feed
+into each other with zero CPU data-transfer overhead.</p>
+<h3 id="setting-up-the-simulation-kernels">Setting Up the Simulation
+Kernels</h3>
+<p>A typical Newtonian particle system calculates updated velocity based
+on forces (e.g., gravity, drag) and then updates positions based on
+those new velocities.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to update velocity based on acceleration/forces</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateVelocity <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> dt) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read current values (assuming 2D vectors packed as [x, y])</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> vx <span class="op">=</span> velocities[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> vy <span class="op">=</span> velocities[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply gravity</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gravityY <span class="op">=</span> <span class="op">-</span><span class="fl">9.81</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    vy <span class="op">+=</span> gravityY <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [vx<span class="op">,</span> vy]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [NUM_PARTICLES]</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to update position using the updated velocity</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updatePosition <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> dt) {</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> px <span class="op">=</span> positions[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> py <span class="op">=</span> positions[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vx <span class="op">=</span> velocities[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vy <span class="op">=</span> velocities[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    px <span class="op">+=</span> vx <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    py <span class="op">+=</span> vy <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Optional boundary collision handling</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (py <span class="op">&lt;</span> <span class="dv">0</span>) {</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>        py <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [px<span class="op">,</span> py]<span class="op">;</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [NUM_PARTICLES]</span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="the-iterative-update-loop">The Iterative Update Loop</h3>
+<p>Once the kernels are defined, the simulation runs inside a standard
+requestAnimationFrame or fixed-timestep loop. The output of one kernel
+becomes the input to the next, cycling continuously through GPU
+memory.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Initial state on CPU</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> positions <span class="op">=</span> initialPositionsArray<span class="op">;</span> <span class="co">// Array of [x, y]</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> velocities <span class="op">=</span> initialVelocitiesArray<span class="op">;</span> <span class="co">// Array of [vx, vy]</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dt <span class="op">=</span> <span class="fl">0.016</span><span class="op">;</span> <span class="co">// 60 FPS delta time</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">step</span>() {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 1. Compute new velocities; returns a GPU texture</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    velocities <span class="op">=</span> <span class="fu">updateVelocity</span>(positions<span class="op">,</span> velocities<span class="op">,</span> dt)<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 2. Compute new positions using the texture from step 1; returns a GPU texture</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    positions <span class="op">=</span> <span class="fu">updatePosition</span>(positions<span class="op">,</span> velocities<span class="op">,</span> dt)<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 3. Render or continue</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span></code></pre></div>
+<p>On the initial frame, <code>positions</code> and
+<code>velocities</code> are standard JavaScript arrays. GPU.js
+automatically uploads them to textures. In all subsequent frames, both
+variables store <code>Texture</code> references, meaning the data never
+leaves the GPU.</p>
+<h3 id="extracting-and-rendering-data">Extracting and Rendering
+Data</h3>
+<p>Because the output remains as a texture, the values cannot be logged
+or read directly using standard JavaScript index lookups without
+explicit conversion:</p>
+<ul>
+<li><strong>Retrieving Data to the CPU:</strong> Call
+<code>positions.toArray()</code> only when necessary (e.g., debugging or
+syncing state over a network), as this triggers the expensive GPU-to-CPU
+read operation.</li>
+<li><strong>Rendering on Canvas:</strong> To achieve maximum
+performance, feed the texture directly into a graphical kernel or
+combine the simulation with a WebGL rendering pipeline so that the
+updated coordinates are drawn directly to the canvas without converting
+them to arrays.</li>
+</ul>
+<h3 id="texture-disposal">Texture Disposal</h3>
+<p>When working with long-running iterative textures in GPU.js, texture
+references are recycled automatically by the pipeline runner. However,
+if you manually break the loop, replace initial states, or stop using
+intermediate textures, calling <code>.delete()</code> on unused textures
+prevents WebGL memory leaks.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

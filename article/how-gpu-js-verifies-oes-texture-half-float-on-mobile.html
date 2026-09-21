@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Verifies OES_texture_half_float on Mobile - gpu.js</title>
+    <meta name="description" content="GPU.js detects and validates OEStexturehalffloat on mobile browsers by pairing WebGL extension querying with active functional rendering tests. Because mobile GPU drivers frequently advertise extension support while failing actual computation or texture">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-verifies-oes-texture-half-float-on-mobile">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Verifies OES_texture_half_float on Mobile - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-verifies-oes-texture-half-float-on-mobile" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js detects and validates OEStexturehalffloat on mobile browsers by pairing WebGL extension querying with active functional rendering tests. Because mobile GPU drivers frequently advertise extension support while failing actual computation or texture" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-verifies-oes_texture_half_float-on-mobile">How GPU.js
+Verifies OES_texture_half_float on Mobile</h1>
+<p>GPU.js detects and validates <code>OES_texture_half_float</code> on
+mobile browsers by pairing WebGL extension querying with active
+functional rendering tests. Because mobile GPU drivers frequently
+advertise extension support while failing actual computation or texture
+attachment, GPU.js does not rely solely on the browser's extension
+registry. Instead, it queries the context, verifies auxiliary rendering
+extensions, and builds an in-memory test harness to confirm whether
+16-bit floating-point textures can be reliably allocated, written to,
+and read.</p>
+<h3 id="querying-the-webgl-context">Querying the WebGL Context</h3>
+<p>The verification process begins during the initialization of the
+WebGL rendering context. When running on WebGL 1, GPU.js requests the
+extension directly from the context:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">context</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> halfFloatExt <span class="op">=</span> gl<span class="op">.</span><span class="fu">getExtension</span>(<span class="st">&#39;OES_texture_half_float&#39;</span>)<span class="op">;</span></span></code></pre></div>
+<p>If <code>gl.getExtension()</code> returns <code>null</code>, the
+browser or underlying mobile hardware does not expose half-precision
+floating-point textures. In this case, GPU.js immediately marks the
+feature as unsupported and falls back to standard 32-bit float textures
+(<code>OES_texture_float</code>) or integer-encoded 8-bit RGBA
+channels.</p>
+<h3 id="validating-framebuffer-renderability">Validating Framebuffer
+Renderability</h3>
+<p>On mobile chipsets (such as ARM Mali, Qualcomm Adreno, and Apple
+GPUs), a driver might support half-float textures for sampling inside a
+shader, but lack the ability to render calculation outputs directly into
+them. Because GPU.js relies on GPU kernels outputting results into
+textures via Framebuffer Objects (FBOs), read-only support is
+insufficient.</p>
+<p>To verify renderability, GPU.js performs a runtime capability
+probe:</p>
+<ol type="1">
+<li><strong>Texture Creation:</strong> It creates a WebGL texture object
+and configures it with the <code>gl.HALF_FLOAT_OES</code> type token
+provided by the extension.</li>
+<li><strong>FBO Attachment:</strong> It binds a test framebuffer and
+attaches the half-float texture to the framebuffer's color attachment
+point (<code>gl.COLOR_ATTACHMENT0</code>).</li>
+<li><strong>Status Check:</strong> It queries
+<code>gl.checkFramebufferStatus(gl.FRAMEBUFFER)</code>.</li>
+</ol>
+<p>If the returned status is not <code>gl.FRAMEBUFFER_COMPLETE</code>,
+the mobile browser cannot use half-float textures as render targets,
+causing GPU.js to disable half-float output modes.</p>
+<h3 id="checking-supplementary-extensions">Checking Supplementary
+Extensions</h3>
+<p>Half-precision math often requires additional capabilities to
+function correctly in general-purpose GPU computing. Alongside
+<code>OES_texture_half_float</code>, GPU.js checks for:</p>
+<ul>
+<li><strong><code>EXT_color_buffer_half_float</code></strong>: Often
+required in mobile WebGL implementations to permit rendering to
+half-float textures.</li>
+<li><strong><code>OES_texture_half_float_linear</code></strong>: Checked
+if linear interpolation or filtering across half-float values is
+required for specific kernel operations.</li>
+</ul>
+<h3 id="practical-execution-and-readback">Practical Execution and
+Readback</h3>
+<p>Even if a framebuffer reports complete status, mobile drivers can
+produce silent failures or NaN values during pixel readback. GPU.js runs
+a lightweight test kernel using a minimal 1x1 or 2x2 texture. It writes
+known numeric data to the texture, executes a minimal shader pass, and
+either reads the result back using <code>gl.readPixels()</code> or binds
+it to a subsequent pass. If the values match the expected output within
+half-precision tolerances, GPU.js flags the half-float pipeline as fully
+operational for that mobile session.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

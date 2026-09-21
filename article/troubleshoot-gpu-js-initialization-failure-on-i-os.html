@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Troubleshoot gpu.js Initialization Failure on iOS - gpu.js</title>
+    <meta name="description" content="Running gpu.js on iOS often introduces platform-specific initialization failures due to WebKit restrictions, memory constraints, and strict WebGL context limits. This article provides a systematic troubleshooting guide to diagnose and resolve gpu.js star">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/troubleshoot-gpu-js-initialization-failure-on-i-os">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Troubleshoot gpu.js Initialization Failure on iOS - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/troubleshoot-gpu-js-initialization-failure-on-i-os" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running gpu.js on iOS often introduces platform-specific initialization failures due to WebKit restrictions, memory constraints, and strict WebGL context limits. This article provides a systematic troubleshooting guide to diagnose and resolve gpu.js star" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="troubleshoot-gpujs-initialization-failure-on-ios">Troubleshoot
+gpu.js Initialization Failure on iOS</h1>
+<p>Running gpu.js on iOS often introduces platform-specific
+initialization failures due to WebKit restrictions, memory constraints,
+and strict WebGL context limits. This article provides a systematic
+troubleshooting guide to diagnose and resolve gpu.js startup failures in
+iOS browsers, covering WebGL support verification, CPU fallback
+configurations, WebKit-specific context limits, and remote debugging
+techniques.</p>
+<h3 id="1-verify-webgl-support-and-context-availability">1. Verify WebGL
+Support and Context Availability</h3>
+<p>iOS browsers (all powered by WebKit) may fail to instantiate gpu.js
+if the WebGL context cannot be created. Run a basic check directly in
+the browser console or a lightweight script before calling
+<code>new GPU()</code>:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">&#39;canvas&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> canvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;webgl2&#39;</span>) <span class="op">||</span> canvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;webgl&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="op">!</span>gl) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">error</span>(<span class="st">&#39;WebGL is not supported or disabled on this iOS device.&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>If <code>gl</code> returns <code>null</code>, the browser is either
+blocking hardware acceleration or has exhausted its available WebGL
+contexts.</p>
+<h3 id="2-configure-fallback-modes-in-gpujs">2. Configure Fallback Modes
+in gpu.js</h3>
+<p>By default, gpu.js tries to initialize using the best available
+hardware mode (<code>webgl2</code>, then <code>webgl</code>). If WebKit
+blocks these modes, initialization throws an error unless explicit
+fallbacks are allowed. When initializing gpu.js, explicitly configure
+the fallback modes:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;gpu&#39;</span> <span class="co">// Will attempt webgl2/webgl, but throws if unsupported</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">// To gracefully handle failure:</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span> {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>} <span class="cf">catch</span> (e) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">warn</span>(<span class="st">&#39;GPU mode failed, falling back to CPU:&#39;</span><span class="op">,</span> e)<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;cpu&#39;</span> })<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Testing directly with <code>{ mode: 'cpu' }</code> helps confirm
+whether the failure is strictly hardware-acceleration-related or tied to
+library bundling issues.</p>
+<h3 id="3-check-for-webgl-context-leaks">3. Check for WebGL Context
+Leaks</h3>
+<p>iOS imposes a strict limit on the number of active WebGL contexts
+allowed simultaneously (often as few as 8 to 16 across an entire page
+session). If previous instances of gpu.js or other WebGL libraries (like
+Three.js or PixiJS) were created without being destroyed, new contexts
+will fail to initialize.</p>
+<ul>
+<li>Destroy unused instances using <code>gpu.destroy()</code>.</li>
+<li>Ensure singletons are used instead of re-instantiating
+<code>new GPU()</code> inside render loops or component re-renders.</li>
+</ul>
+<h3 id="4-monitor-ios-webkit-memory-limits">4. Monitor iOS WebKit Memory
+Limits</h3>
+<p>Mobile Safari aggressively terminates WebGL processes that exceed
+device memory thresholds. If a gpu.js kernel requests large textures or
+high-dimensional output arrays, WebKit will drop the WebGL context
+immediately upon initialization.</p>
+<ul>
+<li>Reduce the <code>output</code> array dimensions in your kernel to a
+minimal size (e.g., <code>[2, 2]</code>) to test if large buffer
+allocation is causing the crash.</li>
+<li>Ensure data arrays passed as arguments do not exceed the
+<code>MAX_TEXTURE_SIZE</code> supported by the iOS hardware. You can
+check this limit via:
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> maxTextureSize <span class="op">=</span> gl<span class="op">.</span><span class="fu">getParameter</span>(gl<span class="op">.</span><span class="at">MAX_TEXTURE_SIZE</span>)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Max Texture Size:&#39;</span><span class="op">,</span> maxTextureSize)<span class="op">;</span></span></code></pre></div></li>
+</ul>
+<h3 id="5-inspect-webkit-feature-flags-in-ios-settings">5. Inspect
+WebKit Feature Flags in iOS Settings</h3>
+<p>Older or beta versions of iOS may disable certain WebGL features by
+default.</p>
+<ol type="1">
+<li>On the iOS device, open <strong>Settings</strong> &gt;
+<strong>Safari</strong> &gt; <strong>Advanced</strong> &gt;
+<strong>Feature Flags</strong> (or <strong>Experimental
+Features</strong> depending on the iOS version).</li>
+<li>Ensure <strong>WebGL 2.0</strong> is toggled on.</li>
+<li>Check that flags related to <strong>WebGL via Metal</strong> or GPU
+Process rendering are set to their default states, as custom overrides
+can break canvas context creation.</li>
+</ol>
+<h3 id="6-attach-safari-web-inspector-for-exact-error-logs">6. Attach
+Safari Web Inspector for Exact Error Logs</h3>
+<p>iOS Safari suppresses detailed WebGL error messages in the standard
+UI. To retrieve the exact initialization stack trace:</p>
+<ol type="1">
+<li>Enable <strong>Web Inspector</strong> on the iOS device via
+<strong>Settings</strong> &gt; <strong>Safari</strong> &gt;
+<strong>Advanced</strong>.</li>
+<li>Connect the iOS device to a Mac running macOS via a USB cable.</li>
+<li>Open Safari on macOS, navigate to the <strong>Develop</strong> menu,
+select the connected iOS device, and inspect the target page.</li>
+<li>Check the Console tab for specific WebGL shader compilation errors,
+<code>CONTEXT_LOST_WEBGL</code> warnings, or memory termination notices
+emitted during the <code>gpu.js</code> initialization phase.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

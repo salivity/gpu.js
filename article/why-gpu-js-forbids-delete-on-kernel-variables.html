@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why gpu.js Forbids Delete on Kernel Variables - gpu.js</title>
+    <meta name="description" content="This article explains why the gpu.js library does not allow developers to use JavaScript's delete operator on variables within a kernel. While gpu.js lets developers write compute shaders using JavaScript syntax, it functions by compiling that code into">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-forbids-delete-on-kernel-variables">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why gpu.js Forbids Delete on Kernel Variables - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-forbids-delete-on-kernel-variables" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains why the gpu.js library does not allow developers to use JavaScript's delete operator on variables within a kernel. While gpu.js lets developers write compute shaders using JavaScript syntax, it functions by compiling that code into" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-forbids-delete-on-kernel-variables">Why gpu.js Forbids
+Delete on Kernel Variables</h1>
+<p>This article explains why the <code>gpu.js</code> library does not
+allow developers to use JavaScript's <code>delete</code> operator on
+variables within a kernel. While <code>gpu.js</code> lets developers
+write compute shaders using JavaScript syntax, it functions by compiling
+that code into low-level shading languages like WebGL and GLSL. Because
+GPU architectures rely on statically typed, fixed-memory allocation
+rather than dynamic heaps, dynamic memory deallocation via
+<code>delete</code> cannot be mapped to the GPU, making the operator
+strictly prohibited inside kernel functions.</p>
+<h2 id="transpilation-to-glsl">Transpilation to GLSL</h2>
+<p>The primary reason for this restriction stems from how
+<code>gpu.js</code> works under the hood. When you define a kernel
+function in JavaScript, it is not executed directly by a standard
+JavaScript engine such as V8 or SpiderMonkey. Instead, the
+<code>gpu.js</code> compiler parses the JavaScript Abstract Syntax Tree
+(AST) and transpiles the logic into GLSL (OpenGL Shading Language) or
+WebGL shader code to run natively on the graphics hardware.</p>
+<p>Because the target environment is a GPU pipeline, every valid
+JavaScript expression inside the kernel must have a direct, logical
+equivalent in GLSL.</p>
+<h2 id="static-hardware-registers-vs-dynamic-heaps">Static Hardware
+Registers vs. Dynamic Heaps</h2>
+<p>JavaScript is a high-level, dynamically typed language. In standard
+JavaScript, variables and objects live on a managed heap, and the
+<code>delete</code> operator is designed to remove properties from an
+object or mutate dynamic memory structures.</p>
+<p>Conversely, GPU execution models depend entirely on fixed,
+predictable execution pipelines:</p>
+<ul>
+<li><strong>No Dynamic Memory Allocation:</strong> GLSL does not support
+dynamic memory allocation, garbage collection, or heap
+manipulation.</li>
+<li><strong>Hardware Register Mapping:</strong> Local variables declared
+inside a GPU kernel are directly mapped to physical GPU registers or a
+fixed thread stack.</li>
+<li><strong>Fixed Lifespans:</strong> Memory for these variables is
+allocated when the shader thread begins execution and deallocated only
+when the thread terminates.</li>
+</ul>
+<p>Because registers and stack allocations cannot be destroyed,
+detached, or resized dynamically mid-execution, there is no
+hardware-level mechanism on the GPU to implement the semantics of
+<code>delete</code>.</p>
+<h2 id="absence-of-javascript-object-semantics">Absence of JavaScript
+Object Semantics</h2>
+<p>In JavaScript, <code>delete</code> primarily targets object
+properties. Inside a <code>gpu.js</code> kernel, object support is
+extremely constrained. Full JavaScript object prototypes, hash maps, and
+dynamic key-value pairs do not exist within a shader context. Since a
+kernel cannot create or manipulate a true dynamic JavaScript object in
+GPU memory, the operations associated with mutating an object's
+structure—such as deleting one of its keys—are inherently
+unsupported.</p>
+<h2 id="compiler-enforcement">Compiler Enforcement</h2>
+<p>If <code>gpu.js</code> allowed the <code>delete</code> operator to
+pass through the compilation phase, the resulting shader would either
+produce invalid GLSL syntax or generate undefined behavior on the
+graphics hardware. To ensure thread safety, predictable performance, and
+valid shader generation, the <code>gpu.js</code> transpiler enforces
+strict AST validation. When the compiler encounters an unsupported
+language construct like the <code>delete</code> operator, it halts
+compilation and throws an error immediately.</p>
+<h2 id="proper-memory-handling-in-gpujs">Proper Memory Handling in
+gpu.js</h2>
+<p>Instead of attempting to delete variables or clear values from memory
+within a kernel:</p>
+<ul>
+<li>Let variables naturally fall out of scope when the kernel thread
+completes.</li>
+<li>Overwrite existing variables with default values (such as
+<code>0</code> or <code>0.0</code>) if a value should no longer be
+considered valid.</li>
+<li>Structure data in flat arrays or matrices outside the kernel and
+pass them as input buffers, rather than trying to perform dynamic
+collection cleanup inside the GPU pipeline.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

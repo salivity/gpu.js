@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using Texture.clone in GPU.js for Intermediate States - gpu.js</title>
+    <meta name="description" content="In gpu.js, running chained or iterative operations requires careful management of WebGL textures to maintain high performance without memory corruption. The Texture.clone() method creates an independent, direct copy of a GPU-resident texture within video">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-texture-clone-in-gpu-js-for-intermediate-states">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using Texture.clone in GPU.js for Intermediate States - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-texture-clone-in-gpu-js-for-intermediate-states" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, running chained or iterative operations requires careful management of WebGL textures to maintain high performance without memory corruption. The Texture.clone() method creates an independent, direct copy of a GPU-resident texture within video" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-textureclone-in-gpujs-for-intermediate-states">Using
+Texture.clone in GPU.js for Intermediate States</h1>
+<p>In gpu.js, running chained or iterative operations requires careful
+management of WebGL textures to maintain high performance without memory
+corruption. The <code>Texture.clone()</code> method creates an
+independent, direct copy of a GPU-resident texture within video memory
+(VRAM), allowing developers to preserve intermediate computational
+states. This article explains how <code>Texture.clone()</code> operates
+under the hood, why it is essential for pipelined workflows, and how to
+effectively manage the lifecycle of cloned textures.</p>
+<h2 id="the-role-of-intermediate-textures-in-pipelined-kernels">The Role
+of Intermediate Textures in Pipelined Kernels</h2>
+<p>When using gpu.js with the <code>{ pipeline: true }</code> option,
+kernel outputs are retained on the GPU as <code>Texture</code> objects
+rather than serialized into standard JavaScript arrays on the CPU. This
+architectural choice eliminates the costly bus-transfer overhead between
+the host and device.</p>
+<p>However, WebGL imposes constraints on resource binding: a single
+texture cannot be simultaneously read from and written to during the
+same render pass. In iterative algorithms—such as cellular automata,
+physics simulations, or neural network backpropagation—passing an output
+texture directly back into the same kernel as an input can trigger
+pipeline stalls, framebuffer feedback loops, or accidental overwrites if
+intermediate steps need to be preserved for branching logic.</p>
+<h2 id="how-textureclone-operates">How Texture.clone() Operates</h2>
+<p>The <code>Texture.clone()</code> method resolves resource conflicts
+by duplicating the underlying WebGL texture while keeping all data on
+the GPU:</p>
+<ol type="1">
+<li><strong>VRAM Allocation:</strong> The method allocates a new WebGL
+texture instance with the identical dimensions, internal format, and
+data type (typically 32-bit floating-point textures) of the source
+texture.</li>
+<li><strong>GPU-Side Copying:</strong> Instead of reading pixels back to
+the CPU via <code>gl.readPixels</code>, the method executes a copy
+directly within the graphics hardware. Depending on the target
+environment's WebGL support, this is handled through an internal
+framebuffer blit or a minimal pass-through copy shader.</li>
+<li><strong>Instance Wrapping:</strong> A new gpu.js
+<code>Texture</code> instance is returned, maintaining its own WebGL
+texture handle, kernel reference, and dimension metadata.</li>
+</ol>
+<p>Because the data never crosses the PCIe bus to the CPU, the cloning
+process executes with minimal latency, orders of magnitude faster than a
+CPU-bound roundtrip via <code>toArray()</code>.</p>
+<h2 id="use-cases-for-state-duplication">Use Cases for State
+Duplication</h2>
+<h3 id="1-branching-workflows">1. Branching Workflows</h3>
+<p>When a single intermediate computation serves as the baseline for two
+divergent processing paths, cloning prevents subsequent kernel
+executions from modifying shared texture states.</p>
+<h3 id="2-checkpointing-and-rollbacks">2. Checkpointing and
+Rollbacks</h3>
+<p>In iterative solvers or time-step simulations, algorithms often
+require comparing current states against prior intervals (e.g.,
+convergence checks or adaptive step sizes). Cloning an intermediate
+texture preserves a snapshot of that state at a specific iteration.</p>
+<h3 id="3-ping-pong-buffer-decoupling">3. Ping-Pong Buffer
+Decoupling</h3>
+<p>While alternating between two fixed textures is standard practice for
+feedback loops, certain calculations require multiple preceding steps
+(such as <span class="math inline">\(t\)</span>, <span
+class="math inline">\(t-1\)</span>, and <span
+class="math inline">\(t-2\)</span>). <code>Texture.clone()</code> allows
+dynamic creation of step histories without manual framebuffer
+initialization.</p>
+<h2 id="memory-management-considerations">Memory Management
+Considerations</h2>
+<p>Because cloned textures reside entirely in VRAM, they are not
+automatically collected by JavaScript's standard garbage collector until
+their WebGL contexts are released. Repeatedly invoking
+<code>Texture.clone()</code> inside loops without manual cleanup will
+rapidly exhaust GPU memory.</p>
+<p>To prevent memory leaks, manually dispose of intermediate clones once
+they are no longer required by invoking:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>clonedTexture<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span></code></pre></div>
+<p>Deleting the cloned instance immediately frees the bound WebGL
+texture resource, ensuring optimal VRAM availability throughout complex,
+multi-pass GPU computations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Constant-Q Transform in GPU.js for Audio Analysis - gpu.js</title>
+    <meta name="description" content="Computing Constant-Q Transform (CQT) approximations for logarithmic musical scale analysis is entirely feasible and highly efficient using gpu.js. This article explores how gpu.js leverages WebGL to accelerate CQT calculations, the mathematical adaptatio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/constant-q-transform-in-gpu-js-for-audio-analysis">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Constant-Q Transform in GPU.js for Audio Analysis - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/constant-q-transform-in-gpu-js-for-audio-analysis" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing Constant-Q Transform (CQT) approximations for logarithmic musical scale analysis is entirely feasible and highly efficient using gpu.js. This article explores how gpu.js leverages WebGL to accelerate CQT calculations, the mathematical adaptatio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="constant-q-transform-in-gpujs-for-audio-analysis">Constant-Q
+Transform in GPU.js for Audio Analysis</h1>
+<p>Computing Constant-Q Transform (CQT) approximations for logarithmic
+musical scale analysis is entirely feasible and highly efficient using
+gpu.js. This article explores how gpu.js leverages WebGL to accelerate
+CQT calculations, the mathematical adaptations required to translate
+spectral kernels into GPU kernels, and the architectural trade-offs
+involved in handling complex-valued audio data within browser and
+Node.js environments.</p>
+<h3
+id="understanding-the-constant-q-transform-in-musical-contexts">Understanding
+the Constant-Q Transform in Musical Contexts</h3>
+<p>Unlike the standard Discrete Fourier Transform (DFT) or Short-Time
+Fourier Transform (STFT), which use geometrically uniform frequency
+spacing, the Constant-Q Transform uses geometrically spaced frequency
+bins. The ratio of center frequency to bandwidth (<span
+class="math inline">\(Q\)</span>) remains constant across all bins:</p>
+<p><span class="math display">\[Q = \frac{f_k}{\Delta f_k}\]</span></p>
+<p>This structure mirrors the logarithmic arrangement of musical scales,
+such as the 12-tone equal temperament system where each octave
+represents a doubling of frequency. Low frequencies require long
+temporal windows to achieve fine frequency resolution, while high
+frequencies require shorter windows for better temporal resolution.</p>
+<p>Because computing variable-length windows across dozens of musical
+bins is computationally demanding, hardware acceleration is often
+required for real-time applications such as pitch tracking, chord
+recognition, and music visualization.</p>
+<h3 id="leveraging-gpujs-for-parallel-cqt-computation">Leveraging gpu.js
+for Parallel CQT Computation</h3>
+<p>gpu.js compiles a subset of JavaScript into GLSL (OpenGL Shading
+Language) and executes it on the GPU through WebGL. Because transforms
+like the CQT are fundamentally parallel problems, they map naturally to
+GPU thread grids.</p>
+<p>The most practical method for computing CQT approximations in gpu.js
+is the <strong>Sparse Matrix Multiplication Approach</strong>:</p>
+<ol type="1">
+<li><strong>Precompute Temporal Kernels:</strong> On the CPU, generate
+complex spectral kernels for each desired musical pitch (e.g., MIDI
+notes 21 through 108). Each kernel represents a windowed complex
+sinusoid tailored to that specific frequency bin.</li>
+<li><strong>Matrix Representation:</strong> Decompose these kernels into
+a transformation matrix where each row represents a frequency bin and
+each column represents a time-domain sample point.</li>
+<li><strong>GPU Kernel Execution:</strong> Use gpu.js to perform
+parallel inner-product operations between the input audio frame and the
+precomputed transformation matrix.</li>
+</ol>
+<h3 id="overcoming-gpujs-architectural-constraints">Overcoming gpu.js
+Architectural Constraints</h3>
+<p>While gpu.js provides an accessible abstraction over WebGL shaders,
+implementing CQT requires solving a few architectural challenges:</p>
+<h4 id="complex-number-handling">Complex Number Handling</h4>
+<p>GLSL and gpu.js lack native data types for complex numbers. To
+compute the magnitude or phase of the transform, the real (cosine) and
+imaginary (sine) components must be processed independently. This can be
+achieved by:</p>
+<ul>
+<li>Storing kernels as separate real and imaginary matrices.</li>
+<li>Running dual gpu.js kernels or computing a two-channel output
+representing <span class="math inline">\(\text{Real}^2 +
+\text{Imag}^2\)</span>.</li>
+<li>Calculating the final magnitude using the Euclidean norm (<span
+class="math inline">\(\sqrt{R^2 + I^2}\)</span>) directly within the
+return statement of the GPU thread.</li>
+</ul>
+<h4 id="buffer-transfer-overhead">Buffer Transfer Overhead</h4>
+<p>Transferring raw PCM audio data from CPU memory to the GPU incurs bus
+latency. To achieve real-time performance, audio data should be
+processed in overlapping chunks (hops) batched together, rather than
+sending single temporal frames per draw call.</p>
+<h4 id="precision-and-dynamic-range">Precision and Dynamic Range</h4>
+<p>gpu.js supports single-precision 32-bit floating-point textures on
+hardware that supports the <code>OES_texture_float</code> WebGL
+extension. For musical analysis, 32-bit floats provide more than enough
+dynamic range to prevent clipping and underflow during spectral
+summation.</p>
+<h3 id="implementation-pattern">Implementation Pattern</h3>
+<p>In a typical gpu.js pipeline:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel calculating magnitude of a frequency bin across an audio buffer</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeCQTBins <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(audioFrame<span class="op">,</span> realKernels<span class="op">,</span> imagKernels<span class="op">,</span> frameSize) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> realSum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> imagSum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> frameSize<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> sample <span class="op">=</span> audioFrame[i]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        realSum <span class="op">+=</span> sample <span class="op">*</span> realKernels[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][i]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        imagSum <span class="op">+=</span> sample <span class="op">*</span> imagKernels[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][i]<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(realSum <span class="op">*</span> realSum <span class="op">+</span> imagSum <span class="op">*</span> imagSum)<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([NUM_PITCH_BINS])<span class="op">;</span></span></code></pre></div>
+<h3 id="summary-of-suitability">Summary of Suitability</h3>
+<p>Approximating the Constant-Q Transform via gpu.js delivers
+significant performance benefits over single-threaded Web Audio API
+script processors or standard JavaScript loops. By framing the transform
+as a matrix-vector reduction, gpu.js evaluates all musical frequency
+bins simultaneously, making logarithmic spectral analysis feasible for
+interactive, low-latency audio software in the browser.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

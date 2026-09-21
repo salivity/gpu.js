@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accelerating Needleman-Wunsch with GPU.js - gpu.js</title>
+    <meta name="description" content="Yes, the Needleman-Wunsch dynamic programming matrix can be calculated using gpu.js, but it cannot be computed in a single, fully parallel step due to inherent data dependencies. Because each cell requires values from its top, left, and diagonal neighbor">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/accelerating-needleman-wunsch-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Accelerating Needleman-Wunsch with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/accelerating-needleman-wunsch-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Yes, the Needleman-Wunsch dynamic programming matrix can be calculated using gpu.js, but it cannot be computed in a single, fully parallel step due to inherent data dependencies. Because each cell requires values from its top, left, and diagonal neighbor" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="accelerating-needleman-wunsch-with-gpujs">Accelerating
+Needleman-Wunsch with GPU.js</h1>
+<p>Yes, the Needleman-Wunsch dynamic programming matrix can be
+calculated using gpu.js, but it cannot be computed in a single, fully
+parallel step due to inherent data dependencies. Because each cell
+requires values from its top, left, and diagonal neighbors, calculation
+must proceed along anti-diagonals (the wavefront approach). By executing
+successive gpu.js kernel runs across these anti-diagonals or processing
+multiple sequence pairs simultaneously, developers can harness GPU
+acceleration via WebGL directly in JavaScript environments.</p>
+<h3 id="the-dynamic-programming-dependency-problem">The Dynamic
+Programming Dependency Problem</h3>
+<p>The standard Needleman-Wunsch algorithm populates a scoring matrix
+<span class="math inline">\(M\)</span> of size <span
+class="math inline">\((n+1) \times (m+1)\)</span>, where <span
+class="math inline">\(n\)</span> and <span
+class="math inline">\(m\)</span> are the lengths of the two sequences
+being aligned. The value of cell <span class="math inline">\(M(i,
+j)\)</span> is computed as:</p>
+<p><span class="math display">\[M(i, j) = \max \begin{cases} M(i-1, j-1)
++ S(A_i, B_j) \\ M(i-1, j) + d \\ M(i, j-1) + d \end{cases}\]</span></p>
+<p>Because <span class="math inline">\(M(i, j)\)</span> depends directly
+on values that must be computed beforehand, you cannot simply launch a
+two-dimensional gpu.js kernel that assigns one GPU thread to compute
+every cell independently. Doing so results in race conditions and
+uncalculated values.</p>
+<h3 id="the-solution-wavefront-parallelization">The Solution: Wavefront
+Parallelization</h3>
+<p>To calculate a single sequence alignment on the GPU, you must
+reorganize the computation into independent parallel chunks using the
+<strong>anti-diagonal (wavefront)</strong> method:</p>
+<ol type="1">
+<li><strong>Group by Diagonals:</strong> All cells where <span
+class="math inline">\(i + j = k\)</span> (where <span
+class="math inline">\(k\)</span> ranges from <span
+class="math inline">\(0\)</span> to <span class="math inline">\(n +
+m\)</span>) are independent of each other. They only rely on values
+computed in steps <span class="math inline">\(k-1\)</span> and <span
+class="math inline">\(k-2\)</span>.</li>
+<li><strong>Step-by-Step Kernel Invocation:</strong> A gpu.js kernel is
+called iteratively in a JavaScript <code>for</code> loop from <span
+class="math inline">\(k = 2\)</span> to <span class="math inline">\(n +
+m\)</span>.</li>
+<li><strong>Thread Execution:</strong> Within step <span
+class="math inline">\(k\)</span>, the GPU launches parallel threads
+where each thread calculates a single cell along that specific
+anti-diagonal.</li>
+<li><strong>Data Swapping:</strong> Results from the current step are
+written to an output texture/array and fed back into the next kernel
+execution.</li>
+</ol>
+<h3 id="batched-alignments-inter-sequence-parallelism">Batched
+Alignments (Inter-Sequence Parallelism)</h3>
+<p>If your objective is to align thousands of relatively short sequence
+pairs simultaneously (such as reads against a reference window), gpu.js
+can achieve higher throughput without wavefront complexity:</p>
+<ul>
+<li><strong>One Thread per Alignment:</strong> Instead of parallelizing
+a single matrix, each thread in a 1D or 2D gpu.js kernel calculates an
+entire Needleman-Wunsch matrix for a distinct pair of sequences using
+traditional serial loops inside the kernel code.</li>
+<li><strong>Full GPU Saturation:</strong> This eliminates the overhead
+of iterative kernel dispatches and takes advantage of the massive core
+count of the GPU to compute thousands of alignments concurrently.</li>
+</ul>
+<h3 id="practical-limitations-in-gpujs">Practical Limitations in
+gpu.js</h3>
+<p>While technically viable, implementing Needleman-Wunsch with gpu.js
+introduces several performance trade-offs:</p>
+<ul>
+<li><strong>Kernel Dispatch Overhead:</strong> Iterating through <span
+class="math inline">\(n + m\)</span> separate kernel dispatches over
+WebGL introduces CPU-to-GPU synchronization latency. For smaller
+sequences (e.g., length &lt; 1,000), a modern CPU implementation or a
+WebAssembly module using SIMD instructions will often outperform
+gpu.js.</li>
+<li><strong>Traceback Bottleneck:</strong> The Needleman-Wunsch matrix
+fill is only the first step. Finding the optimal alignment requires a
+reverse traceback phase starting from <span class="math inline">\(M(n,
+m)\)</span> back to <span class="math inline">\(M(0, 0)\)</span>. This
+step is strictly sequential and must be executed back on the CPU after
+downloading the completed matrix data from the GPU.</li>
+<li><strong>Precision and Types:</strong> gpu.js maps data to WebGL
+textures, which can introduce nuances regarding floating-point versus
+integer representation depending on device hardware limits.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>You can compute the Needleman-Wunsch matrix with gpu.js by adopting
+the anti-diagonal wavefront method for individual long sequence
+alignments, or by running complete independent alignments per thread for
+batched operations. For single small-to-medium sequence pairs, the
+dispatch overhead of WebGL kernels typically favors CPU/Wasm solutions,
+but for large-scale batched alignments, gpu.js provides substantial
+parallel acceleration directly in browser and Node.js environments.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Manages Hardware Texture Binding Limits - gpu.js</title>
+    <meta name="description" content="This article examines how the gpu.js library circumvents host graphics hardware constraints, specifically the maximum limit of simultaneous texture units. WebGL environments expose strict hardware bounds on how many textures can be bound in a single shad">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-manages-hardware-texture-binding-limits">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Manages Hardware Texture Binding Limits - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-manages-hardware-texture-binding-limits" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the gpu.js library circumvents host graphics hardware constraints, specifically the maximum limit of simultaneous texture units. WebGL environments expose strict hardware bounds on how many textures can be bound in a single shad" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-manages-hardware-texture-binding-limits">How gpu.js
+Manages Hardware Texture Binding Limits</h1>
+<p>This article examines how the gpu.js library circumvents host
+graphics hardware constraints, specifically the maximum limit of
+simultaneous texture units. WebGL environments expose strict hardware
+bounds on how many textures can be bound in a single shader execution.
+To execute complex calculations that exceed these thresholds, gpu.js
+utilizes hardware capability detection, multi-channel data packing,
+multipass kernel pipelining, and dynamic texture unit cycling.</p>
+<h3 id="the-hardware-texture-binding-constraint">The Hardware Texture
+Binding Constraint</h3>
+<p>Under the hood, gpu.js translates JavaScript functions into GLSL
+(OpenGL Shading Language) and executes them using WebGL. Graphics
+processing units enforce a strict limit on the number of simultaneous
+texture image units accessible to a single fragment shader pass. In
+WebGL, this limit is defined by the hardware constant
+<code>MAX_TEXTURE_IMAGE_UNITS</code>. While modern desktop GPUs often
+support 16 or 32 units, mobile and integrated GPUs can have limits as
+low as 8.</p>
+<p>Because gpu.js treats input data sets, matrices, and lookup tables as
+textures, a kernel requiring more input matrices than the device’s limit
+will fail to run if bound directly.</p>
+<h3 id="dynamic-hardware-capability-querying">Dynamic Hardware
+Capability Querying</h3>
+<p>Before compiling or executing shaders, gpu.js queries the underlying
+WebGL context using
+<code>gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)</code>. This allows
+the library to establish the host machine's hardware envelope
+dynamically. By discovering these constraints at runtime rather than
+relying on hardcoded assumptions, gpu.js can determine whether a
+kernel's argument list fits within a single draw call or requires
+structural decomposition.</p>
+<h3 id="data-and-channel-packing">Data and Channel Packing</h3>
+<p>To conserve texture units, gpu.js minimizes the total count of
+required distinct textures through data packing:</p>
+<ol type="1">
+<li><strong>RGBA Vector Utilization:</strong> A single 2D texture
+contains four color channels per pixel (Red, Green, Blue, Alpha).
+Instead of binding separate single-channel textures for distinct scalar
+inputs, gpu.js can pack up to four 32-bit floating-point values or
+multi-dimensional coordinate sets into a single RGBA texture.</li>
+<li><strong>Dimension Flattening:</strong> Arrays and matrices are
+serialized and encoded into wide or tall 2D textures, allowing
+structured data to be addressed via coordinates within a single bound
+unit rather than requiring fragmented buffers.</li>
+</ol>
+<p>By condensing multiple logical inputs into single physical textures,
+kernels consume fewer texture registers during runtime.</p>
+<h3 id="multi-pass-execution-and-pipelining">Multi-Pass Execution and
+Pipelining</h3>
+<p>When an operation fundamentally requires more inputs or intermediate
+values than the hardware supports in a single pass, gpu.js relies on
+multi-pass rendering.</p>
+<p>Instead of executing the entire workload in one shader invocation,
+the compilation process splits the execution into discrete
+sub-kernels:</p>
+<ul>
+<li><strong>Intermediate Framebuffers:</strong> The output of an initial
+operation is rendered to a WebGL Framebuffer Object (FBO) backed by a
+texture.</li>
+<li><strong>State Recycling:</strong> The intermediate texture is fed
+into a subsequent kernel pass, while the original, no longer needed
+input textures are unbound.</li>
+<li><strong>Ping-Pong Buffering:</strong> Alternating between two
+framebuffers allows iterative algorithms to execute across multiple
+passes without exceeding the maximum bound texture threshold at any
+given instant.</li>
+</ul>
+<h3 id="active-texture-slot-management">Active Texture Slot
+Management</h3>
+<p>During the execution phase of a kernel, gpu.js dynamically binds each
+prepared texture to an active texture unit
+(<code>gl.activeTexture(gl.TEXTURE0 + i)</code>) and maps the
+corresponding uniform sampler variables (<code>gl.uniform1i</code>)
+within the compiled GLSL code. Once a kernel invocation finishes,
+references are decoupled and texture units are released. This prevents
+state contamination and ensures that downstream executions or fallback
+CPU pipelines have access to clean hardware states.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

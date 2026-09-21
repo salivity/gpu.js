@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculating Screen-Space Reflections in GPU.js - gpu.js</title>
+    <meta name="description" content="Screen-space reflections (SSR) across planar surfaces can theoretically be calculated using gpu.js, but the approach involves significant architectural trade-offs. This article examines the feasibility of using gpu.js for screen-space ray marching, how p">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/calculating-screen-space-reflections-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Calculating Screen-Space Reflections in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/calculating-screen-space-reflections-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Screen-space reflections (SSR) across planar surfaces can theoretically be calculated using gpu.js, but the approach involves significant architectural trade-offs. This article examines the feasibility of using gpu.js for screen-space ray marching, how p" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="calculating-screen-space-reflections-in-gpujs">Calculating
+Screen-Space Reflections in GPU.js</h1>
+<p>Screen-space reflections (SSR) across planar surfaces can
+theoretically be calculated using gpu.js, but the approach involves
+significant architectural trade-offs. This article examines the
+feasibility of using gpu.js for screen-space ray marching, how planar
+reflection math maps to general-purpose GPU computing, and why native
+WebGL or WebGPU pipelines remain the preferred choice for real-time
+graphics.</p>
+<h3 id="understanding-planar-screen-space-reflections">Understanding
+Planar Screen-Space Reflections</h3>
+<p>Planar screen-space reflections work by tracing rays across the
+visible scene using data already rendered to the screen. For a planar
+surface—such as a flat mirror, polished floor, or still body of
+water—the algorithm performs the following steps:</p>
+<ol type="1">
+<li>Identifies the surface normal and orientation of the planar
+reflector.</li>
+<li>Calculates a reflected view vector for each pixel belonging to the
+plane.</li>
+<li>Marches along the reflected vector in screen space using the
+camera's depth buffer.</li>
+<li>Detects intersections where the ray's depth matches or exceeds the
+scene geometry depth.</li>
+<li>Samples the color buffer at the intersection coordinates to generate
+the reflected color.</li>
+</ol>
+<p>Because the surface is planar, the initial reflection vectors are
+uniform and predictable, making ray setup mathematically simpler than
+reflections over arbitrary, rough surfaces.</p>
+<h3 id="implementing-planar-ssr-in-gpujs">Implementing Planar SSR in
+gpu.js</h3>
+<p>gpu.js is a library that compiles JavaScript functions into WebGL
+fragment shaders to run general-purpose computations on the GPU.
+Calculating planar SSR with gpu.js requires treating the reflection pass
+as a general-purpose computation (GPGPU) problem.</p>
+<p>To achieve this in gpu.js:</p>
+<ul>
+<li><strong>Input Data:</strong> You must pass the rendered scene color
+buffer, the linear depth buffer, the camera projection matrices, and the
+plane equation into a gpu.js kernel as textures or 2D arrays.</li>
+<li><strong>The Kernel Function:</strong> The kernel function executes
+once per pixel of the output buffer. Inside the kernel, you implement a
+ray-marching loop that steps through the 2D coordinate space, sampling
+depth values from the input depth texture to check for ray-surface
+intersections.</li>
+<li><strong>Output:</strong> The kernel outputs an array or a WebGL
+texture containing the reflected color values or screen coordinates for
+a subsequent compositing pass.</li>
+</ul>
+<p>gpu.js supports graphical output modes
+(<code>graphical: true</code>), allowing the kernel to draw directly to
+an HTML5 canvas or output a WebGL texture, which is required to prevent
+costly memory transfers between GPU and CPU memory.</p>
+<h3 id="limitations-and-practical-bottlenecks">Limitations and Practical
+Bottlenecks</h3>
+<p>While mathematically feasible, using gpu.js for planar screen-space
+reflections introduces several practical bottlenecks:</p>
+<ul>
+<li><strong>Pipeline Fragmentation:</strong> Real-time SSR depends
+heavily on the existing graphics pipeline. Passing framebuffers, depth
+textures, and normal maps from a rendering engine (like Three.js or
+Babylon.js) into gpu.js and back incurs synchronization overhead.</li>
+<li><strong>Lack of Advanced Shader Features:</strong> gpu.js abstracts
+away many low-level WebGL controls, such as manual mipmap sampling
+(useful for simulating glossy planar reflections), custom blending
+states, and hardware-accelerated texture interpolation.</li>
+<li><strong>Control Flow Constraints:</strong> Screen-space ray marching
+relies on early exits (<code>break</code>) to stop marching once an
+intersection occurs. While gpu.js supports basic loops, complex
+branching in translated shaders can lead to performance degradation
+depending on how the loop unrolls on different graphics drivers.</li>
+</ul>
+<h3 id="verdict">Verdict</h3>
+<p>Planar screen-space reflections can be calculated with gpu.js because
+the library provides the necessary parallel execution model, texture
+inputs, and math operations needed for screen-space ray marching.
+However, it is an inefficient choice for production 3D engines. For
+real-time graphics, implementing the SSR pass directly in a custom WebGL
+or WebGPU post-processing shader is substantially faster and integrates
+cleanly with the existing render pipeline.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

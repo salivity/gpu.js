@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Heat Diffusion with Forward Euler in gpu.js - gpu.js</title>
+    <meta name="description" content="This guide explains how to numerically solve the two-dimensional heat diffusion equation using the Forward-Time Central-Space (FTCS) finite-difference scheme accelerated on the GPU with gpu.js. You will learn the mathematical discretization, the numerica">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/2-d-heat-diffusion-with-forward-euler-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="2D Heat Diffusion with Forward Euler in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/2-d-heat-diffusion-with-forward-euler-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide explains how to numerically solve the two-dimensional heat diffusion equation using the Forward-Time Central-Space (FTCS) finite-difference scheme accelerated on the GPU with gpu.js. You will learn the mathematical discretization, the numerica" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="2d-heat-diffusion-with-forward-euler-in-gpujs">2D Heat Diffusion
+with Forward Euler in gpu.js</h1>
+<p>This guide explains how to numerically solve the two-dimensional heat
+diffusion equation using the Forward-Time Central-Space (FTCS)
+finite-difference scheme accelerated on the GPU with gpu.js. You will
+learn the mathematical discretization, the numerical stability
+constraints, and the setup of a high-performance ping-pong texture
+pipeline in JavaScript to compute successive time steps directly in
+WebGL shaders.</p>
+<h2 id="mathematical-formulation-and-discretization">Mathematical
+Formulation and Discretization</h2>
+<p>The continuous two-dimensional heat equation is defined as:</p>
+<p><span class="math display">\[\frac{\partial u}{\partial t} = \alpha
+\left( \frac{\partial^2 u}{\partial x^2} + \frac{\partial^2 u}{\partial
+y^2} \right)\]</span></p>
+<p>where <span class="math inline">\(u(x, y, t)\)</span> represents
+temperature at spatial coordinates <span class="math inline">\((x,
+y)\)</span> and time <span class="math inline">\(t\)</span>, and <span
+class="math inline">\(\alpha\)</span> is the thermal diffusivity
+coefficient.</p>
+<p>Using the Forward Euler method for the temporal derivative and
+central differences for the spatial derivatives on a grid with uniform
+spacing <span class="math inline">\(\Delta x = \Delta y\)</span>:</p>
+<p><span class="math display">\[\frac{u_{i,j}^{n+1} - u_{i,j}^n}{\Delta
+t} = \alpha \left( \frac{u_{i+1,j}^n - 2u_{i,j}^n + u_{i-1,j}^n}{\Delta
+x^2} + \frac{u_{i,j+1}^n - 2u_{i,j}^n + u_{i,j-1}^n}{\Delta x^2}
+\right)\]</span></p>
+<p>Rearranging for the next state <span
+class="math inline">\(u_{i,j}^{n+1}\)</span> yields:</p>
+<p><span class="math display">\[u_{i,j}^{n+1} = u_{i,j}^n + r \left(
+u_{i+1,j}^n + u_{i-1,j}^n + u_{i,j+1}^n + u_{i,j-1}^n - 4u_{i,j}^n
+\right)\]</span></p>
+<p>where <span class="math inline">\(r\)</span> is the dimensionless
+diffusion number:</p>
+<p><span class="math display">\[r = \frac{\alpha \Delta t}{\Delta
+x^2}\]</span></p>
+<h3 id="stability-criterion">Stability Criterion</h3>
+<p>The explicit Forward Euler scheme is conditionally stable. In two
+dimensions, the Von Neumann stability analysis requires:</p>
+<p><span class="math display">\[r \le \frac{1}{4} = 0.25\]</span></p>
+<p>Exceeding this value causes numerical oscillations and unbounded
+divergence.</p>
+<hr />
+<h2 id="implementing-in-gpujs">Implementing in gpu.js</h2>
+<p>Because time-stepping requires reading from the current state and
+writing to the next state, the calculation requires a <strong>ping-pong
+buffering</strong> pattern. You maintain two GPU textures, alternately
+reading from one and writing to the other.</p>
+<h3 id="1-initialize-gpujs-and-the-grid">1. Initialize gpu.js and the
+Grid</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span> <span class="co">// or window.GPU in the browser</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> WIDTH <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> HEIGHT <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Simulation parameters</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> alpha <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dx <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dt <span class="op">=</span> <span class="fl">0.2</span><span class="op">;</span> <span class="co">// r = 1.0 * 0.2 / (1.0^2) = 0.2 &lt;= 0.25 (Stable)</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> r <span class="op">=</span> (alpha <span class="op">*</span> dt) <span class="op">/</span> (dx <span class="op">*</span> dx)<span class="op">;</span></span></code></pre></div>
+<h3 id="2-define-initial-conditions">2. Define Initial Conditions</h3>
+<p>Create a 2D array representing the initial heat distribution, such as
+a cold plate with a hot region in the center:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createInitialGrid</span>(width<span class="op">,</span> height) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> grid <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Hotspot in the center</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> distFromCenter <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">hypot</span>(x <span class="op">-</span> width <span class="op">/</span> <span class="dv">2</span><span class="op">,</span> y <span class="op">-</span> height <span class="op">/</span> <span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>      row<span class="op">.</span><span class="fu">push</span>(distFromCenter <span class="op">&lt;</span> <span class="dv">30</span> <span class="op">?</span> <span class="fl">100.0</span> <span class="op">:</span> <span class="fl">0.0</span>)<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    grid<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> grid<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentGrid <span class="op">=</span> <span class="fu">createInitialGrid</span>(WIDTH<span class="op">,</span> HEIGHT)<span class="op">;</span></span></code></pre></div>
+<h3 id="3-create-the-simulation-kernel">3. Create the Simulation
+Kernel</h3>
+<p>The kernel computes the stencil update for each pixel <span
+class="math inline">\((x, y)\)</span> in parallel. Boundaries are held
+at a fixed temperature (Dirichlet boundary conditions).</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> heatStepKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">function</span> (grid<span class="op">,</span> r<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Dirichlet boundary conditions: keep borders fixed at 0.0</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> x <span class="op">===</span> width <span class="op">-</span> <span class="dv">1</span> <span class="op">||</span> y <span class="op">===</span> <span class="dv">0</span> <span class="op">||</span> y <span class="op">===</span> height <span class="op">-</span> <span class="dv">1</span>) {</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> center <span class="op">=</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> left   <span class="op">=</span> grid[y][x <span class="op">-</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> right  <span class="op">=</span> grid[y][x <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> bottom <span class="op">=</span> grid[y <span class="op">-</span> <span class="dv">1</span>][x]<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> top    <span class="op">=</span> grid[y <span class="op">+</span> <span class="dv">1</span>][x]<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Discrete 5-point Laplacian stencil update</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> laplacian <span class="op">=</span> left <span class="op">+</span> right <span class="op">+</span> top <span class="op">+</span> bottom <span class="op">-</span> <span class="fl">4.0</span> <span class="op">*</span> center<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> center <span class="op">+</span> r <span class="op">*</span> laplacian<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  {</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [WIDTH<span class="op">,</span> HEIGHT]<span class="op">,</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span>        <span class="co">// Keeps outputs on the GPU as textures</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span>        <span class="co">// Optimizes memory allocation for chained executions</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span></code></pre></div>
+<h3 id="4-execute-time-stepping-via-ping-pong">4. Execute Time-Stepping
+via Ping-Pong</h3>
+<p>Run the simulation loop by continuously passing the GPU texture back
+into the kernel:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> totalSteps <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> step <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> step <span class="op">&lt;</span> totalSteps<span class="op">;</span> step<span class="op">++</span>) {</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compute next time step on the GPU</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> nextGrid <span class="op">=</span> <span class="fu">heatStepKernel</span>(currentGrid<span class="op">,</span> r<span class="op">,</span> WIDTH<span class="op">,</span> HEIGHT)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// If previous step was a texture (not the initial JS array), clean it up</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (currentGrid<span class="op">.</span><span class="at">delete</span>) {</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    currentGrid<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  currentGrid <span class="op">=</span> nextGrid<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="co">// Extract final numerical values to a standard 2D JavaScript array</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalState <span class="op">=</span> currentGrid<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&quot;Simulation complete. Center value:&quot;</span><span class="op">,</span> finalState[HEIGHT <span class="op">/</span> <span class="dv">2</span>][WIDTH <span class="op">/</span> <span class="dv">2</span>])<span class="op">;</span></span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong><code>pipeline: true</code></strong>: Ensures data stays in
+WebGL texture memory between iterations rather than transferring between
+CPU and GPU memory every step.</li>
+<li><strong><code>immutable: true</code></strong>: Instructs gpu.js not
+to overwrite active textures, enabling safe texture reuse and
+predictable garbage collection.</li>
+<li><strong>Resource Management</strong>: When repeatedly replacing GPU
+textures in a loop, invoke <code>.delete()</code> on the prior texture
+reference to prevent VRAM memory leaks.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

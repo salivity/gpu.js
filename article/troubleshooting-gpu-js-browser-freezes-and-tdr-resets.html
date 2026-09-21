@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Troubleshooting gpu.js Browser Freezes and TDR Resets - gpu.js</title>
+    <meta name="description" content="When executing compute-heavy tasks with gpu.js, browsers can freeze or crash due to operating system Timeout Detection and Recovery (TDR) mechanisms. This guide explains why these GPU resets occur and provides actionable techniques to diagnose, optimize,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/troubleshooting-gpu-js-browser-freezes-and-tdr-resets">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Troubleshooting gpu.js Browser Freezes and TDR Resets - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/troubleshooting-gpu-js-browser-freezes-and-tdr-resets" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When executing compute-heavy tasks with gpu.js, browsers can freeze or crash due to operating system Timeout Detection and Recovery (TDR) mechanisms. This guide explains why these GPU resets occur and provides actionable techniques to diagnose, optimize," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="troubleshooting-gpujs-browser-freezes-and-tdr-resets">Troubleshooting
+gpu.js Browser Freezes and TDR Resets</h1>
+<p>When executing compute-heavy tasks with gpu.js, browsers can freeze
+or crash due to operating system Timeout Detection and Recovery (TDR)
+mechanisms. This guide explains why these GPU resets occur and provides
+actionable techniques to diagnose, optimize, and structure your gpu.js
+workloads to maintain smooth browser performance and prevent hardware
+driver timeouts.</p>
+<h3 id="understanding-the-cause-of-tdr-resets">Understanding the Cause
+of TDR Resets</h3>
+<p>Operating systems like Windows include a watchdog feature known as
+Timeout Detection and Recovery (TDR). If the GPU spends more than a set
+amount of time (typically 2 seconds) processing a single execution
+command without yielding control back to the operating system or desktop
+window manager, the OS assumes the GPU is hung. It forcibly resets the
+graphics driver, causing the browser to lose its WebGL context, crash
+the GPU process, or freeze the entire window.</p>
+<h3 id="1-chunk-and-paginate-heavy-computations">1. Chunk and Paginate
+Heavy Computations</h3>
+<p>The most frequent cause of TDR resets in gpu.js is passing massive
+output dimensions (e.g., millions of elements) in a single synchronous
+dispatch.</p>
+<ul>
+<li><strong>Break up the output array:</strong> Split large 2D or 3D
+datasets into slices or batches.</li>
+<li><strong>Yield to the event loop:</strong> Process each batch
+sequentially using <code>requestAnimationFrame()</code> or
+<code>setTimeout(..., 0)</code>. This allows the browser to render UI
+updates and resets the OS watchdog timer between kernel calls.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">async</span> <span class="kw">function</span> <span class="fu">runBatchedKernel</span>(totalRows<span class="op">,</span> cols<span class="op">,</span> batchSize) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> offset <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> offset <span class="op">&lt;</span> totalRows<span class="op">;</span> offset <span class="op">+=</span> batchSize) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentBatch <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(batchSize<span class="op">,</span> totalRows <span class="op">-</span> offset)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    kernel<span class="op">.</span><span class="fu">setOutput</span>([cols<span class="op">,</span> currentBatch])<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>(offset)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Yield execution to the browser thread</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">await</span> <span class="kw">new</span> <span class="bu">Promise</span>((resolve) <span class="kw">=&gt;</span> <span class="pp">setTimeout</span>(resolve<span class="op">,</span> <span class="dv">0</span>))<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="2-flatten-and-eliminate-nested-loops">2. Flatten and Eliminate
+Nested Loops</h3>
+<p>Deeply nested loops inside a gpu.js kernel compound the execution
+time exponentially on every thread.</p>
+<ul>
+<li><strong>Move iterations to the grid:</strong> Instead of writing an
+internal <code>for</code> loop inside your kernel function, map the
+iteration counter directly to the kernel's output dimensions
+(<code>this.thread.x</code>, <code>this.thread.y</code>,
+<code>this.thread.z</code>). Let the GPU's native parallelism handle
+iteration rather than running loops sequentially on individual shader
+cores.</li>
+<li><strong>Minimize divergence:</strong> Avoid heavy
+<code>if/else</code> branching within internal loops. Branch divergence
+forces threads within the same warp/wavefront to execute both branches
+serially, multiplying execution duration.</li>
+</ul>
+<h3 id="3-manage-memory-and-dynamic-kernel-re-compilation">3. Manage
+Memory and Dynamic Kernel Re-compilation</h3>
+<p>Recompiling kernels or creating new GPU contexts inside an active
+loop consumes significant CPU and GPU memory, leading to browser thread
+locks.</p>
+<ul>
+<li><strong>Reuse kernel instances:</strong> Create your kernel once
+with <code>gpu.createKernel()</code> and call it multiple times. Do not
+recreate kernels within request frames or iterative functions.</li>
+<li><strong>Clean up textures:</strong> If passing raw textures back and
+forth using pipeline mode (<code>pipeline: true</code>), ensure you call
+<code>.delete()</code> on intermediate textures to prevent memory leaks
+that can degrade driver response times.</li>
+</ul>
+<h3 id="4-handle-webgl-context-loss-gracefully">4. Handle WebGL Context
+Loss Gracefully</h3>
+<p>When a TDR reset occurs, WebGL dispatches a
+<code>webglcontextlost</code> event. If unhandled, gpu.js will fail
+silently or throw unhandled exceptions on subsequent calls.</p>
+<p>Attach an event listener to the canvas element utilized by
+gpu.js:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> gpu<span class="op">.</span><span class="at">canvas</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="fu">addEventListener</span>(<span class="st">&#39;webglcontextlost&#39;</span><span class="op">,</span> (<span class="bu">event</span>) <span class="kw">=&gt;</span> {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="bu">event</span><span class="op">.</span><span class="fu">preventDefault</span>()<span class="op">;</span> <span class="co">// Informs the browser you intend to handle recovery</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="bu">console</span><span class="op">.</span><span class="fu">warn</span>(<span class="st">&#39;GPU context lost due to TDR or driver crash.&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="fu">addEventListener</span>(<span class="st">&#39;webglcontextrestored&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="bu">console</span><span class="op">.</span><span class="fu">info</span>(<span class="st">&#39;GPU context restored. Re-initializing kernels...&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Re-instantiate gpu.js kernels here</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="5-benchmark-with-cpu-mode-fallback">5. Benchmark with CPU Mode
+Fallback</h3>
+<p>To determine whether the freeze originates from GPU hardware
+constraints, WebGL driver bugs, or fundamental algorithmic complexity,
+toggle the kernel to CPU mode:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;cpu&#39;</span> })<span class="op">;</span></span></code></pre></div>
+<p>If the CPU execution completes reliably (albeit slower) without a
+browser crash, the issue is directly tied to the WebGL shader execution
+exceeding the OS TDR budget. Continue reducing batch sizes and
+optimizing shader logic until the GPU mode runs reliably under the
+2-second threshold.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

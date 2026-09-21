@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Parses vec3 and vec4 Color Vectors - gpu.js</title>
+    <meta name="description" content="GPU.js allows developers to write standard JavaScript code and transpile it on the fly into WebGL shaders executed on the GPU. When working with colors, the library translates JavaScript array structures, custom API calls, and pixel data into native GLSL">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-parses-vec-3-and-vec-4-color-vectors">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Parses vec3 and vec4 Color Vectors - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-parses-vec-3-and-vec-4-color-vectors" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js allows developers to write standard JavaScript code and transpile it on the fly into WebGL shaders executed on the GPU. When working with colors, the library translates JavaScript array structures, custom API calls, and pixel data into native GLSL" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-parses-vec3-and-vec4-color-vectors">How GPU.js Parses
+vec3 and vec4 Color Vectors</h1>
+<p>GPU.js allows developers to write standard JavaScript code and
+transpile it on the fly into WebGL shaders executed on the GPU. When
+working with colors, the library translates JavaScript array structures,
+custom API calls, and pixel data into native GLSL (OpenGL Shading
+Language) vectors such as <code>vec3</code> and <code>vec4</code>. This
+article explains how GPU.js analyzes JavaScript Abstract Syntax Trees
+(AST), converts arrays into shader vector types, normalizes numeric
+values, and pipes color data directly into the WebGL graphics
+pipeline.</p>
+<h3 id="ast-parsing-and-transpilation">AST Parsing and
+Transpilation</h3>
+<p>At its core, GPU.js relies on an AST parser (built on Acorn) to
+convert JavaScript function definitions into an intermediary syntax
+tree. When the transpiler encounters array declarations within kernel
+functions—such as <code>[r, g, b]</code> or <code>[r, g, b, a]</code>—it
+inspects the length and types of the elements.</p>
+<p>If an array literal contains three or four numeric values, the
+transpiler maps the AST <code>ArrayExpression</code> node directly to a
+GLSL <code>vec3</code> or <code>vec4</code> constructor. For
+example:</p>
+<ul>
+<li>A JavaScript return statement like <code>return [1, 0, 0];</code> is
+parsed and converted to <code>return vec3(1.0, 0.0, 0.0);</code>.</li>
+<li>Variables defined as fixed-size coordinate or color vectors are
+given corresponding GLSL vector types rather than dynamic arrays,
+enabling high-performance, parallel SIMD (Single Instruction, Multiple
+Data) execution on the GPU.</li>
+</ul>
+<h3 id="graphical-kernels-and-thiscolor">Graphical Kernels and
+<code>this.color()</code></h3>
+<p>When executing a kernel configured with <code>graphical: true</code>,
+GPU.js shifts into a canvas-rendering mode where pixel colors must be
+written to WebGL's native fragment output. In this mode, GPU.js provides
+the specialized <code>this.color(r, g, b, a)</code> method.</p>
+<ol type="1">
+<li><strong>AST Detection:</strong> During compilation, the AST walker
+specifically checks for member expressions targeting
+<code>this.color</code>.</li>
+<li><strong>GLSL Translation:</strong> The call is transpiled directly
+into an assignment expression targeting the fragment shader output:
+<code>gl_FragColor = vec4(r, g, b, a);</code>.</li>
+<li><strong>Type Promotion:</strong> Because WebGL GLSL requires strict
+floating-point precision for vector components, integer inputs are
+automatically promoted to floats (e.g., <code>0</code> becomes
+<code>0.0</code>).</li>
+</ol>
+<h3 id="value-normalization-and-clamping">Value Normalization and
+Clamping</h3>
+<p>In WebGL, color vectors expect values normalized within the range of
+<code>0.0</code> to <code>1.0</code>. GPU.js enforces this convention in
+its color pipelines:</p>
+<ul>
+<li>When using <code>this.color()</code>, values are mapped directly to
+<code>gl_FragColor</code>. WebGL automatically clamps values outside the
+<code>[0.0, 1.0]</code> range during the rasterization phase.</li>
+<li>If raw pixel data (such as an HTML <code>ImageData</code> array with
+values between 0 and 255) is supplied as an input argument, GPU.js
+textures the data and divides byte values by <code>255.0</code> within
+the generated shader wrapper, turning them into standardized
+<code>vec4</code> samples accessible via <code>texture2D</code>.</li>
+</ul>
+<h3 id="memory-packing-and-texture-lookup">Memory Packing and Texture
+Lookup</h3>
+<p>When non-graphical kernels return 4-element vectors or colors, GPU.js
+utilizes texture-based memory management to bypass WebGL
+limitations:</p>
+<ul>
+<li><strong>Floating-Point Textures:</strong> Vector components are
+stored across the Red, Green, Blue, and Alpha channels of an underlying
+WebGL texture (<code>RGBA</code>).</li>
+<li><strong>Subscript Access:</strong> If vector elements are accessed
+via indices in JavaScript (e.g., <code>myVec[0]</code> or
+<code>myVec[2]</code>), the transpiler rewrites these index lookups to
+native GLSL swizzle operations (<code>.r</code> / <code>.x</code> and
+<code>.b</code> / <code>.z</code>), eliminating array indexing overhead
+on the GPU hardware.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

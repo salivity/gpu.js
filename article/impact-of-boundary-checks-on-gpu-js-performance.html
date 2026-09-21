@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Impact of Boundary Checks on GPU.js Performance - gpu.js</title>
+    <meta name="description" content="Boundary checks inside GPU.js kernels prevent illegal memory access when kernel output dimensions do not evenly divide into hardware thread groupings. While essential for correctness in arbitrarily sized workloads, these conditional guards can severely d">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/impact-of-boundary-checks-on-gpu-js-performance">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Impact of Boundary Checks on GPU.js Performance - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/impact-of-boundary-checks-on-gpu-js-performance" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Boundary checks inside GPU.js kernels prevent illegal memory access when kernel output dimensions do not evenly divide into hardware thread groupings. While essential for correctness in arbitrarily sized workloads, these conditional guards can severely d" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="impact-of-boundary-checks-on-gpujs-performance">Impact of
+Boundary Checks on GPU.js Performance</h1>
+<p>Boundary checks inside GPU.js kernels prevent illegal memory access
+when kernel output dimensions do not evenly divide into hardware thread
+groupings. While essential for correctness in arbitrarily sized
+workloads, these conditional guards can severely degrade execution
+throughput across thread grids. This performance degradation occurs
+primarily because conditional logic forces SIMD (Single Instruction,
+Multiple Data) architectures to serialize execution paths, disable
+threads within a warp, and disrupt optimized memory access
+pipelines.</p>
+<h3 id="thread-grids-and-warp-execution-in-gpujs">Thread Grids and Warp
+Execution in GPU.js</h3>
+<p>When GPU.js compiles JavaScript functions into WebGL shaders, it
+distributes computation across a grid of parallel threads defined by the
+<code>output</code> array. Hardware GPUs execute these threads in
+lockstep groups, commonly referred to as warps (NVIDIA, typically 32
+threads) or wavefronts (AMD, typically 64 threads).</p>
+<p>Every thread in a warp must execute the same instruction at the same
+clock cycle. When computation dimensions match hardware warp boundaries,
+the GPU achieves peak instruction throughput because all processing
+units within a streaming multiprocessor remain active
+simultaneously.</p>
+<h3 id="the-mechanism-of-warp-divergence">The Mechanism of Warp
+Divergence</h3>
+<p>Boundary checks commonly take the form of conditional guards inside
+the kernel:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> actualWidth) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">&lt;</span> actualWidth) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Perform calculation</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([paddedWidth<span class="op">,</span> paddedHeight])<span class="op">;</span></span></code></pre></div>
+<p>When a warp spans the boundary of <code>actualWidth</code>, a
+condition known as warp divergence (or branch divergence) occurs. Some
+threads evaluate <code>this.thread.x &lt; actualWidth</code> as
+<code>true</code>, while adjacent threads in the same warp evaluate it
+as <code>false</code>.</p>
+<p>Because the hardware cannot execute distinct instructions
+concurrently on the same warp, it must serialize the divergent
+paths:</p>
+<ol type="1">
+<li>The warp executes the <code>true</code> branch while masking
+(disabling) the threads that evaluated to <code>false</code>.</li>
+<li>The warp then executes the <code>false</code> branch while masking
+the threads that evaluated to <code>true</code>.</li>
+</ol>
+<p>Consequently, execution time for that warp becomes the sum of both
+paths rather than the cost of one, cutting hardware efficiency in half
+for those specific thread groups.</p>
+<h3 id="impact-on-overall-grid-throughput">Impact on Overall Grid
+Throughput</h3>
+<p>The severity of boundary check penalties depends on where the checks
+occur in the kernel and the size of the grid:</p>
+<ul>
+<li><strong>Control Flow Overhead:</strong> Even when all threads in a
+warp take the same branch (coherent branching), the branch condition
+itself adds instruction overhead and register pressure. The GPU must
+compute the condition, evaluate flags, and potentially discard
+instruction prefetch caches.</li>
+<li><strong>Edge Warps vs. Full Divergence:</strong> Boundary checks
+placed at the outer perimeter of a 2D or 3D grid affect only the
+boundary warps. In large grids (e.g., 4096×4096), the percentage of
+boundary warps is negligible, making the overall performance penalty
+small. However, in small or narrow grids, boundary warps can constitute
+a major percentage of total execution units.</li>
+<li><strong>Data-Dependent Divergence:</strong> If boundary checks rely
+on internal data lookups rather than coordinate checks (such as checking
+if an index in an indirection array is valid), divergence occurs
+randomly throughout the grid rather than strictly at the edges. This
+causes widespread serialization across the entire thread grid.</li>
+</ul>
+<h3 id="memory-coalescing-penalties">Memory Coalescing Penalties</h3>
+<p>GPU memory controllers read and write global memory in contiguous
+32-, 64-, or 128-byte transactions. When inactive threads within a
+divergent warp skip read or write instructions, memory access patterns
+can become fragmented. Instead of servicing all threads in a single
+memory transaction, the memory controller may require multiple partial
+transactions, introducing memory latency and starving the computing
+cores of data.</p>
+<h3 id="mitigating-boundary-check-overhead">Mitigating Boundary Check
+Overhead</h3>
+<p>To minimize the impact of boundary checks across thread grids in
+GPU.js, implement the following architectural adjustments:</p>
+<ol type="1">
+<li><strong>Pad Output Dimensions:</strong> Round kernel output sizes up
+to multiples of 32 or 64. Process the padded data without conditional
+logic inside the kernel, then slice or ignore the unused padding on the
+CPU side after retrieving the result.</li>
+<li><strong>Branchless Formulations:</strong> Replace conditional
+statements with mathematical masking when possible. For example,
+multiplying a result by a step function or comparison boolean
+(<code>result * (this.thread.x &lt; limit)</code>) avoids control-flow
+branching in the generated GLSL code.</li>
+<li><strong>Uniform Grid Tiling:</strong> Structure kernels to process
+fixed-size tiles where only the final cleanup pass handles remainder
+elements, allowing the core workload to run entirely free of boundary
+checks.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

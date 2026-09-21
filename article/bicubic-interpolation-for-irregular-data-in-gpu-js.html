@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bicubic Interpolation for Irregular Data in GPU.js - gpu.js</title>
+    <meta name="description" content="This article evaluates whether bicubic surface interpolation can be performed directly on irregularly distributed geospatial coordinates using the gpu.js WebGL acceleration library. While bicubic interpolation strictly requires a structured rectilinear g">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/bicubic-interpolation-for-irregular-data-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Bicubic Interpolation for Irregular Data in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/bicubic-interpolation-for-irregular-data-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article evaluates whether bicubic surface interpolation can be performed directly on irregularly distributed geospatial coordinates using the gpu.js WebGL acceleration library. While bicubic interpolation strictly requires a structured rectilinear g" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="bicubic-interpolation-for-irregular-data-in-gpujs">Bicubic
+Interpolation for Irregular Data in GPU.js</h1>
+<p>This article evaluates whether bicubic surface interpolation can be
+performed directly on irregularly distributed geospatial coordinates
+using the gpu.js WebGL acceleration library. While bicubic interpolation
+strictly requires a structured rectilinear grid, gpu.js can still be
+leveraged to process irregular geospatial datasets by pairing an initial
+rasterization or gridding phase with a GPU-accelerated bicubic kernel.
+Below, we examine the mathematical constraints, the capabilities of
+gpu.js, and the architectural pattern required to achieve this
+workflow.</p>
+<h3 id="the-mathematical-limitation-of-bicubic-interpolation">The
+Mathematical Limitation of Bicubic Interpolation</h3>
+<p>Bicubic interpolation constructs a smooth surface by evaluating a
+<span class="math inline">\(4 \times 4\)</span> grid of sixteen evenly
+spaced control points surrounding a target location. The algorithm
+relies on standard finite-difference formulas or precalculated spatial
+derivatives along orthogonal axes (<span
+class="math inline">\(x\)</span> and <span
+class="math inline">\(y\)</span>) to determine the sixteen polynomial
+coefficients of the cubic surface patch.</p>
+<p>Because irregular geospatial points (scatter data) lack uniform
+spacing and orthogonal alignment, bicubic interpolation cannot be
+computed directly on the raw coordinates. Standard bicubic formulas
+cannot handle arbitrary Delaunay triangulations or non-uniform
+neighborhoods without an intermediate transformation.</p>
+<h3 id="how-gpujs-handles-the-problem">How gpu.js Handles the
+Problem</h3>
+<p>The library <code>gpu.js</code> compiles JavaScript functions into
+GLSL shaders executed via WebGL. Shaders excel at parallel
+pixel-by-pixel calculations across 2D matrices and textures.</p>
+<p>Directly querying an arbitrary point cloud in a fragment shader
+requires sending large arrays of unstructured coordinates to the GPU and
+performing brute-force distance searches, which defeats the performance
+advantages of GPU execution. To compute a bicubic surface across
+irregular geospatial points using gpu.js, you must implement a two-step
+pipeline.</p>
+<h3 id="step-1-initial-gridding-scattered-data-to-regular-grid">Step 1:
+Initial Gridding (Scattered Data to Regular Grid)</h3>
+<p>Before applying bicubic interpolation, the irregular geospatial
+points must be converted into a regularly sampled uniform grid. This can
+be achieved through:</p>
+<ol type="1">
+<li><strong>GPU-Accelerated Inverse Distance Weighting (IDW):</strong>
+Pass the raw point array <span class="math inline">\((x, y, z)\)</span>
+into a gpu.js kernel. Each output thread corresponds to a cell on a
+regular grid, computing an IDW value based on nearby points within a
+search radius.</li>
+<li><strong>CPU-Side Triangulation:</strong> Perform Delaunay
+triangulation or Natural Neighbor interpolation on the CPU, rasterizing
+the primary surface elevation into a float array or canvas texture.</li>
+</ol>
+<h3 id="step-2-bicubic-interpolation-kernel-in-gpujs">Step 2: Bicubic
+Interpolation Kernel in gpu.js</h3>
+<p>Once the dataset is mapped to a uniform 2D matrix, gpu.js can execute
+standard bicubic interpolation at scale:</p>
+<ol type="1">
+<li><strong>Matrix Mapping:</strong> Pass the regular grid as a 2D array
+or WebGL texture to a gpu.js kernel sized to the desired output
+resolution.</li>
+<li><strong>Neighbor Sampling:</strong> For any continuous coordinate
+<span class="math inline">\((u, v)\)</span> on the surface, the kernel
+identifies the surrounding <span class="math inline">\(4 \times
+4\)</span> grid cells.</li>
+<li><strong>Cubic Weighting:</strong> Apply cubic convolution (such as
+the Catmull-Rom or Keys spline kernel) independently along the rows and
+columns: <span class="math display">\[W(t) = \begin{cases} (a+2)|t|^3 -
+(a+3)|t|^2 + 1 &amp; \text{for } |t| \le 1 \\ a|t|^3 - 5a|t|^2 + 8a|t| -
+4a &amp; \text{for } 1 &lt; |t| &lt; 2 \\ 0 &amp; \text{otherwise}
+\end{cases}\]</span></li>
+<li><strong>Surface Evaluation:</strong> The GPU computes the weighted
+sum across all 16 values in parallel, yielding continuous, smooth
+elevation, slope, and curvature data.</li>
+</ol>
+<h3 id="conclusion">Conclusion</h3>
+<p>Bicubic surface interpolation cannot be applied directly to raw,
+irregularly sampled geospatial data due to the mathematical formulation
+of the bicubic algorithm. However, using gpu.js, you can build a
+high-performance pipeline by first re-gridding the scattered data
+through an algorithm like Inverse Distance Weighting, and then executing
+a parallel bicubic interpolation kernel across the resulting regular
+matrix.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

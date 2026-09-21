@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Alignment in GPU.js: 8-Bit vs 32-Bit Data - gpu.js</title>
+    <meta name="description" content="This article explores how gpu.js handles memory alignment and texture packing when processing 8-bit and 32-bit data through WebGL shaders. Because GPUs rely on strictly aligned memory strides to maximize throughput, data types of varying byte widths cann">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/memory-alignment-in-gpu-js-8-bit-vs-32-bit-data">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Memory Alignment in GPU.js: 8-Bit vs 32-Bit Data - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/memory-alignment-in-gpu-js-8-bit-vs-32-bit-data" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how gpu.js handles memory alignment and texture packing when processing 8-bit and 32-bit data through WebGL shaders. Because GPUs rely on strictly aligned memory strides to maximize throughput, data types of varying byte widths cann" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="memory-alignment-in-gpujs-8-bit-vs-32-bit-data">Memory Alignment
+in GPU.js: 8-Bit vs 32-Bit Data</h1>
+<p>This article explores how gpu.js handles memory alignment and texture
+packing when processing 8-bit and 32-bit data through WebGL shaders.
+Because GPUs rely on strictly aligned memory strides to maximize
+throughput, data types of varying byte widths cannot be treated
+identically. The following sections explain the underlying WebGL memory
+rules, the structural packing strategies used for 8-bit versus 32-bit
+payloads, and how gpu.js ensures data integrity across diverse hardware
+architectures.</p>
+<h3 id="the-webgl-alignment-model">The WebGL Alignment Model</h3>
+<p>Under the hood, gpu.js compiles JavaScript functions into WebGL
+fragment shaders and passes data to the GPU in the form of 2D textures.
+WebGL enforces strict pixel store parameters, most notably
+<code>gl.UNPACK_ALIGNMENT</code>, which defaults to 4 bytes. This
+default alignment requires that the start of every row of pixel data in
+host memory aligns with a multiple of 4 bytes.</p>
+<p>When mapping CPU-allocated typed arrays to GPU textures, mismatched
+alignments between array element sizes and row widths can lead to
+corrupt uploads or runtime crashes if not managed explicitly.</p>
+<h3 id="managing-32-bit-data">Managing 32-Bit Data</h3>
+<p>Standard calculations in gpu.js default to 32-bit IEEE 754
+floating-point numbers. Handling 32-bit data aligns naturally with
+modern GPU memory architectures, but implementation details vary based
+on WebGL capabilities:</p>
+<ul>
+<li><strong>WebGL 2 and Float Extensions:</strong> When native
+floating-point textures are supported (e.g., <code>gl.RGBA32F</code> or
+<code>gl.R32F</code>), 32-bit floats are written directly to texture
+memory. Because a single 32-bit float is 4 bytes, row boundaries
+naturally align with the default 4-byte stride requirement without
+requiring software-level byte shifting.</li>
+<li><strong>WebGL 1 Fallback (Byte Encoding):</strong> On platforms
+lacking native float texture rendering support, gpu.js encodes each
+32-bit float across the four 8-bit channels (Red, Green, Blue, Alpha) of
+a standard <code>gl.RGBA</code> texture. This mathematical packing
+splits the 32-bit mantissa and exponent across four 1-byte components,
+producing a single 4-byte pixel that automatically satisfies the 4-byte
+alignment rule.</li>
+</ul>
+<h3 id="managing-8-bit-data">Managing 8-Bit Data</h3>
+<p>Handling 8-bit data (such as <code>Uint8Array</code> or standard
+image pixel data) presents different alignment challenges:</p>
+<ul>
+<li><strong>Four-Channel Aggregation:</strong> When 8-bit data is
+supplied as RGBA values, four contiguous 8-bit integers combine into a
+32-bit (4-byte) structure. In this layout, each pixel matches the 4-byte
+boundary naturally, preventing misaligned stride offsets between texture
+rows.</li>
+<li><strong>Single-Channel and Flat Byte Arrays:</strong> When
+single-channel 8-bit arrays are uploaded, arbitrary row widths can
+easily violate the 4-byte boundary. To prevent reading out-of-bounds or
+shifted bytes, gpu.js alters the unpack state (using
+<code>gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)</code>) or reshapes the
+underlying 1D array into padded 2D textures where each row length is a
+multiple of 4.</li>
+</ul>
+<h3 id="texture-reshaping-and-memory-padding">Texture Reshaping and
+Memory Padding</h3>
+<p>GPUs cannot efficiently address arbitrary 1D arrays of dynamic sizes.
+gpu.js maps 1D and irregularly sized input arrays into rectangular 2D
+textures.</p>
+<p>When the total count of elements does not evenly form a rectangular
+texture aligned to GPU hardware constraints, gpu.js pads the internal
+texture dimensions. The generated GLSL shader code includes boundary
+checks that ignore these padded, unaligned memory addresses, ensuring
+that memory reads and writes map exclusively to valid input indices
+while preserving cache-friendly memory strides.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

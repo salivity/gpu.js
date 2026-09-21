@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Undefined Uniform Handling at Runtime - gpu.js</title>
+    <meta name="description" content="This article provides an overview of how GPU.js processes undefined uniform parameters when a compiled kernel is invoked at runtime. Because GPU.js translates JavaScript functions into strongly typed WebGL GLSL shaders, passing undefined values disrupts">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-undefined-uniform-handling-at-runtime">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Undefined Uniform Handling at Runtime - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-undefined-uniform-handling-at-runtime" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides an overview of how GPU.js processes undefined uniform parameters when a compiled kernel is invoked at runtime. Because GPU.js translates JavaScript functions into strongly typed WebGL GLSL shaders, passing undefined values disrupts" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-undefined-uniform-handling-at-runtime">GPU.js Undefined
+Uniform Handling at Runtime</h1>
+<p>This article provides an overview of how GPU.js processes
+<code>undefined</code> uniform parameters when a compiled kernel is
+invoked at runtime. Because GPU.js translates JavaScript functions into
+strongly typed WebGL GLSL shaders, passing <code>undefined</code> values
+disrupts the data-binding layer between the CPU and GPU. Below, we
+examine the underlying mechanics of uniform passing in GPU.js, how the
+WebGL context responds to missing or undefined inputs, the differences
+between GPU and CPU execution modes, and strategies to prevent runtime
+execution failures.</p>
+<h3 id="the-role-of-uniforms-in-gpujs">The Role of Uniforms in
+GPU.js</h3>
+<p>In GPU.js, uniforms are read-only variables accessible across all
+parallel execution threads (work units) within a kernel. While
+JavaScript is dynamically typed, the underlying GPU target (GLSL via
+WebGL) requires strict type definitions, such as <code>float</code>,
+<code>int</code>, <code>vec2</code>, or sampler arrays.</p>
+<p>When a kernel is defined and compiled, GPU.js analyzes the inputs or
+uses declared uniform types to construct the corresponding GLSL shader
+code. At runtime, whenever the kernel function is invoked with arguments
+intended for these uniforms, GPU.js uses the WebGL API (such as
+<code>gl.uniform1f</code> or <code>gl.uniform1i</code>) to bind the
+JavaScript values to the active GPU program.</p>
+<h3 id="runtime-behavior-when-passing-undefined">Runtime Behavior When
+Passing <code>undefined</code></h3>
+<p>When an argument mapped to a uniform resolves to
+<code>undefined</code> during a kernel invocation, the following
+behaviors occur:</p>
+<h4 id="1-webgl-type-coercion-and-api-errors">1. WebGL Type Coercion and
+API Errors</h4>
+<p>WebGL uniform assignment methods expect specific primitive types
+(numbers, typed arrays, or WebGL textures). When GPU.js attempts to pass
+an <code>undefined</code> value to native WebGL functions:</p>
+<ul>
+<li><strong>Float and Integer Uniforms:</strong> WebGL method signatures
+(e.g., <code>gl.uniform1f(location, value)</code>) attempt to convert
+<code>undefined</code> into a number. In JavaScript,
+<code>Number(undefined)</code> results in <code>NaN</code>. Browsers
+running WebGL may either upload <code>NaN</code> directly to the GPU or
+generate a WebGL warning (such as
+<code>TypeError: Failed to execute 'uniform1f' on 'WebGLRenderingContext': parameter 2 is not of type 'float'</code>),
+failing the draw call.</li>
+<li><strong>Array and Texture Uniforms:</strong> If a uniform expects a
+texture or an array and receives <code>undefined</code>, GPU.js attempts
+to read properties like <code>.length</code> or bind the texture target.
+This directly throws an unhandled JavaScript runtime error:
+<code>Cannot read properties of undefined</code>.</li>
+</ul>
+<h4 id="2-visual-artifacts-or-zero-value-fallbacks">2. Visual Artifacts
+or Zero-Value Fallbacks</h4>
+<p>If the WebGL driver converts <code>NaN</code> to a float without
+halting execution, arithmetic operations involving that uniform within
+the GLSL kernel will propagate <code>NaN</code>. Depending on how the
+output is mapped to pixels or array elements, the kernel typically
+returns all zeros, empty canvas buffers, or blank outputs.</p>
+<h4 id="3-cpu-mode-fallback-discrepancies">3. CPU Mode Fallback
+Discrepancies</h4>
+<p>GPU.js includes a CPU fallback mode for environments lacking WebGL
+support or when explicitly configured. In CPU mode, the kernel function
+runs as native JavaScript in a series of loops. An
+<code>undefined</code> uniform will behave purely according to standard
+JavaScript rules:</p>
+<ul>
+<li>Mathematical operations involving the uniform yield
+<code>NaN</code>.</li>
+<li>Logical checks against <code>undefined</code> evaluate to
+<code>false</code>.</li>
+<li>Array index accesses against an <code>undefined</code> uniform throw
+immediate TypeError exceptions.</li>
+</ul>
+<p>This creates behavioral inconsistency: code that triggers an explicit
+WebGL uniform-binding error in GPU mode might silently produce an array
+filled with <code>NaN</code> in CPU mode.</p>
+<h3 id="preventing-undefined-uniform-errors">Preventing Undefined
+Uniform Errors</h3>
+<p>Because GPU.js does not automatically sanitize runtime arguments or
+assign default fallback values to missing uniforms, values must be
+properly validated before triggering execution:</p>
+<ol type="1">
+<li><strong>Default Argument Values:</strong> Use standard JavaScript
+default parameters in wrapper functions or kernel calls:
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> myKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(multiplier) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> multiplier<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Ensure a valid fallback exists</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">runKernel</span>(multiplier <span class="op">=</span> <span class="fl">1.0</span>) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="fu">myKernel</span>(multiplier)<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div></li>
+<li><strong>Explicit Type Declarations:</strong> Utilize the
+<code>constants</code> or explicit <code>uniforms</code> configuration
+options provided by GPU.js to lock in variable types, and verify
+variables are fully defined before dispatching computations to the GPU
+pipeline.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

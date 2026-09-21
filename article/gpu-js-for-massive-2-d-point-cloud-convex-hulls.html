@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js for Massive 2D Point Cloud Convex Hulls - gpu.js</title>
+    <meta name="description" content="GPU.js can effectively evaluate convex hull approximations for massive 2D point clouds by translating data-parallel mathematical operations into WebGL shaders. While traditional exact algorithms like the Graham scan or Quickhull perform poorly on graphic">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-for-massive-2-d-point-cloud-convex-hulls">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js for Massive 2D Point Cloud Convex Hulls - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-for-massive-2-d-point-cloud-convex-hulls" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can effectively evaluate convex hull approximations for massive 2D point clouds by translating data-parallel mathematical operations into WebGL shaders. While traditional exact algorithms like the Graham scan or Quickhull perform poorly on graphic" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-for-massive-2d-point-cloud-convex-hulls">GPU.js for
+Massive 2D Point Cloud Convex Hulls</h1>
+<p>GPU.js can effectively evaluate convex hull approximations for
+massive 2D point clouds by translating data-parallel mathematical
+operations into WebGL shaders. While traditional exact algorithms like
+the Graham scan or Quickhull perform poorly on graphics hardware due to
+dynamic branching and global state dependencies, approximation
+techniques based on directional projections map cleanly to the GPU.js
+architecture, enabling substantial speedups over single-threaded CPU
+implementations.</p>
+<h3 id="algorithmic-fit-for-gpu-parallelism">Algorithmic Fit for GPU
+Parallelism</h3>
+<p>Exact convex hull algorithms rely heavily on sorting, stack
+manipulation, and recursive partitioning. These patterns clash with the
+SIMD (Single Instruction, Multiple Data) execution model of GPU.js,
+which compiles JavaScript functions into WebGL fragment shaders. Shaders
+operate best when calculating deterministic outputs across independent
+threads without complex communication between threads.</p>
+<p>Approximation algorithms bypass these limitations by reframing the
+problem around extreme points. Instead of computing the exact polygon
+boundary iteratively:</p>
+<ol type="1">
+<li><strong>Directional Sampling:</strong> Generate a fixed set of <span
+class="math inline">\(k\)</span> uniform directional vectors spanning
+360 degrees.</li>
+<li><strong>Parallel Dot Products:</strong> For each direction vector,
+calculate the dot product with every point in the cloud to find the
+point that maximizes the projection.</li>
+<li><strong>Boundary Reconstruction:</strong> Collect the maximum points
+corresponding to each angle and connect them sequentially to form an
+approximate bounding polygon.</li>
+</ol>
+<h3 id="implementing-the-approximation-in-gpujs">Implementing the
+Approximation in GPU.js</h3>
+<p>In GPU.js, this is achieved using a parallel reduction or a two-pass
+kernel:</p>
+<ul>
+<li><strong>Kernel Computation:</strong> The 2D point cloud is passed as
+a flat or structured array texture. A kernel computes the projection of
+<span class="math inline">\(N\)</span> points against <span
+class="math inline">\(k\)</span> directional slices. With massive point
+clouds (millions of vertices), the computation distributes across
+thousands of shader cores simultaneously.</li>
+<li><strong>Reduction:</strong> GPU.js handles parallel min/max
+reductions to identify the extreme index along each axis.</li>
+</ul>
+<p>Because the runtime complexity shifts from <span
+class="math inline">\(O(N \log N)\)</span> or <span
+class="math inline">\(O(N H)\)</span> on the CPU to <span
+class="math inline">\(O((N \cdot k) / P)\)</span> on the GPU (where
+<span class="math inline">\(P\)</span> represents the number of parallel
+GPU pipelines), processing throughput for initial filtering is vastly
+superior.</p>
+<h3 id="performance-constraints-and-trade-offs">Performance Constraints
+and Trade-offs</h3>
+<p>While feasible, using GPU.js for this workflow introduces specific
+bottlenecks:</p>
+<ul>
+<li><strong>Data Transfer Latency:</strong> Moving millions of
+coordinate pairs from JavaScript memory (RAM) to GPU memory (VRAM)
+incurs overhead. If the point cloud is generated dynamically on the CPU
+for a single one-off calculation, data transfer times can negate the
+computational gains. It is most effective when data already resides on
+the GPU or when multiple queries run over static geometry.</li>
+<li><strong>Floating-Point Precision:</strong> WebGL 1.0/2.0
+implementations may suffer from precision limitations depending on the
+client device. Floating-point roundoff can lead to degenerate hulls if
+coordinates are tightly clustered or span massive ranges. Normalizing
+coordinates before kernel invocation is necessary.</li>
+<li><strong>Approximation Accuracy vs. Thread Count:</strong> Increasing
+the angular resolution (<span class="math inline">\(k\)</span>) improves
+accuracy toward the true convex hull but increases the number of kernel
+runs or texture reads. For massive datasets, a low-to-moderate <span
+class="math inline">\(k\)</span> (e.g., 64 to 256 directions) captures
+over 99% of the hull area while maintaining real-time frame rates.</li>
+</ul>
+<p>GPU.js is well-suited for approximating convex hulls on massive 2D
+point clouds when using direction-based projection methods, offering
+real-time performance that CPU-based alternatives struggle to match at
+scale.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

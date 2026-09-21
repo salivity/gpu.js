@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accelerating Martini Simulations with GPU.js - gpu.js</title>
+    <meta name="description" content="This article evaluates whether the coarse-grained Martini force field can be accelerated using gpu.js, a JavaScript library that compiles functions into WebGL and WebGPU shader code. While gpu.js provides significant performance boosts over standard sing">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/accelerating-martini-simulations-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Accelerating Martini Simulations with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/accelerating-martini-simulations-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article evaluates whether the coarse-grained Martini force field can be accelerated using gpu.js, a JavaScript library that compiles functions into WebGL and WebGPU shader code. While gpu.js provides significant performance boosts over standard sing" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="accelerating-martini-simulations-with-gpujs">Accelerating
+Martini Simulations with GPU.js</h1>
+<p>This article evaluates whether the coarse-grained Martini force field
+can be accelerated using gpu.js, a JavaScript library that compiles
+functions into WebGL and WebGPU shader code. While gpu.js provides
+significant performance boosts over standard single-threaded JavaScript
+by offloading intensive non-bonded pairwise interactions to the GPU,
+architectural constraints like memory management, lack of advanced
+spatial data structures, and shader execution overhead make it
+unsuitable for high-throughput scientific production compared to native
+engines like GROMACS or OpenMM.</p>
+<h3 id="the-mechanics-of-martini-and-gpu-parallelism">The Mechanics of
+Martini and GPU Parallelism</h3>
+<p>The Martini force field is a coarse-grained molecular dynamics (MD)
+model that maps approximately four heavy atoms to an interaction bead.
+This simplification reduces the degrees of freedom and smooths the
+potential energy landscape, allowing larger spatial and temporal
+scales.</p>
+<p>Despite this simplification, calculating non-bonded
+interactions—predominantly Lennard-Jones 12-6 potentials and shifted
+Coulombic interactions—remains the computational bottleneck, scaling as
+<span class="math inline">\(O(N^2)\)</span> without neighbor lists.
+These non-bonded force evaluations are embarrassingly parallel because
+the force between any pair of beads can be calculated independently.</p>
+<p>gpu.js accelerates code by taking written JavaScript functions and
+compiling them on the fly into GLSL shaders that execute across
+thousands of GPU cores. In a pure JavaScript simulation, offloading
+these pairwise distance and force computations to a gpu.js kernel yields
+immediate, orders-of-magnitude acceleration compared to CPU-bound
+execution in the V8 engine.</p>
+<h3 id="implementation-bottlenecks-with-gpujs">Implementation
+Bottlenecks with gpu.js</h3>
+<p>While the mathematical operations are well-suited for GPU
+acceleration, implementing an efficient Martini MD engine using gpu.js
+encounters several critical engineering constraints:</p>
+<ol type="1">
+<li><strong>Neighbor-List Construction:</strong> Production MD codes
+rely on cell-linked lists and Verlet neighbor lists to reduce
+computational complexity to <span class="math inline">\(O(N)\)</span>.
+Implementing dynamic spatial partitioning inside gpu.js is difficult
+because WebGL shaders lack flexible arbitrary memory access and atomic
+operations. Without efficient neighbor lists, simulations are forced
+into raw all-to-all evaluations, negating much of the GPU advantage on
+larger systems.</li>
+<li><strong>Memory Transfer Overhead:</strong> In standard MD setups,
+atom positions, velocities, and forces remain in GPU memory across time
+steps. In gpu.js, particularly in browser contexts, passing large arrays
+back and forth between the CPU (JavaScript main thread) and GPU textures
+creates massive I/O bottlenecks. Unless integration (e.g., Velocity
+Verlet) and constraint handling (e.g., LINCS) are also fully written as
+GPU kernels, the data bus overhead degrades throughput.</li>
+<li><strong>Floating-Point Precision:</strong> Martini simulations
+typically require stable numerical integration to prevent system drift
+and energy leakage. While native GPU engines use mixed precision (single
+precision for forces, double precision for coordinate accumulation),
+WebGL execution within gpu.js frequently limits operations to single
+precision (FP32), which can introduce rounding errors over millions of
+integration steps.</li>
+</ol>
+<h3 id="comparative-assessment-gpujs-vs-native-frameworks">Comparative
+Assessment: gpu.js vs. Native Frameworks</h3>
+<p>When compared directly:</p>
+<ul>
+<li><strong>gpu.js vs. Pure JavaScript:</strong> gpu.js is vastly
+superior. For web-based molecular visualizations, educational tools, or
+small interactive peptide-membrane demonstrations running directly in a
+web browser, gpu.js enables real-time interactive framerates that
+vanilla JavaScript cannot achieve.</li>
+<li><strong>gpu.js vs. C++/CUDA Engines:</strong> Dedicated tools such
+as GROMACS, OpenMM, and LAMMPS use highly tuned CUDA or HIP kernels,
+hardware-level texture caching, shared memory optimization, and parallel
+spatial decomposition. A gpu.js implementation cannot approach the
+performance density or hardware saturation of these optimized
+tools.</li>
+</ul>
+<h3 id="final-verdict">Final Verdict</h3>
+<p>Martini force-field simulations can be accelerated using gpu.js when
+the baseline is a JavaScript environment. It serves as an effective tool
+for client-side web applications, visualizers, and educational
+demonstrations requiring GPU-accelerated coarse-grained dynamics.
+However, for scientific research requiring long timescales, complex
+boundary conditions, and massive particle counts, gpu.js lacks the
+low-level memory and execution controls necessary to compete with native
+GPU-accelerated molecular dynamics engines.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Memory Leaks From Dynamic Kernels in Loops - gpu.js</title>
+    <meta name="description" content="Creating GPU.js kernels dynamically inside a loop leads to severe memory leaks and performance degradation. When you instantiate a kernel, GPU.js compiles JavaScript code into WebGL shader programs and allocates hardware-accelerated resources in GPU memo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-memory-leaks-from-dynamic-kernels-in-loops">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Memory Leaks From Dynamic Kernels in Loops - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-memory-leaks-from-dynamic-kernels-in-loops" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Creating GPU.js kernels dynamically inside a loop leads to severe memory leaks and performance degradation. When you instantiate a kernel, GPU.js compiles JavaScript code into WebGL shader programs and allocates hardware-accelerated resources in GPU memo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-memory-leaks-from-dynamic-kernels-in-loops">GPU.js Memory
+Leaks From Dynamic Kernels in Loops</h1>
+<p>Creating GPU.js kernels dynamically inside a loop leads to severe
+memory leaks and performance degradation. When you instantiate a kernel,
+GPU.js compiles JavaScript code into WebGL shader programs and allocates
+hardware-accelerated resources in GPU memory (VRAM). This article
+explains the technical mechanics behind GPU.js memory leaks, why
+standard JavaScript garbage collection fails to resolve them, and how to
+properly structure your code to prevent application crashes.</p>
+<h2 id="why-dynamic-kernel-creation-causes-leaks">Why Dynamic Kernel
+Creation Causes Leaks</h2>
+<p>In GPU.js, calling <code>gpu.createKernel()</code> is not a
+lightweight function call; it is an expensive compilation step. During
+this step, the library performs several actions:</p>
+<ol type="1">
+<li>Transpiles your JavaScript function into a GLSL (OpenGL Shading
+Language) shader.</li>
+<li>Allocates WebGL state machines, shader programs, framebuffers, and
+textures directly in VRAM.</li>
+<li>Attaches internal WebGL bindings and closures within the JavaScript
+execution context.</li>
+</ol>
+<p>When <code>gpu.createKernel()</code> is placed inside a
+<code>for</code>, <code>while</code>, or render loop, a brand-new WebGL
+program and its associated GPU textures are allocated on every
+iteration.</p>
+<p>JavaScript engines rely on garbage collection (GC) for managing
+system memory. However, the garbage collector operates on the CPU/RAM
+heap and is unaware of the memory consumption taking place in the GPU's
+VRAM. Even if the JavaScript reference to a kernel falls out of scope,
+the underlying WebGL context and GPU resources often remain pinned in
+video memory. Over successive iterations, this leads to rapid VRAM
+exhaustion, WebGL context loss (<code>webglcontextlost</code>), and
+eventually crashes the browser tab or Node.js process.</p>
+<h2 id="how-to-prevent-gpujs-memory-leaks">How to Prevent GPU.js Memory
+Leaks</h2>
+<p>To maintain stability and performance, avoid generating kernels
+dynamically. Apply the following design patterns instead:</p>
+<h3 id="1-compile-once-run-repeatedly">1. Compile Once, Run
+Repeatedly</h3>
+<p>The primary rule of GPU.js is to define kernels once outside of
+repetitive execution paths. Once compiled, a kernel can be invoked
+multiple times with updated arguments without any additional memory
+overhead.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Good: Compile the kernel once outside the loop</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000</span>])<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Run the precompiled kernel inside the loop</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">100</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> inputData <span class="op">=</span> <span class="fu">getDataset</span>(i)<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> result <span class="op">=</span> <span class="fu">computeKernel</span>(inputData)<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">processResult</span>(result)<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="2-explicitly-destroy-dynamic-kernels">2. Explicitly Destroy
+Dynamic Kernels</h3>
+<p>If your application design requires creating unique kernels on the
+fly—such as when changing the output dimensions dynamically or using
+completely different shader logic—you must manually free the allocated
+GPU resources when the kernel is no longer needed using the
+<code>destroy()</code> method.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">100</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dynamicSize <span class="op">=</span> <span class="fu">calculateDynamicSize</span>(i)<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> temporaryKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    })<span class="op">.</span><span class="fu">setOutput</span>([dynamicSize])<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> result <span class="op">=</span> <span class="fu">temporaryKernel</span>()<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">processResult</span>(result)<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Explicitly release GPU textures and WebGL programs</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    temporaryKernel<span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="3-clean-up-the-parent-gpu-instance">3. Clean Up the Parent GPU
+Instance</h3>
+<p>If you are repeatedly instantiating new <code>new GPU()</code>
+instances within an application lifecycle (such as within component
+mounts or unit tests), the parent instance must also be cleaned up.
+Calling <code>gpu.destroy()</code> ensures all active kernels, contexts,
+and canvas elements linked to that instance are completely discarded
+from memory.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

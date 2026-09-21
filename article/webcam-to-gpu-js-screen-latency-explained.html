@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam to GPU.js Screen Latency Explained - gpu.js</title>
+    <meta name="description" content="Round-trip latency when capturing a webcam feed, processing it through GPU.js, and rendering the result to a display typically ranges between 30 and 100 milliseconds under optimal conditions, but can exceed 150 milliseconds if the pipeline is poorly conf">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/webcam-to-gpu-js-screen-latency-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Webcam to GPU.js Screen Latency Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/webcam-to-gpu-js-screen-latency-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Round-trip latency when capturing a webcam feed, processing it through GPU.js, and rendering the result to a display typically ranges between 30 and 100 milliseconds under optimal conditions, but can exceed 150 milliseconds if the pipeline is poorly conf" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webcam-to-gpujs-screen-latency-explained">Webcam to GPU.js
+Screen Latency Explained</h1>
+<p>Round-trip latency when capturing a webcam feed, processing it
+through GPU.js, and rendering the result to a display typically ranges
+between 30 and 100 milliseconds under optimal conditions, but can exceed
+150 milliseconds if the pipeline is poorly configured. This article
+breaks down the latency introduced at every stage of the pipeline—camera
+capture, browser ingestion, WebGL texture upload, GPU kernel execution,
+and display presentation—to provide an accurate breakdown of where
+delays occur and how to minimize them.</p>
+<h3 id="1-webcam-hardware-and-capture-16-ms--33-ms">1. Webcam Hardware
+and Capture (16 ms – 33 ms)</h3>
+<p>The pipeline begins at the camera sensor. Most consumer webcams
+operate at 30 or 60 frames per second (FPS).</p>
+<ul>
+<li>At 60 FPS, the sensor frame interval is approximately 16.6 ms.</li>
+<li>At 30 FPS, the frame interval is approximately 33.3 ms.</li>
+</ul>
+<p>Sensor exposure time, rolling shutter readout, and onboard ISP (Image
+Signal Processor) compression (such as MJPEG or YUY2 conversion) add an
+initial 10 to 30 ms before the operating system even receives the frame
+over USB.</p>
+<h3 id="2-browser-ingestion-and-frame-delivery-5-ms--15-ms">2. Browser
+Ingestion and Frame Delivery (5 ms – 15 ms)</h3>
+<p>Once the operating system receives the camera buffer, the browser
+accesses it via the MediaStreams API
+(<code>navigator.mediaDevices.getUserMedia</code>).</p>
+<p>The browser must decode the video stream and pass the frame to a
+<code>&lt;video&gt;</code> element. Using standard polling or
+<code>setInterval</code> introduces synchronization jitter. Modern
+browsers mitigate this through the
+<code>HTMLVideoElement.requestVideoFrameCallback()</code> API, which
+notifies the application precisely when a new frame is ready for
+processing, reducing queue latency to roughly 5 to 10 ms.</p>
+<h3 id="3-cpu-to-gpu-texture-upload-1-ms--5-ms">3. CPU-to-GPU Texture
+Upload (1 ms – 5 ms)</h3>
+<p>GPU.js operates by compiling JavaScript functions into WebGL fragment
+shaders. To process the video frame, the image data from the
+<code>&lt;video&gt;</code> element must be transferred to the GPU as a
+WebGL texture using <code>gl.texImage2D</code> or
+<code>gl.texSubImage2D</code>.</p>
+<p>For standard resolutions (720p or 1080p), copying pixel data across
+the PCIe bus takes approximately 1 to 5 ms depending on hardware
+architecture:</p>
+<ul>
+<li>Integrated GPUs share system memory, lowering transfer
+overhead.</li>
+<li>Discrete GPUs require explicit memory transfer over the PCIe bus,
+slightly increasing transfer time.</li>
+</ul>
+<h3 id="4-gpujs-kernel-execution-05-ms--8-ms">4. GPU.js Kernel Execution
+(0.5 ms – 8 ms)</h3>
+<p>Once the video frame resides on the GPU as a texture, GPU.js executes
+the compiled shader.</p>
+<p>Because image operations (such as color grading, edge detection, or
+matrix transformations) are massively parallel, execution time is
+extremely fast:</p>
+<ul>
+<li>Simple pixel-wise transforms: 0.5 ms to 2 ms.</li>
+<li>Multi-pass convolutions or heavy math: 3 ms to 8 ms.</li>
+</ul>
+<p>The output mode of GPU.js heavily dictates this step's impact:</p>
+<ul>
+<li><strong>Direct Canvas Render
+(<code>graphical: true</code>):</strong> The output remains on the GPU
+and draws straight to an HTML5 <code>&lt;canvas&gt;</code>. This has
+negligible overhead (&lt;1 ms).</li>
+<li><strong>Array Readback (default mode):</strong> If the kernel
+outputs an array back to JavaScript, the browser must execute
+<code>gl.readPixels()</code>. This forces a CPU-GPU pipeline stall that
+can add 15 to 40 ms of latency, defeating the purpose of real-time GPU
+processing.</li>
+</ul>
+<h3 id="5-display-compositing-and-vsync-8-ms--166-ms">5. Display
+Compositing and VSync (8 ms – 16.6 ms)</h3>
+<p>After the canvas receives the processed frame, the browser compositor
+submits the frame to the OS window manager. The monitor displays the
+frame on its next refresh cycle (VSync):</p>
+<ul>
+<li>On a standard 60 Hz display, the VSync interval is 16.6 ms.</li>
+<li>On a 144 Hz display, the VSync interval is 6.9 ms.</li>
+</ul>
+<p>Depending on when the GPU finishes relative to the refresh boundary,
+this step adds between 1 and 16.6 ms.</p>
+<h3 id="total-round-trip-latency-summary">Total Round-Trip Latency
+Summary</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Pipeline Stage</th>
+<th style="text-align: left;">60 FPS Optimized Path</th>
+<th style="text-align: left;">30 FPS Standard Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Webcam Hardware &amp;
+Ingest</strong></td>
+<td style="text-align: left;">16 – 25 ms</td>
+<td style="text-align: left;">33 – 50 ms</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Browser Frame Queue</strong></td>
+<td style="text-align: left;">5 ms</td>
+<td style="text-align: left;">15 ms</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Texture Upload to
+GPU</strong></td>
+<td style="text-align: left;">1 – 3 ms</td>
+<td style="text-align: left;">3 – 5 ms</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>GPU.js Execution</strong></td>
+<td style="text-align: left;">1 – 3 ms</td>
+<td style="text-align: left;">2 – 5 ms</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>CPU Readback
+(<code>readPixels</code>)</strong></td>
+<td style="text-align: left;">0 ms (Bypassed)</td>
+<td style="text-align: left;">20 – 35 ms (If used)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Compositing &amp; Display
+(60Hz)</strong></td>
+<td style="text-align: left;">8 – 16.6 ms</td>
+<td style="text-align: left;">8 – 16.6 ms</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Total Estimated
+Latency</strong></td>
+<td style="text-align: left;"><strong>31 – 52.6 ms</strong></td>
+<td style="text-align: left;"><strong>81 – 126.6 ms</strong></td>
+</tr>
+</tbody>
+</table>
+<h3 id="minimizing-latency-in-practice">Minimizing Latency in
+Practice</h3>
+<p>To achieve sub-50 ms round-trip latency with GPU.js:</p>
+<ol type="1">
+<li><strong>Set the output to graphical:</strong> Always configure
+GPU.js with <code>{ graphical: true }</code> and draw directly to the
+canvas to avoid synchronous CPU readback.</li>
+<li><strong>Synchronize via
+<code>requestVideoFrameCallback</code>:</strong> Drive your render loop
+with <code>video.requestVideoFrameCallback()</code> instead of generic
+<code>requestAnimationFrame()</code> loops to eliminate frame queuing
+delays.</li>
+<li><strong>Lock camera settings:</strong> Request a high frame rate
+(<code>frameRate: { ideal: 60 }</code>) and lower auto-exposure times in
+<code>getUserMedia</code> constraints to prevent camera sensor lag.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

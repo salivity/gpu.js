@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ambiguous Variable Types in GPU.js Functions - gpu.js</title>
+    <meta name="description" content="When using GPU.js to run JavaScript on the GPU, declaring a variable with an ambiguous type inside a custom function causes the kernel transpilation process to fail. Because GPU.js translates JavaScript code into statically typed OpenGL Shading Language">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/ambiguous-variable-types-in-gpu-js-functions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Ambiguous Variable Types in GPU.js Functions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/ambiguous-variable-types-in-gpu-js-functions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When using GPU.js to run JavaScript on the GPU, declaring a variable with an ambiguous type inside a custom function causes the kernel transpilation process to fail. Because GPU.js translates JavaScript code into statically typed OpenGL Shading Language" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="ambiguous-variable-types-in-gpujs-functions">Ambiguous Variable
+Types in GPU.js Functions</h1>
+<p>When using GPU.js to run JavaScript on the GPU, declaring a variable
+with an ambiguous type inside a custom function causes the kernel
+transpilation process to fail. Because GPU.js translates JavaScript code
+into statically typed OpenGL Shading Language (GLSL), it relies on
+static analysis to infer the exact type of every variable. If the
+library cannot determine whether a variable is an integer, float,
+vector, or array, it throws a compile-time error, generates an invalid
+shader, or falls back to CPU execution.</p>
+<h3 id="the-javascript-to-glsl-type-barrier">The JavaScript to GLSL Type
+Barrier</h3>
+<p>JavaScript is dynamically typed, but GPUs operate strictly on
+statically typed languages like GLSL. In GLSL, every variable must have
+a declared data type such as <code>float</code>, <code>int</code>, or
+<code>vec4</code>.</p>
+<p>When a kernel or custom function is defined in GPU.js, an internal
+abstract syntax tree (AST) parser evaluates your JavaScript code ahead
+of runtime. This parser inspects variable declarations and their
+assignments to deduce the appropriate GLSL data type automatically.</p>
+<h3 id="what-causes-type-ambiguity">What Causes Type Ambiguity?</h3>
+<p>A variable's type becomes ambiguous to the GPU.js compiler under
+several common conditions:</p>
+<ul>
+<li><strong>Declaration without initialization:</strong> Declaring a
+variable without a starting value (e.g., <code>let x;</code>) gives the
+AST analyzer no initial clue regarding its underlying type.</li>
+<li><strong>Mixed-type assignments:</strong> Assigning one type to a
+variable and subsequently assigning a different type (e.g., starting
+with an integer <code>x = 1</code> and later assigning a float or an
+array <code>x = 2.5</code>).</li>
+<li><strong>Ambiguous arithmetic or logical expressions:</strong>
+Assigning the result of an operation whose operands have unresolved or
+conflicting types.</li>
+<li><strong>Conditional type assignment:</strong> Initializing a
+variable within an <code>if/else</code> block where one branch assigns a
+scalar and another branch assigns an array or vector.</li>
+</ul>
+<h3 id="the-consequence-transpilation-errors-and-webgl-failures">The
+Consequence: Transpilation Errors and WebGL Failures</h3>
+<p>If the type inference engine cannot establish a clear type for a
+variable inside a custom function, the execution halts through one of
+two failure modes:</p>
+<ol type="1">
+<li><strong>GPU.js Parser Exception:</strong> In most instances, the
+GPU.js analyzer detects the ambiguity before generating the shader
+string. It throws an explicit JavaScript error during kernel creation,
+typically stating that it is unable to infer the variable type or that
+an unsupported AST node was encountered.</li>
+<li><strong>GLSL Shader Compilation Failure:</strong> If GPU.js defaults
+the ambiguous variable to a generic type (often a <code>float</code>)
+and later encounters an operation incompatible with that type, the
+generated GLSL string will contain invalid syntax. The WebGL context
+will fail to compile the shader, throwing a native WebGL error.</li>
+</ol>
+<h3 id="cpu-fallback-and-performance-penalties">CPU Fallback and
+Performance Penalties</h3>
+<p>If the kernel is configured with <code>mode: 'gpu'</code> and
+encounters an unresolvable type error, execution will stop completely.
+However, if the kernel is configured to auto-detect or allow fallbacks,
+GPU.js may bypass the GPU entirely and run the function using standard
+JavaScript on the CPU. While the code might run without crashing in this
+fallback state, it defeats the purpose of GPU acceleration and causes
+severe performance degradation.</p>
+<h3 id="how-to-ensure-proper-type-inference">How to Ensure Proper Type
+Inference</h3>
+<p>To prevent ambiguous types in custom functions, always declare and
+initialize variables in a single step using literal values that clearly
+define the intended data type. Use explicit floating-point notation
+(e.g., <code>let total = 0.0;</code> instead of
+<code>let total = 0;</code> if floats are required), avoid reassigning
+different types to the same identifier, and ensure all conditional
+branches maintain uniform variable typing.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

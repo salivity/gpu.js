@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running gpu.js in AWS Lambda and Cloud Functions - gpu.js</title>
+    <meta name="description" content="This article examines whether gpu.js can run inside serverless environments such as AWS Lambda and Google Cloud Functions. It details the operational realities of executing GPU-accelerated JavaScript within these architectures, explains how gpu.js behave">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/running-gpu-js-in-aws-lambda-and-cloud-functions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Running gpu.js in AWS Lambda and Cloud Functions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/running-gpu-js-in-aws-lambda-and-cloud-functions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether gpu.js can run inside serverless environments such as AWS Lambda and Google Cloud Functions. It details the operational realities of executing GPU-accelerated JavaScript within these architectures, explains how gpu.js behave" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="running-gpujs-in-aws-lambda-and-cloud-functions">Running gpu.js
+in AWS Lambda and Cloud Functions</h1>
+<p>This article examines whether gpu.js can run inside serverless
+environments such as AWS Lambda and Google Cloud Functions. It details
+the operational realities of executing GPU-accelerated JavaScript within
+these architectures, explains how gpu.js behaves when native hardware is
+absent, and outlines the alternative platforms available if your
+workload strictly requires serverless GPU compute.</p>
+<h3 id="the-short-answer">The Short Answer</h3>
+<p>Technically, yes, gpu.js can be executed inside AWS Lambda and Google
+Cloud Functions. However, it will not run on actual GPU hardware.
+Because standard serverless environments lack physical GPUs, gpu.js will
+automatically drop down to its JavaScript-based CPU fallback mode,
+negating any performance benefits associated with GPU acceleration.</p>
+<h3 id="why-standard-serverless-lacks-gpu-acceleration">Why Standard
+Serverless Lacks GPU Acceleration</h3>
+<p>AWS Lambda and basic Google Cloud Functions run inside lightweight
+virtualized containers (such as AWS Firecracker microVMs). These
+microVMs are designed to boot in milliseconds, execute short-lived
+tasks, and terminate.</p>
+<p>To keep costs low and start times negligible, standard serverless
+runtimes:</p>
+<ul>
+<li>Provide access only to shared CPU threads and system memory.</li>
+<li>Do not expose physical GPU devices (like NVIDIA or AMD cards).</li>
+<li>Lack native graphics drivers, WebGL contexts, or OpenCL APIs.</li>
+</ul>
+<p>Because gpu.js relies on compiling JavaScript into WebGL shaders or
+OpenCL kernels to execute computations in parallel across graphics
+hardware, the lack of underlying hardware prevents hardware
+acceleration.</p>
+<h3 id="how-gpujs-behaves-without-a-gpu">How gpu.js Behaves Without a
+GPU</h3>
+<p>When initialized in an environment without an accessible display or
+GPU driver, gpu.js checks for available computing contexts:</p>
+<ol type="1">
+<li><strong>Hardware Detection:</strong> It looks for WebGL (in
+browsers) or headless GPU interfaces like OpenCL/CUDA (in Node.js).</li>
+<li><strong>Failure and Fallback:</strong> When neither is detected,
+gpu.js throws a warning and switches its execution mode to
+<code>mode: 'cpu'</code>.</li>
+<li><strong>Execution:</strong> In CPU mode, calculations are executed
+using standard JavaScript loops. This guarantees that your application
+logic does not crash, but it strips away any performance gains. In many
+cases, calculating large matrix operations through gpu.js in CPU mode is
+actually slower than using native, highly-optimized CPU libraries like
+mathjs or standard typed arrays.</li>
+</ol>
+<h3 id="can-you-emulate-webgl-with-headless-gl">Can You Emulate WebGL
+with Headless-gl?</h3>
+<p>In a Node.js container environment (such as an AWS Lambda container
+image), it is possible to compile and package native bindings like
+<code>headless-gl</code> (<code>gl</code>).</p>
+<p>While this enables WebGL context creation without an attached
+display, it relies on CPU-driven software rasterizers like Mesa
+llvmpipe. This approach creates significant overhead: the CPU must
+emulate graphics hardware simply to execute instructions that could have
+been run directly as standard code. It does not provide real
+acceleration and often leads to function timeouts and high memory
+usage.</p>
+<h3 id="practical-alternatives-for-serverless-gpu-compute">Practical
+Alternatives for Serverless GPU Compute</h3>
+<p>If your application requires true serverless execution with dedicated
+GPU acceleration, you must look outside of standard Lambda or Cloud
+Functions:</p>
+<ul>
+<li><strong>Google Cloud Run with GPUs:</strong> Unlike standard Cloud
+Functions, Google Cloud Run allows you to deploy containerized workloads
+with attached NVIDIA L4 GPUs, providing a container-based serverless
+model with genuine hardware acceleration.</li>
+<li><strong>Specialized Serverless GPU Providers:</strong> Platforms
+like Modal, RunPod, Beam, and Baseten are built specifically for
+serverless GPU execution. They allow you to define functions in a
+serverless pattern that spin up GPU workers on demand.</li>
+<li><strong>Container Services on AWS:</strong> While Lambda does not
+support GPUs, AWS ECS (Elastic Container Service) or AWS Batch can be
+configured with GPU-enabled EC2 instances (such as G4dn or G5 families)
+to process queue-based tasks on demand.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

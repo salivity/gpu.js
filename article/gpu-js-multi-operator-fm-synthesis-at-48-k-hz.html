@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Multi-Operator FM Synthesis at 48kHz - gpu.js</title>
+    <meta name="description" content="GPU.js can successfully synthesize multi-operator frequency modulation (FM) audio signals at 48kHz by utilizing WebGL shaders to compute audio sample buffers in parallel. While the GPU provides vastly more mathematical throughput than necessary to calcul">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-multi-operator-fm-synthesis-at-48-k-hz">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Multi-Operator FM Synthesis at 48kHz - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-multi-operator-fm-synthesis-at-48-k-hz" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can successfully synthesize multi-operator frequency modulation (FM) audio signals at 48kHz by utilizing WebGL shaders to compute audio sample buffers in parallel. While the GPU provides vastly more mathematical throughput than necessary to calcul" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-multi-operator-fm-synthesis-at-48khz">GPU.js
+Multi-Operator FM Synthesis at 48kHz</h1>
+<p>GPU.js can successfully synthesize multi-operator frequency
+modulation (FM) audio signals at 48kHz by utilizing WebGL shaders to
+compute audio sample buffers in parallel. While the GPU provides vastly
+more mathematical throughput than necessary to calculate multi-operator
+phase modulation at 48,000 samples per second, the real-world
+performance depends heavily on handling the input-output overhead
+between the GPU and the browser's Web Audio API.</p>
+<h3 id="mathematical-viability-and-parallelism">Mathematical Viability
+and Parallelism</h3>
+<p>At 48kHz, an audio engine must compute 48,000 discrete 32-bit
+floating-point samples per second for a single channel. Multi-operator
+FM synthesis—such as the classic 6-operator architecture found in Yamaha
+DX-series synthesizers—relies on cascading sine wave functions, where
+the output of one oscillator modulates the phase input of another.</p>
+<p>Modern GPUs excel at trigonometric calculations. A single shader
+invocation can evaluate the phase, envelope, and frequency calculations
+for 6 to 8 operators simultaneously for a single sample index. Because
+feed-forward FM algorithms rely entirely on time-dependent mathematical
+functions rather than recursive states, each audio sample is
+embarrassingly parallel:</p>
+<p><span class="math display">\[\text{Sample}(t) = \sin(\omega_c t + I
+\cdot \sin(\omega_m t))\]</span></p>
+<p>In GPU.js, each execution thread can map directly to a sample index
+within a time window, allowing blocks of thousands of samples to be
+calculated in sub-millisecond timeframes.</p>
+<h3 id="managing-feed-forward-vs-feedback-operators">Managing
+Feed-Forward vs. Feedback Operators</h3>
+<p>Feed-forward configurations—where operators modulate downstream
+targets without cycles—are straightforward to implement in a GPU.js
+kernel. You pass global parameters (pitch, carrier/modulator ratios,
+modulation indices, and ADSR envelope positions) as uniform values, and
+calculate the sample value based on the absolute time index
+<code>this.thread.x</code>.</p>
+<p>Feedback loops, where an operator modulates its own phase based on
+previous outputs, introduce sequential dependencies. Because standard
+parallel execution threads do not share state with adjacent sample
+threads, true single-sample feedback cannot be calculated across
+parallel GPU cores. To resolve this in GPU.js:</p>
+<ul>
+<li><strong>Internal Loop Iteration:</strong> Assign each thread a
+larger segment of consecutive samples to compute sequentially in a local
+loop.</li>
+<li><strong>Approximations:</strong> Use self-modulating mathematical
+approximations that mimic feedback behavior without referencing
+preceding sample outputs.</li>
+</ul>
+<h3 id="the-real-time-bottleneck-webgl-readback">The Real-Time
+Bottleneck: WebGL Readback</h3>
+<p>While GPU.js easily computes the raw math, integrating the output
+into a real-time 48kHz audio stream introduces data transfer
+bottlenecks. Web Audio API runs on the CPU, typically within an
+<code>AudioWorkletNode</code> executing at block sizes of 128 samples
+(every 2.67 milliseconds at 48kHz).</p>
+<p>Transferring data from WebGL back to the CPU via
+<code>gl.readPixels()</code> (the underlying operation in GPU.js) is
+synchronous and creates pipeline stalls. If you attempt to compute audio
+in standard 128-sample real-time blocks, the transfer latency will cause
+audio dropouts and buffer underruns.</p>
+<h3 id="optimal-implementation-strategy">Optimal Implementation
+Strategy</h3>
+<p>To reliably use GPU.js for 48kHz FM synthesis, apply the following
+strategies:</p>
+<ol type="1">
+<li><strong>Batch Synthesis:</strong> Do not generate audio in small
+128-sample frames. Instead, generate large buffers (e.g., 2048 to 48,000
+samples at once) to amortize the CPU-GPU transfer overhead.</li>
+<li><strong>Double Buffering:</strong> Implement a ring buffer on the
+CPU. While the Web Audio API plays the current audio buffer, GPU.js
+asynchronously renders the next buffer block.</li>
+<li><strong>Offline Rendering:</strong> GPU.js is ideal for
+non-real-time audio rendering, asset pre-generation, or wavetable
+generation, where the overhead of <code>readPixels()</code> does not
+compromise immediate playback stability.</li>
+</ol>
+<p>GPU.js has more than enough processing power to synthesize complex
+multi-operator FM signals at 48kHz, provided audio generation is handled
+in batched blocks rather than low-latency, per-block synchronous audio
+callbacks.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

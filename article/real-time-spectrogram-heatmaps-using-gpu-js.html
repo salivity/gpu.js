@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Spectrogram Heatmaps Using GPU.js - gpu.js</title>
+    <meta name="description" content="GPU.js can generate real-time visual spectrogram heatmaps directly from Float32 audio samples in the browser. By offloading computational tasks to the GPU through WebGL shaders, GPU.js processes raw Float32 pulse-code modulation (PCM) audio streams, perf">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/real-time-spectrogram-heatmaps-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Real-Time Spectrogram Heatmaps Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/real-time-spectrogram-heatmaps-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can generate real-time visual spectrogram heatmaps directly from Float32 audio samples in the browser. By offloading computational tasks to the GPU through WebGL shaders, GPU.js processes raw Float32 pulse-code modulation (PCM) audio streams, perf" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="real-time-spectrogram-heatmaps-using-gpujs">Real-Time
+Spectrogram Heatmaps Using GPU.js</h1>
+<p>GPU.js can generate real-time visual spectrogram heatmaps directly
+from Float32 audio samples in the browser. By offloading computational
+tasks to the GPU through WebGL shaders, GPU.js processes raw Float32
+pulse-code modulation (PCM) audio streams, performs parallel spectral
+analysis, and maps frequency amplitudes to color gradients rendered
+directly onto an HTML5 canvas at 60 frames per second without CPU
+bottlenecks.</p>
+<h3 id="the-audio-to-visual-pipeline">The Audio-to-Visual Pipeline</h3>
+<p>Generating a spectrogram directly from raw audio via GPU.js follows a
+four-step pipeline:</p>
+<ol type="1">
+<li><strong>Audio Acquisition:</strong> Capture raw audio as a
+<code>Float32Array</code> using the Web Audio API
+(<code>AudioWorkletNode</code> or an <code>AnalyserNode</code>).</li>
+<li><strong>Spectral Analysis (FFT/DFT):</strong> Pass the raw buffer
+into a GPU.js compute kernel to calculate frequency magnitudes across
+discrete analysis windows.</li>
+<li><strong>Color Mapping:</strong> Translate magnitude values into RGBA
+colors using an intensity colormap (such as Viridis, Inferno, or a
+custom heatmap gradient).</li>
+<li><strong>Direct Screen Output:</strong> Render the calculated pixels
+directly to a WebGL canvas context without transferring data back to the
+CPU.</li>
+</ol>
+<h3 id="processing-float32-audio-in-gpujs">Processing Float32 Audio in
+GPU.js</h3>
+<p>The Web Audio API natively represents raw audio samples as 32-bit
+floating-point values between <code>-1.0</code> and <code>1.0</code>.
+GPU.js seamlessly handles <code>Float32Array</code> objects as 1D
+inputs.</p>
+<p>To create a continuous spectrogram, new audio frames are arranged
+into a moving 2D history buffer (time on one axis, frequency bins on the
+other). The audio stream is windowed (typically using a Hann or Hamming
+window function directly inside the kernel) to minimize spectral leakage
+before computing frequency responses.</p>
+<h3 id="calculating-the-spectrum-on-the-gpu">Calculating the Spectrum on
+the GPU</h3>
+<p>While Web Audio provides an <code>AnalyserNode</code> with built-in
+FFT calculations, relying on it requires passing transformed data back
+to JavaScript before rendering. GPU.js enables performing the
+transformation entirely on the GPU:</p>
+<ul>
+<li><strong>Direct Discrete Fourier Transform (DFT):</strong> For
+smaller window sizes (e.g., 512 or 1024 samples), an unrolled DFT
+calculated across GPU threads in parallel provides sufficient
+performance with minimal architectural complexity.</li>
+<li><strong>Fast Fourier Transform (FFT):</strong> For larger window
+sizes (2048+ samples), a multi-pass Radix-2 Cooley-Tukey algorithm can
+be implemented using ping-pong framebuffers in GPU.js.</li>
+</ul>
+<p>Each thread computes the real and imaginary components for a specific
+frequency bin, deriving the magnitude via:</p>
+<p><span class="math display">\[\text{magnitude} = \sqrt{\text{real}^2 +
+\text{imag}^2}\]</span></p>
+<p>Logarithmic scaling is then applied to the magnitude to match human
+auditory perception (decibel scale).</p>
+<h3 id="direct-canvas-rendering-with-graphical-mode">Direct Canvas
+Rendering with Graphical Mode</h3>
+<p>The critical feature that allows GPU.js to achieve real-time 60 FPS
+performance is its <code>graphical: true</code> mode.</p>
+<p>Normally, running a GPU.js kernel reads array data back from the GPU
+to the CPU memory space—an operation that introduces significant bus
+latency. By setting <code>graphical: true</code>, the kernel writes
+directly to a WebGL canvas context using internal shader variables
+(<code>this.color(r, g, b, a)</code>).</p>
+<p>In this setup:</p>
+<ul>
+<li>The kernel output dimensions match the display canvas dimensions
+(e.g., width represents time history, height represents frequency
+bins).</li>
+<li>For each pixel, the kernel samples the corresponding frequency bin's
+magnitude.</li>
+<li>The scalar magnitude normalizes to a range of
+<code>[0.0, 1.0]</code> and maps through a colormap function to assign
+red, green, blue, and alpha channels.</li>
+<li>Previous time slices are shifted horizontally across the texture
+memory using a simple offset lookup, creating a scrolling waterfall
+spectrogram.</li>
+</ul>
+<h3 id="performance-and-optimization-considerations">Performance and
+Optimization Considerations</h3>
+<p>To ensure consistent real-time frame rates, keep the following
+technical considerations in mind:</p>
+<ul>
+<li><strong>Avoid Texture Readbacks:</strong> Never call return methods
+that pull data back to JavaScript memory during the rendering loop. Keep
+all processing within graphical kernels.</li>
+<li><strong>Buffer Alignment:</strong> Match window sizes to powers of
+two (512, 1024, 2048) to optimize memory access patterns on the
+GPU.</li>
+<li><strong>AudioWorklet Integration:</strong> Route audio processing
+off the main browser thread using an <code>AudioWorklet</code>. Send
+Float32 chunks via a <code>MessagePort</code> or a
+<code>SharedArrayBuffer</code> directly to the script driving the GPU.js
+render loop.</li>
+<li><strong>Dynamic Range Compression:</strong> Apply normalization
+inside the kernel to prevent loud transients from blowing out the
+heatmap colors.</li>
+</ul>
+<p>GPU.js bridges raw PCM audio input and high-performance WebGL
+rendering, making browser-based, zero-dependency audio visualization
+fully viable for production use.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Performs Fast Vector Addition - gpu.js</title>
+    <meta name="description" content="This article explores how GPU.js accelerates element-wise vector addition across millions of floating-point numbers by offloading computations from the central processing unit (CPU) to the graphics processing unit (GPU). By transpiling JavaScript functio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-performs-fast-vector-addition">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Performs Fast Vector Addition - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-performs-fast-vector-addition" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how GPU.js accelerates element-wise vector addition across millions of floating-point numbers by offloading computations from the central processing unit (CPU) to the graphics processing unit (GPU). By transpiling JavaScript functio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-performs-fast-vector-addition">How GPU.js Performs
+Fast Vector Addition</h1>
+<p>This article explores how GPU.js accelerates element-wise vector
+addition across millions of floating-point numbers by offloading
+computations from the central processing unit (CPU) to the graphics
+processing unit (GPU). By transpiling JavaScript functions into WebGL
+shaders, GPU.js bypasses typical single-threaded JavaScript performance
+bottlenecks. Below, we break down the step-by-step process of how data
+serialization, shader compilation, massively parallel GPU execution, and
+result retrieval occur under the hood.</p>
+<h3 id="the-limitation-of-cpu-processing">The Limitation of CPU
+Processing</h3>
+<p>In standard JavaScript environments like Node.js or the browser, an
+element-wise addition of two arrays with millions of elements relies on
+a single-threaded loop:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> length<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  c[i] <span class="op">=</span> a[i] <span class="op">+</span> b[i]<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Even with modern JIT (Just-In-Time) compilation and TypedArrays, the
+CPU must compute each addition sequentially or across a small set of
+SIMD instructions and thread pools. When handling millions of
+floating-point values, memory bandwidth limitations and thread
+saturation lead to high latency.</p>
+<h3 id="1-javascript-to-glsl-transpilation">1. JavaScript to GLSL
+Transpilation</h3>
+<p>When you define a kernel in GPU.js, the library does not execute your
+JavaScript code directly. Instead, it parses the JavaScript Abstract
+Syntax Tree (AST) of the function and transpiles it into GLSL (OpenGL
+Shading Language), specifically targeting WebGL fragment shaders.</p>
+<p>For vector addition, GPU.js converts a function like this:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> addVectors <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000000</span>])<span class="op">;</span></span></code></pre></div>
+<p>into a fragment shader where <code>this.thread.x</code> is calculated
+from the normalized coordinates of the fragment being rendered.</p>
+<h3 id="2-texture-encoding-and-data-transfer">2. Texture Encoding and
+Data Transfer</h3>
+<p>GPUs are designed to process pixels rather than arbitrary numeric
+arrays. To make vectors accessible to the GPU:</p>
+<ol type="1">
+<li><strong>Packing into Textures:</strong> GPU.js converts the input
+floating-point arrays into 2D WebGL textures. Each pixel in a texture
+contains four channels: Red, Green, Blue, and Alpha (RGBA).</li>
+<li><strong>Precision Handling:</strong> Depending on hardware support
+(such as the <code>OES_texture_float</code> WebGL extension), numbers
+are stored either as direct 32-bit floating-point textures or packed
+across standard 8-bit RGBA channels.</li>
+<li><strong>VRAM Upload:</strong> These textures are loaded into the
+GPU’s high-bandwidth Video RAM (VRAM), making them immediately
+accessible to the graphics pipeline.</li>
+</ol>
+<h3 id="3-massively-parallel-fragment-execution">3. Massively Parallel
+Fragment Execution</h3>
+<p>Once the data resides in VRAM, GPU.js renders a simple 2D quad
+spanning the dimension of the target output array:</p>
+<ul>
+<li><strong>Grid Distribution:</strong> The output array size (e.g.,
+10,000,000 floats) is mapped to a viewport grid of fragment
+threads.</li>
+<li><strong>Simultaneous Execution:</strong> Modern GPUs feature
+thousands of Stream Processors or CUDA cores. Rather than iterating
+sequentially, the GPU schedules thousands of fragment shader invocations
+concurrently.</li>
+<li><strong>Per-Element Computation:</strong> Each core executes the
+compiled fragment shader for a specific index <code>i</code>. It fetches
+the corresponding values from texture <code>A</code> and texture
+<code>B</code>, executes the single-cycle hardware floating-point
+addition (<code>A[i] + B[i]</code>), and writes the sum to the render
+target (framebuffer).</li>
+</ul>
+<h3 id="4-reading-results-back-to-javascript">4. Reading Results Back to
+JavaScript</h3>
+<p>After the GPU finishes rendering the output texture:</p>
+<ol type="1">
+<li><strong>Readback:</strong> GPU.js extracts the data from the GPU
+framebuffer using the WebGL <code>readPixels</code> pipeline.</li>
+<li><strong>Decoding:</strong> If the output was encoded across 8-bit
+channels, GPU.js decodes the bytes back into floating-point numbers. If
+float textures were supported and active, it reads the data directly
+into a JavaScript <code>Float32Array</code>.</li>
+<li><strong>Pipelining (Optional):</strong> If the data is needed for
+further GPU calculations, GPU.js can keep the result as a texture in
+VRAM, avoiding the CPU-GPU transfer penalty entirely for subsequent
+operations.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

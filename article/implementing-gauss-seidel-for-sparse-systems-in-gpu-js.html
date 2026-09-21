@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Implementing Gauss-Seidel for Sparse Systems in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to adapt and implement the Gauss-Seidel relaxation method for sparse linear systems using the gpu.js library. Because standard Gauss-Seidel relies on sequential updates that conflict with the massive parallelism of graphics proc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/implementing-gauss-seidel-for-sparse-systems-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Implementing Gauss-Seidel for Sparse Systems in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/implementing-gauss-seidel-for-sparse-systems-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to adapt and implement the Gauss-Seidel relaxation method for sparse linear systems using the gpu.js library. Because standard Gauss-Seidel relies on sequential updates that conflict with the massive parallelism of graphics proc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="implementing-gauss-seidel-for-sparse-systems-in-gpujs">Implementing
+Gauss-Seidel for Sparse Systems in gpu.js</h1>
+<p>This article explains how to adapt and implement the Gauss-Seidel
+relaxation method for sparse linear systems using the gpu.js library.
+Because standard Gauss-Seidel relies on sequential updates that conflict
+with the massive parallelism of graphics processors, executing it in
+WebGL/WebGPU contexts requires restructuring the algorithm via
+multi-coloring, flattening sparse data structures into GPU-friendly
+textures, and handling iterative state through ping-pong memory
+buffers.</p>
+<h3 id="the-parallelization-challenge-red-black-ordering">The
+Parallelization Challenge: Red-Black Ordering</h3>
+<p>Standard Gauss-Seidel updates each unknown sequentially using already
+computed values from the current iteration:</p>
+<p><span class="math display">\[x_i^{(k+1)} = \frac{1}{A_{ii}} \left(
+b_i - \sum_{j &lt; i} A_{ij} x_j^{(k+1)} - \sum_{j &gt; i} A_{ij}
+x_j^{(k)} \right)\]</span></p>
+<p>Because GPU kernels execute in parallel across thousands of threads,
+simultaneous reads and writes to vector <span
+class="math inline">\(x\)</span> cause race conditions. To resolve this
+constraint, the system must be decoupled using graph coloring, most
+commonly <strong>Red-Black Gauss-Seidel</strong>:</p>
+<ol type="1">
+<li>Partition unknowns into two disjoint sets: "Red" and "Black", where
+no two nodes of the same color share an edge (non-zero matrix
+entry).</li>
+<li>Update all Red nodes in parallel using values from the Black
+nodes.</li>
+<li>Update all Black nodes in parallel using the newly updated Red
+values.</li>
+</ol>
+<h3 id="formatting-sparse-matrices-for-gpujs">Formatting Sparse Matrices
+for gpu.js</h3>
+<p>gpu.js lacks native support for dynamic pointer-based structures.
+Standard Compressed Sparse Row (CSR) formats use variable-length rows,
+which cause severe thread divergence on the GPU. The
+<strong>ELLPACK</strong> format is better suited for WebGL kernels
+because it pads all rows to a uniform maximum degree (<span
+class="math inline">\(M\)</span> non-zero elements per row).</p>
+<p>Represent the system <span class="math inline">\(Ax = b\)</span>
+using flattened 2D arrays of dimensions <code>[N, M]</code>:</p>
+<ul>
+<li><code>val[row][k]</code>: The non-zero values for each row.</li>
+<li><code>col[row][k]</code>: The corresponding column indices.</li>
+<li><code>diag[row]</code>: Pre-extracted diagonal values (<span
+class="math inline">\(A_{ii}\)</span>) for fast division.</li>
+<li><code>b[row]</code>: The right-hand side vector.</li>
+<li><code>color[row]</code>: A binary mask (0 for Red, 1 for
+Black).</li>
+</ul>
+<h3 id="handling-iterative-state-with-double-buffering">Handling
+Iterative State with Double Buffering</h3>
+<p>gpu.js runs kernels as pure functions that return new textures rather
+than mutating inputs in place. To preserve state across iterations
+without expensive GPU-to-CPU memory readbacks, configure the kernels
+with <code>pipeline: true</code> and swap the inputs and outputs between
+successive steps (ping-pong buffering).</p>
+<h3 id="implementation">Implementation</h3>
+<p>The following setup configures the gpu.js kernel and runs the
+iterative solver.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> N <span class="op">=</span> <span class="dv">1024</span><span class="op">;</span> <span class="co">// Number of equations</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> MAX_DEGREE <span class="op">=</span> <span class="dv">4</span><span class="op">;</span> <span class="co">// Max non-zero entries per row (excluding or including diagonal)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co">// Define the update kernel</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateColor <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(x<span class="op">,</span> b<span class="op">,</span> diag<span class="op">,</span> val<span class="op">,</span> col<span class="op">,</span> colorMask<span class="op">,</span> targetColor<span class="op">,</span> maxDegree) {</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Only update nodes matching the current target color phase</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (colorMask[i] <span class="op">!==</span> targetColor) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> x[i]<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> maxDegree<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> j <span class="op">=</span> col[i][k]<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (j <span class="op">&gt;=</span> <span class="dv">0</span>) { <span class="co">// -1 represents padding</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>            sum <span class="op">+=</span> val[i][k] <span class="op">*</span> x[j]<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (b[i] <span class="op">-</span> sum) <span class="op">/</span> diag[i]<span class="op">;</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([N])</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setImmutable</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">solve</span>(b<span class="op">,</span> diag<span class="op">,</span> val<span class="op">,</span> col<span class="op">,</span> colorMask<span class="op">,</span> iterations) {</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Initial guess x0 = 0</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> xCurrent <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() { <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span> })<span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)()<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> iter <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> iter <span class="op">&lt;</span> iterations<span class="op">;</span> iter<span class="op">++</span>) {</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Phase 1: Update Red elements (targetColor = 0)</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> xRed <span class="op">=</span> <span class="fu">updateColor</span>(xCurrent<span class="op">,</span> b<span class="op">,</span> diag<span class="op">,</span> val<span class="op">,</span> col<span class="op">,</span> colorMask<span class="op">,</span> <span class="dv">0</span><span class="op">,</span> MAX_DEGREE)<span class="op">;</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Clean up previous texture reference to avoid memory leaks</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (iter <span class="op">&gt;</span> <span class="dv">0</span>) xCurrent<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Phase 2: Update Black elements (targetColor = 1)</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> xBlack <span class="op">=</span> <span class="fu">updateColor</span>(xRed<span class="op">,</span> b<span class="op">,</span> diag<span class="op">,</span> val<span class="op">,</span> col<span class="op">,</span> colorMask<span class="op">,</span> <span class="dv">1</span><span class="op">,</span> MAX_DEGREE)<span class="op">;</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>        xRed<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>        xCurrent <span class="op">=</span> xBlack<span class="op">;</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read result back to CPU</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> result <span class="op">=</span> xCurrent<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>    xCurrent<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> result<span class="op">;</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="engineering-constraints-and-optimization">Engineering
+Constraints and Optimization</h3>
+<ul>
+<li><strong>Loop Bounds:</strong> gpu.js requires loop limits to be
+constant or bounded integers known at compilation. The
+<code>maxDegree</code> parameter must bound the inner iteration.</li>
+<li><strong>Index Alignment:</strong> Unused slots in the ELLPACK matrix
+arrays must be filled with <code>-1</code> for indices and
+<code>0</code> for values to prevent out-of-bounds lookups.</li>
+<li><strong>Precision:</strong> WebGL shaders commonly run
+single-precision 32-bit floating-point numbers (<code>float</code>).
+Ensure your sparse system is well-conditioned, as numerical stability
+issues appear earlier than in 64-bit CPU implementations.</li>
+<li><strong>Texture Read Overhead:</strong> Keeping intermediate results
+on the GPU using <code>.setPipeline(true)</code> prevents costly WebGL
+framebuffer readbacks until convergence criteria are met or total
+iterations expire.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

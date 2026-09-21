@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lattice Boltzmann BGK 2D Simulation in GPU.js - gpu.js</title>
+    <meta name="description" content="This article provides an end-to-end guide to implementing the Lattice Boltzmann Method (LBM) using the Bhatnagar-Gross-Krook (BGK) collision model on two-dimensional grids with gpu.js. It explains the mechanics of the standard D2Q9 lattice, outlines the">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/lattice-boltzmann-bgk-2-d-simulation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Lattice Boltzmann BGK 2D Simulation in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/lattice-boltzmann-bgk-2-d-simulation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides an end-to-end guide to implementing the Lattice Boltzmann Method (LBM) using the Bhatnagar-Gross-Krook (BGK) collision model on two-dimensional grids with gpu.js. It explains the mechanics of the standard D2Q9 lattice, outlines the" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="lattice-boltzmann-bgk-2d-simulation-in-gpujs">Lattice Boltzmann
+BGK 2D Simulation in GPU.js</h1>
+<p>This article provides an end-to-end guide to implementing the Lattice
+Boltzmann Method (LBM) using the Bhatnagar-Gross-Krook (BGK) collision
+model on two-dimensional grids with gpu.js. It explains the mechanics of
+the standard D2Q9 lattice, outlines the mathematical formulations for
+macroscopic moments and equilibrium distributions, and demonstrates how
+to fuse streaming and collision operations into high-performance GPU
+kernels using WebGL shaders.</p>
+<h2 id="d2q9-lattice-formulation">D2Q9 Lattice Formulation</h2>
+<p>The standard D2Q9 model discretizes 2D space into a square lattice
+where fluid packets travel in nine discrete directions <span
+class="math inline">\(\mathbf{e}_i\)</span> (<span
+class="math inline">\(i \in \{0, \dots, 8\}\)</span>):</p>
+<ul>
+<li><span class="math inline">\(\mathbf{e}_0 = (0, 0)\)</span></li>
+<li><span class="math inline">\(\mathbf{e}_{1, 3} = (\pm 1, 0)\)</span>,
+<span class="math inline">\(\mathbf{e}_{2, 4} = (0, \pm 1)\)</span></li>
+<li><span class="math inline">\(\mathbf{e}_{5, 7} = (\pm 1, \pm
+1)\)</span>, <span class="math inline">\(\mathbf{e}_{6, 8} = (\mp 1, \pm
+1)\)</span></li>
+</ul>
+<p>Each direction has an associated lattice weight <span
+class="math inline">\(w_i\)</span>:</p>
+<ul>
+<li><span class="math inline">\(w_0 = 4/9\)</span></li>
+<li><span class="math inline">\(w_{1..4} = 1/9\)</span></li>
+<li><span class="math inline">\(w_{5..8} = 1/36\)</span></li>
+</ul>
+<h3 id="macroscopic-quantities">Macroscopic Quantities</h3>
+<p>Macroscopic fluid density <span class="math inline">\(\rho\)</span>
+and momentum <span class="math inline">\(\rho \mathbf{u} = (\rho u_x,
+\rho u_y)\)</span> at cell <span class="math inline">\((x, y)\)</span>
+are derived from the directional distribution functions <span
+class="math inline">\(f_i\)</span>:</p>
+<p><span class="math display">\[\rho = \sum_{i=0}^{8} f_i\]</span> <span
+class="math display">\[\mathbf{u} = \frac{1}{\rho} \sum_{i=0}^{8} f_i
+\mathbf{e}_i\]</span></p>
+<h3 id="bgk-collision-and-equilibrium">BGK Collision and
+Equilibrium</h3>
+<p>The BGK approximation relaxes populations toward a local
+Maxwell-Boltzmann equilibrium distribution <span
+class="math inline">\(f_i^{eq}\)</span>:</p>
+<p><span class="math display">\[f_i^{eq} = w_i \rho \left(1 +
+3(\mathbf{e}_i \cdot \mathbf{u}) + \frac{9}{2}(\mathbf{e}_i \cdot
+\mathbf{u})^2 - \frac{3}{2}(\mathbf{u} \cdot
+\mathbf{u})\right)\]</span></p>
+<p>The post-collision state <span class="math inline">\(f_i^*\)</span>
+is governed by the single relaxation time parameter <span
+class="math inline">\(\tau\)</span>:</p>
+<p><span class="math display">\[f_i^*(x, y) = f_i(x, y) - \frac{1}{\tau}
+(f_i(x, y) - f_i^{eq}(x, y))\]</span></p>
+<h2 id="fusing-streaming-and-collision-on-the-gpu">Fusing Streaming and
+Collision on the GPU</h2>
+<p>Standard LBM splits execution into two steps: streaming <span
+class="math inline">\(f_i(x + \mathbf{e}_i, t + \Delta t) = f_i^*(x,
+t)\)</span> and collision. In a GPU computing environment, splitting
+these operations incurs high memory bandwidth overhead.</p>
+<p>The most efficient approach uses a <strong>pull-streaming</strong>
+scheme fused with the BGK collision in a single kernel pass:</p>
+<ol type="1">
+<li>Determine the source coordinate <span class="math inline">\((x -
+e_{ix}, y - e_{iy})\)</span> for each velocity direction <span
+class="math inline">\(i\)</span>.</li>
+<li>Read the corresponding distribution functions from the source
+locations.</li>
+<li>Compute the local density <span class="math inline">\(\rho\)</span>
+and velocity components <span class="math inline">\((u_x,
+u_y)\)</span>.</li>
+<li>Compute <span class="math inline">\(f_i^{eq}\)</span> for all 9
+directions.</li>
+<li>Relax the distribution functions toward equilibrium and write the
+output into a double-buffered grid.</li>
+</ol>
+<h2 id="implementing-the-kernel-in-gpujs">Implementing the Kernel in
+gpu.js</h2>
+<p>In gpu.js, three-dimensional kernels can output arrays with
+dimensions <code>[width, height, 9]</code>. The thread indices are
+accessed via <code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code>.</p>
+<h3 id="kernel-definition">Kernel Definition</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> width <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> height <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tau <span class="op">=</span> <span class="fl">0.6</span><span class="op">;</span> <span class="co">// Relaxation time (viscosity = (2*tau - 1)/6)</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> lbmKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid<span class="op">,</span> tau<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Lattice velocities (cx, cy)</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 0: (0,0), 1: (1,0), 2: (0,1), 3: (-1,0), 4: (0,-1)</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 5: (1,1), 6: (-1,1), 7: (-1,-1), 8: (1,-1)</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cx <span class="op">=</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cy <span class="op">=</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> w  <span class="op">=</span> [</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>        <span class="fl">4.0</span> <span class="op">/</span> <span class="fl">9.0</span><span class="op">,</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>        <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">9.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">9.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">9.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">9.0</span><span class="op">,</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>        <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">36.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">36.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">36.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">36.0</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    ]<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 1. Pull Streaming: fetch populations from neighbor cells</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply periodic boundary conditions using modulo arithmetic</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f0 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">0</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">0</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f1 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">1</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">1</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f2 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">2</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">2</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">2</span>]<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f3 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">3</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">3</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">3</span>]<span class="op">;</span></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f4 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">4</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">4</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">4</span>]<span class="op">;</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f5 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">5</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">5</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">5</span>]<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f6 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">6</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">6</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">6</span>]<span class="op">;</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f7 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">7</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">7</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">7</span>]<span class="op">;</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> f8 <span class="op">=</span> grid[(x <span class="op">-</span> cx[<span class="dv">8</span>] <span class="op">+</span> width) <span class="op">%</span> width][(y <span class="op">-</span> cy[<span class="dv">8</span>] <span class="op">+</span> height) <span class="op">%</span> height][<span class="dv">8</span>]<span class="op">;</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 2. Macroscopic density</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> rho <span class="op">=</span> f0 <span class="op">+</span> f1 <span class="op">+</span> f2 <span class="op">+</span> f3 <span class="op">+</span> f4 <span class="op">+</span> f5 <span class="op">+</span> f6 <span class="op">+</span> f7 <span class="op">+</span> f8<span class="op">;</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 3. Macroscopic velocity</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ux <span class="op">=</span> (f1 <span class="op">+</span> f5 <span class="op">+</span> f8 <span class="op">-</span> (f3 <span class="op">+</span> f6 <span class="op">+</span> f7)) <span class="op">/</span> rho<span class="op">;</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> uy <span class="op">=</span> (f2 <span class="op">+</span> f5 <span class="op">+</span> f6 <span class="op">-</span> (f4 <span class="op">+</span> f7 <span class="op">+</span> f8)) <span class="op">/</span> rho<span class="op">;</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> uSq <span class="op">=</span> ux <span class="op">*</span> ux <span class="op">+</span> uy <span class="op">*</span> uy<span class="op">;</span></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 4. Equilibrium distribution for the current thread index (i)</span></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ci_u <span class="op">=</span> cx[i] <span class="op">*</span> ux <span class="op">+</span> cy[i] <span class="op">*</span> uy<span class="op">;</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> feq <span class="op">=</span> w[i] <span class="op">*</span> rho <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">+</span> <span class="fl">3.0</span> <span class="op">*</span> ci_u <span class="op">+</span> <span class="fl">4.5</span> <span class="op">*</span> ci_u <span class="op">*</span> ci_u <span class="op">-</span> <span class="fl">1.5</span> <span class="op">*</span> uSq)<span class="op">;</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Get the streamed distribution corresponding to thread i</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fi <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">0</span>) fi <span class="op">=</span> f0<span class="op">;</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">1</span>) fi <span class="op">=</span> f1<span class="op">;</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">2</span>) fi <span class="op">=</span> f2<span class="op">;</span></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">3</span>) fi <span class="op">=</span> f3<span class="op">;</span></span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">4</span>) fi <span class="op">=</span> f4<span class="op">;</span></span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">5</span>) fi <span class="op">=</span> f5<span class="op">;</span></span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">6</span>) fi <span class="op">=</span> f6<span class="op">;</span></span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">7</span>) fi <span class="op">=</span> f7<span class="op">;</span></span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (i <span class="op">===</span> <span class="dv">8</span>) fi <span class="op">=</span> f8<span class="op">;</span></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 5. BGK Relaxation</span></span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> fi <span class="op">-</span> (<span class="fl">1.0</span> <span class="op">/</span> tau) <span class="op">*</span> (fi <span class="op">-</span> feq)<span class="op">;</span></span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height<span class="op">,</span> <span class="dv">9</span>])</span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)</span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setImmutable</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h2 id="ping-pong-buffer-execution-loop">Ping-Pong Buffer Execution
+Loop</h2>
+<p>WebGL prohibits reading and writing to the same texture during a
+render pass. Double buffering (ping-ponging) alternates input and output
+textures between iterations.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize grid with uniform equilibrium (rho = 1.0, u = [0, 0])</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createInitialGrid</span>(w<span class="op">,</span> h) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> weights <span class="op">=</span> [<span class="dv">4</span><span class="op">/</span><span class="dv">9</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">9</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">9</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">9</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">9</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">36</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">36</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">36</span><span class="op">,</span> <span class="dv">1</span><span class="op">/</span><span class="dv">36</span>]<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> data <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> w<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>        data[x] <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> h<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>            data[x][y] <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>            <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">9</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Initialize with slight velocity perturbation to trigger dynamics</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> pert <span class="op">=</span> (y <span class="op">===</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(h <span class="op">/</span> <span class="dv">2</span>)) <span class="op">?</span> <span class="fl">0.01</span> <span class="op">:</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>                data[x][y][i] <span class="op">=</span> weights[i] <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">+</span> <span class="fl">3.0</span> <span class="op">*</span> pert)<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentGrid <span class="op">=</span> <span class="fu">createInitialGrid</span>(width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">stepSimulation</span>(iterations) {</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> step <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> step <span class="op">&lt;</span> iterations<span class="op">;</span> step<span class="op">++</span>) {</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> nextGrid <span class="op">=</span> <span class="fu">lbmKernel</span>(currentGrid<span class="op">,</span> tau<span class="op">,</span> width<span class="op">,</span> height)<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Delete previous GPU texture to prevent memory leaks when pipeline is enabled</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (<span class="kw">typeof</span> currentGrid<span class="op">.</span><span class="at">delete</span> <span class="op">===</span> <span class="st">&#39;function&#39;</span>) {</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>            currentGrid<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>        currentGrid <span class="op">=</span> nextGrid<span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Pipeline Mode:</strong> Enabling
+<code>.setPipeline(true)</code> ensures intermediate frame buffers
+remain on the GPU as textures, eliminating GPU-to-CPU data transfer
+overhead.</li>
+<li><strong>Immutable Textures:</strong> Utilizing
+<code>.setImmutable(true)</code> allows gpu.js to optimize frame buffer
+binding and avoids automatic memory cloning.</li>
+<li><strong>Coordinate Branching:</strong> Modulo operations
+<code>(x + dx + width) % width</code> can introduce overhead inside
+inner shader loops; storing coordinates directly via clamped textures or
+using explicit bounds checks can further optimize hardware
+execution.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulating Stefan Problems with gpu.js - gpu.js</title>
+    <meta name="description" content="Simulating Stefan problems, which model phase changes and moving boundaries such as melting ice, is entirely feasible using gpu.js. By leveraging browser-based WebGL acceleration, gpu.js enables parallelized numerical computations on structured grids. Us">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulating-stefan-problems-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulating Stefan Problems with gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulating-stefan-problems-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating Stefan problems, which model phase changes and moving boundaries such as melting ice, is entirely feasible using gpu.js. By leveraging browser-based WebGL acceleration, gpu.js enables parallelized numerical computations on structured grids. Us" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulating-stefan-problems-with-gpujs">Simulating Stefan
+Problems with gpu.js</h1>
+<p>Simulating Stefan problems, which model phase changes and moving
+boundaries such as melting ice, is entirely feasible using gpu.js. By
+leveraging browser-based WebGL acceleration, gpu.js enables parallelized
+numerical computations on structured grids. Using fixed-grid methods
+like the enthalpy formulation or phase-field modeling, developers can
+bypass the complex geometric tracking of moving interfaces and solve the
+underlying partial differential equations directly on the GPU.</p>
+<h3 id="the-physics-of-the-stefan-problem">The Physics of the Stefan
+Problem</h3>
+<p>A Stefan problem describes the temperature distribution in a medium
+undergoing a phase transition, characterized by a boundary that moves
+over time. In the case of melting ice, heat diffuses through both the
+liquid and solid phases according to the heat equation:</p>
+<p><span class="math display">\[\frac{\partial T}{\partial t} = \alpha
+\nabla^2 T\]</span></p>
+<p>At the interface between water and ice, the boundary condition
+dictates that the speed of the interface is proportional to the jump in
+heat flux across it, governed by the latent heat of fusion:</p>
+<p><span class="math display">\[\rho L \frac{dn}{dt} = k_s \nabla T_s
+\cdot \mathbf{n} - k_l \nabla T_l \cdot \mathbf{n}\]</span></p>
+<p>Tracking this boundary explicitly on a GPU is computationally
+prohibitive. However, implicit numerical methods transform this moving
+boundary problem into a continuous domain problem suitable for parallel
+execution.</p>
+<h3 id="suitable-numerical-approaches-for-gpujs">Suitable Numerical
+Approaches for gpu.js</h3>
+<p>Because gpu.js excels at operations on uniform 2D and 3D arrays using
+compute shaders, fixed-domain methods are the best choice for this
+implementation:</p>
+<ol type="1">
+<li><strong>The Enthalpy Method</strong>: Instead of solving purely for
+temperature, the system tracks total enthalpy (<span
+class="math inline">\(H\)</span>), which combines sensible heat and
+latent heat. Enthalpy is conserved across the entire domain, and
+temperature (<span class="math inline">\(T\)</span>) is derived directly
+from <span class="math inline">\(H\)</span> via an algebraic relation.
+This removes the need to explicitly calculate the boundary
+position.</li>
+<li><strong>The Phase-Field Method</strong>: This approach introduces an
+auxiliary continuous order parameter (<span
+class="math inline">\(\phi\)</span>) that varies smoothly between values
+representing solid (e.g., <span class="math inline">\(0\)</span>) and
+liquid (e.g., <span class="math inline">\(1\)</span>). Coupled with the
+heat equation, the phase-field equation governs the evolution of the
+interface naturally across the grid.</li>
+</ol>
+<h3 id="implementing-the-simulation-in-gpujs">Implementing the
+Simulation in gpu.js</h3>
+<p>To implement a Stefan problem simulation using the enthalpy method in
+gpu.js, follow this computational pipeline:</p>
+<h4 id="1-discretization-and-grid-setup">1. Discretization and Grid
+Setup</h4>
+<p>Represent the physical space as a uniform 2D grid where each cell
+corresponds to a pixel or matrix element. Allocate matrices for the
+state variables:</p>
+<ul>
+<li>Current temperature field</li>
+<li>Current enthalpy field</li>
+<li>Phase state (solid, liquid, or mushy zone)</li>
+</ul>
+<h4 id="2-designing-the-gpu-kernels">2. Designing the GPU Kernels</h4>
+<p>Create kernels to update the state at each discrete time step using
+an explicit finite difference scheme:</p>
+<ul>
+<li><strong>Diffusion Kernel</strong>: Evaluates the discrete Laplacian
+(<span class="math inline">\(\nabla^2 T\)</span>) using a standard
+5-point stencil on the temperature grid to calculate heat
+conduction.</li>
+<li><strong>Enthalpy Update Kernel</strong>: Updates the enthalpy value
+at each cell: <span class="math display">\[H^{n+1}_{i,j} = H^n_{i,j} +
+\Delta t \cdot \left( \text{diffusion terms} \right)\]</span></li>
+<li><strong>Phase Inversion Kernel</strong>: Recomputes the local
+temperature and phase fraction based on the updated enthalpy:
+<ul>
+<li>If <span class="math inline">\(H &lt; H_{solid}\)</span>, the cell
+is solid ice (<span class="math inline">\(T &lt;
+T_{melt}\)</span>).</li>
+<li>If <span class="math inline">\(H_{solid} \le H \le
+H_{liquid}\)</span>, the cell is undergoing phase change (<span
+class="math inline">\(T = T_{melt}\)</span>).</li>
+<li>If <span class="math inline">\(H &gt; H_{liquid}\)</span>, the cell
+is liquid water (<span class="math inline">\(T &gt;
+T_{melt}\)</span>).</li>
+</ul></li>
+</ul>
+<h4 id="3-execution-via-ping-pong-buffers">3. Execution via Ping-Pong
+Buffers</h4>
+<p>Because WebGL shaders cannot read from and write to the same texture
+simultaneously, gpu.js utilizes texture outputs. You must alternate
+input and output arrays (ping-ponging) between successive time steps to
+update the simulation continuously without memory read conflicts.</p>
+<h3 id="performance-considerations-and-limitations">Performance
+Considerations and Limitations</h3>
+<ul>
+<li><strong>Numerical Stability</strong>: Explicit time-stepping schemes
+require small time steps (<span class="math inline">\(\Delta t \le
+\frac{\Delta x^2}{4\alpha}\)</span>) to maintain stability, requiring
+thousands of kernel iterations.</li>
+<li><strong>Floating-Point Precision</strong>: gpu.js relies on WebGL
+textures, which historically default to 16-bit or 32-bit floats
+depending on hardware and browser extensions. Ensure
+<code>precision: 'single'</code> is enabled to prevent significant
+numerical drift during heat conservation checks.</li>
+<li><strong>Boundary Localization</strong>: While implicit methods make
+computation straightforward, extracting the exact sharp boundary
+coordinates for visualization requires running a secondary
+edge-detection filter (such as marching squares) on the phase grid.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

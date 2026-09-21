@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Out of Bounds Array Access Behavior - gpu.js</title>
+    <meta name="description" content="When running kernels in gpu.js, accessing an input array at indices beyond its dimensions does not trigger a typical JavaScript runtime error. Instead, the behavior depends directly on whether the kernel runs on the GPU via WebGL or falls back to the CPU">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-out-of-bounds-array-access-behavior">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Out of Bounds Array Access Behavior - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-out-of-bounds-array-access-behavior" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When running kernels in gpu.js, accessing an input array at indices beyond its dimensions does not trigger a typical JavaScript runtime error. Instead, the behavior depends directly on whether the kernel runs on the GPU via WebGL or falls back to the CPU" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-out-of-bounds-array-access-behavior">GPU.js Out of Bounds
+Array Access Behavior</h1>
+<p>When running kernels in gpu.js, accessing an input array at indices
+beyond its dimensions does not trigger a typical JavaScript runtime
+error. Instead, the behavior depends directly on whether the kernel runs
+on the GPU via WebGL or falls back to the CPU. In GPU mode,
+out-of-bounds reads typically return zero or clamped edge values due to
+how textures are sampled, whereas CPU mode returns
+<code>undefined</code>, which frequently coerces to <code>NaN</code> in
+mathematical calculations. Understanding this divergence is essential
+for preventing silent data corruption in parallel processing
+pipelines.</p>
+<h3 id="gpu-mode-behavior-webgl">GPU Mode Behavior (WebGL)</h3>
+<p>In GPU mode, gpu.js compiles your kernel function into GLSL shaders
+and loads input arrays into WebGL textures. When a thread accesses an
+input array using <code>this.thread.x</code>,
+<code>this.thread.y</code>, or calculated coordinates, the operation
+translates into texture lookups.</p>
+<ul>
+<li><strong>No Memory Exceptions:</strong> GPUs do not throw
+<code>IndexOutOfBounds</code> or <code>RangeError</code> exceptions.
+Execution proceeds for all threads regardless of the coordinates
+requested.</li>
+<li><strong>Texture Clamping and Zero Padding:</strong> WebGL textures
+are typically configured with <code>CLAMP_TO_EDGE</code> or return
+<code>0.0</code> (transparent black) when reading outside designated
+coordinate normalized spaces, depending on the internal texture wrapper
+used by gpu.js. In most standard mathematical kernels, reading past the
+boundaries yields <code>0</code>.</li>
+<li><strong>Interpolation Artifacts:</strong> If coordinates fall
+slightly outside expected discrete integer steps due to precision
+issues, the value retrieved may be an interpolated edge value rather
+than clean data.</li>
+</ul>
+<h3 id="cpu-fallback-mode-behavior">CPU Fallback Mode Behavior</h3>
+<p>If WebGL is unsupported or if the kernel is explicitly configured
+with <code>{ mode: 'cpu' }</code>, gpu.js runs using standard JavaScript
+loops.</p>
+<ul>
+<li><strong>JavaScript Semantics Apply:</strong> Reading an array at an
+out-of-bounds index yields <code>undefined</code>.</li>
+<li><strong>Arithmetic Degradation:</strong> If the kernel performs
+arithmetic operations (such as addition or multiplication) on
+<code>undefined</code>, the result becomes <code>NaN</code>.</li>
+<li><strong>Output Contamination:</strong> The resulting output array
+will contain <code>NaN</code> entries in positions corresponding to
+threads that attempted out-of-bounds reads, directly altering downstream
+calculations.</li>
+</ul>
+<h3 id="consequences-of-boundary-mismatches">Consequences of Boundary
+Mismatches</h3>
+<p>A common scenario causing coordinate overruns occurs when the
+kernel's <code>output</code> dimensions are larger than the dimensions
+of the input array.</p>
+<p>Because gpu.js runs one thread per unit of the specified
+<code>output</code> dimensions, threads assigned to higher coordinates
+will systematically request indices that do not exist in the source
+data. Because no error is thrown in GPU mode, kernels may produce output
+matrices filled partially with correct data and partially with
+unexpected zeros, masking logical bugs during development.</p>
+<h3 id="how-to-prevent-out-of-bounds-access">How to Prevent
+Out-of-Bounds Access</h3>
+<p>To ensure deterministic and accurate results across all execution
+modes:</p>
+<ol type="1">
+<li><strong>Synchronize Output and Input Dimensions:</strong> Ensure the
+<code>output</code> configuration of the kernel matches the size of the
+data being processed.</li>
+<li><strong>Implement Manual Bounds Checking:</strong> If the output
+grid must exceed the input size, add conditional logic inside the kernel
+to handle boundary limits explicitly:</li>
+</ol>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (x <span class="op">&gt;=</span> width <span class="op">||</span> y <span class="op">&gt;=</span> height) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span> <span class="co">// Explicit fallback value</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data[y][x] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([largerWidth<span class="op">,</span> largerHeight])<span class="op">;</span></span></code></pre></div>
+<ol start="3" type="1">
+<li><strong>Pass Array Dimensions as Arguments:</strong> Kernels cannot
+inspect the <code>.length</code> property of input arrays on the GPU.
+Always supply array boundaries as uniform arguments to facilitate
+runtime boundary checks.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

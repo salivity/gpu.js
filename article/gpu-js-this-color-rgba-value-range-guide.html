@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js this.color RGBA Value Range Guide - gpu.js</title>
+    <meta name="description" content="When working with graphical kernels in GPU.js, setting pixel values relies on the built-in this.color() method. This article provides a direct overview of the expected numerical range for the Red, Green, Blue, and Alpha (RGBA) channels in GPU.js, explain">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-this-color-rgba-value-range-guide">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js this.color RGBA Value Range Guide - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-this-color-rgba-value-range-guide" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When working with graphical kernels in GPU.js, setting pixel values relies on the built-in this.color() method. This article provides a direct overview of the expected numerical range for the Red, Green, Blue, and Alpha (RGBA) channels in GPU.js, explain" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-thiscolor-rgba-value-range-guide">GPU.js this.color RGBA
+Value Range Guide</h1>
+<p>When working with graphical kernels in GPU.js, setting pixel values
+relies on the built-in <code>this.color()</code> method. This article
+provides a direct overview of the expected numerical range for the Red,
+Green, Blue, and Alpha (RGBA) channels in GPU.js, explains how to
+convert standard color formats into compatible values, and demonstrates
+proper usage inside a kernel.</p>
+<h3 id="the-expected-numerical-range">The Expected Numerical Range</h3>
+<p>In GPU.js, <code>this.color(r, g, b, a)</code> expects floating-point
+values ranging strictly from <strong>0.0 to 1.0</strong> for all four
+channels:</p>
+<ul>
+<li><strong>Red (R):</strong> <code>0.0</code> (minimum intensity /
+none) to <code>1.0</code> (maximum intensity / full red)</li>
+<li><strong>Green (G):</strong> <code>0.0</code> (minimum intensity /
+none) to <code>1.0</code> (maximum intensity / full green)</li>
+<li><strong>Blue (B):</strong> <code>0.0</code> (minimum intensity /
+none) to <code>1.0</code> (maximum intensity / full blue)</li>
+<li><strong>Alpha (A):</strong> <code>0.0</code> (completely
+transparent) to <code>1.0</code> (completely opaque)</li>
+</ul>
+<p>Passing values outside of the <code>0.0</code> to <code>1.0</code>
+range will either cause clamping by the underlying WebGL context or lead
+to unexpected visual artifacts.</p>
+<h3 id="converting-from-standard-0255-formats">Converting from Standard
+0–255 Formats</h3>
+<p>Standard 8-bit image formats, CSS colors, and typical canvas pixel
+arrays use integer values between <code>0</code> and <code>255</code>.
+Because GPU.js operates on normalized WebGL fragment coordinates and
+values, any traditional <code>0–255</code> value must be normalized by
+dividing it by <code>255</code>.</p>
+<ul>
+<li><strong>Formula:</strong>
+<code>normalizedValue = standardValue / 255.0</code></li>
+</ul>
+<p>For example:</p>
+<ul>
+<li>A pure green channel value of <code>255</code> becomes
+<code>255 / 255 = 1.0</code>.</li>
+<li>A half-intensity blue value of <code>128</code> becomes
+<code>128 / 255 ≈ 0.5019</code>.</li>
+<li>A transparent alpha value of <code>0</code> becomes
+<code>0 / 255 = 0.0</code>.</li>
+</ul>
+<h3 id="practical-kernel-implementation">Practical Kernel
+Implementation</h3>
+<p>To use <code>this.color()</code>, the kernel must be initialized with
+the <code>graphical: true</code> setting enabled.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> render <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Generates a solid purple color: full red, no green, full blue, full opacity</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> r <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> g <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> a <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(r<span class="op">,</span> g<span class="op">,</span> b<span class="op">,</span> a)<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>]<span class="op">,</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="dt">graphical</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="fu">render</span>()<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="co">// Append the canvas output to the DOM</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(render<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span></code></pre></div>
+<p>If alpha is omitted, WebGL assumes an alpha value of <code>1.0</code>
+(fully opaque). However, explicitly supplying all four parameters
+ensures consistent cross-platform rendering across all supported WebGL
+environments.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

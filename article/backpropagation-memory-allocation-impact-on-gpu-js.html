@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backpropagation Memory Allocation Impact on GPU.js - gpu.js</title>
+    <meta name="description" content="Training deep neural networks in JavaScript using GPU.js introduces unique memory management challenges, particularly during the backpropagation phase. Because backpropagation relies on the chain rule to calculate gradients, it requires storing intermedi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/backpropagation-memory-allocation-impact-on-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Backpropagation Memory Allocation Impact on GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/backpropagation-memory-allocation-impact-on-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Training deep neural networks in JavaScript using GPU.js introduces unique memory management challenges, particularly during the backpropagation phase. Because backpropagation relies on the chain rule to calculate gradients, it requires storing intermedi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="backpropagation-memory-allocation-impact-on-gpujs">Backpropagation
+Memory Allocation Impact on GPU.js</h1>
+<p>Training deep neural networks in JavaScript using GPU.js introduces
+unique memory management challenges, particularly during the
+backpropagation phase. Because backpropagation relies on the chain rule
+to calculate gradients, it requires storing intermediate activation
+tensors from every layer during the forward pass until their
+corresponding gradients are computed in the backward pass. In GPU.js,
+where data is mapped to WebGL textures, this sustained memory allocation
+directly impacts performance by causing VRAM exhaustion, frequent
+garbage collection pauses, and pipeline stalls due to texture
+reallocations.</p>
+<h3 id="the-memory-footprint-of-the-backward-pass">The Memory Footprint
+of the Backward Pass</h3>
+<p>In forward-only inference, memory can be recycled aggressively; as
+soon as an activation layer passes its output to the next layer, the
+earlier buffer can be overwritten. Backpropagation removes this luxury.
+Every hidden layer must retain its forward activation state because
+those values are multiplicative factors in the partial derivatives of
+the loss function.</p>
+<p>For a deep network implemented via GPU.js, this means memory
+allocation scales linearly with network depth and batch size. If a model
+has twenty layers, twenty distinct intermediate states must occupy
+memory simultaneously before the first gradient update can even
+begin.</p>
+<h3 id="how-gpujs-maps-memory">How GPU.js Maps Memory</h3>
+<p>GPU.js compiles JavaScript functions into GLSL shaders and executes
+them on the graphics hardware using WebGL. In this environment:</p>
+<ul>
+<li><strong>Tensors as WebGL Textures:</strong> GPU.js represents arrays
+and matrices as 2D or 3D floating-point textures.</li>
+<li><strong>Texture Allocation Costs:</strong> Allocating and
+deallocating WebGL textures is an expensive GPU driver operation.
+Continuous reallocation during iterative training loops degrades
+throughput.</li>
+<li><strong>VRAM Limitations:</strong> Unlike native frameworks (such as
+PyTorch or TensorFlow with CUDA), WebGL operates under the browser's
+sandbox limits. Browsers often impose strict per-tab GPU memory limits,
+typically ranging from a few hundred megabytes to a couple of gigabytes,
+regardless of the physical VRAM installed on the card.</li>
+</ul>
+<h3 id="webgl-texture-overhead-and-memory-leaks">WebGL Texture Overhead
+and Memory Leaks</h3>
+<p>When writing training loops in GPU.js, intermediate tensors returned
+by kernels are wrapped in texture objects. If an engineer repeatedly
+invokes a kernel to compute forward activations and backward gradients
+without explicitly releasing previous textures, memory leaks occur.</p>
+<p>Because the JavaScript Garbage Collector (GC) runs on the CPU and
+manages heap memory, it is often unaware of the heavy VRAM footprint
+held by underlying WebGL texture handles. Consequently, the JavaScript
+engine may delay garbage collection cycles, causing the GPU to run out
+of memory (OOM) and crash the WebGL context before the GC ever
+triggers.</p>
+<h3 id="cpu-gpu-synchronization-bottlenecks">CPU-GPU Synchronization
+Bottlenecks</h3>
+<p>A common workaround for managing memory in JavaScript is pulling
+tensor data back to the CPU using <code>.toArray()</code> to manage data
+manually. However, memory allocation that triggers frequent readbacks
+creates severe performance penalties:</p>
+<ol type="1">
+<li><strong>Pipeline Stalls:</strong> Pulling texture data back to the
+CPU forces the GPU to flush its command queue and wait, destroying
+asynchronous execution.</li>
+<li><strong>Double Allocation:</strong> Storing states in both
+JavaScript arrays (CPU heap) and WebGL textures (GPU VRAM) doubles the
+overall system memory footprint, exacerbating memory pressure across
+both environments.</li>
+</ol>
+<h3 id="mitigating-memory-bottlenecks-in-gpujs">Mitigating Memory
+Bottlenecks in GPU.js</h3>
+<p>To achieve stable backpropagation in GPU.js, memory allocation must
+be strictly controlled:</p>
+<ul>
+<li><strong>Texture Pipelines (<code>pipeline: true</code>):</strong>
+Configure kernels with <code>pipeline: true</code> to keep outputs as
+textures on the GPU rather than converting them to JavaScript arrays
+between operations.</li>
+<li><strong>Manual Deallocation:</strong> Explicitly invoke the
+<code>.delete()</code> method on intermediate activation and gradient
+textures the moment they are no longer required by the backward
+pass.</li>
+<li><strong>Kernel Chaining and Fusion:</strong> Fuse operations (such
+as combining activation functions with layer outputs) inside a single
+kernel to avoid creating intermediate textures entirely.</li>
+<li><strong>Buffer Recycling:</strong> Pre-allocate fixed-size textures
+for gradients and weights at initialization, writing over existing
+textures during subsequent epochs rather than generating new instances
+per iteration.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

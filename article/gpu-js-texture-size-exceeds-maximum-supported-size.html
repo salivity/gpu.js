@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Texture Size Exceeds Maximum Supported Size - gpu.js</title>
+    <meta name="description" content="The "Texture size exceeds maximum supported size" error in GPU.js occurs when the data passed into or produced by a GPU kernel exceeds the physical hardware limits of the device's graphics processing unit. Because GPU.js converts standard JavaScript arra">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-texture-size-exceeds-maximum-supported-size">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Texture Size Exceeds Maximum Supported Size - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-texture-size-exceeds-maximum-supported-size" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The "Texture size exceeds maximum supported size" error in GPU.js occurs when the data passed into or produced by a GPU kernel exceeds the physical hardware limits of the device's graphics processing unit. Because GPU.js converts standard JavaScript arra" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-texture-size-exceeds-maximum-supported-size">GPU.js
+Texture Size Exceeds Maximum Supported Size</h1>
+<p>The "Texture size exceeds maximum supported size" error in GPU.js
+occurs when the data passed into or produced by a GPU kernel exceeds the
+physical hardware limits of the device's graphics processing unit.
+Because GPU.js converts standard JavaScript arrays into WebGL textures
+to perform parallel computations on the GPU, it is strictly bound by
+WebGL hardware constraints. This guide explains the core mechanics
+behind this limitation, how to diagnose it, and practical strategies to
+resolve or circumvent the error.</p>
+<h3 id="the-underlying-cause">The Underlying Cause</h3>
+<p>GPU.js relies on WebGL to harness the graphics card for
+general-purpose computing (GPGPU). In WebGL, data must be encoded and
+uploaded to the GPU as image textures.</p>
+<p>Graphics hardware enforces a hard cap on the maximum width and height
+of any single 2D texture, defined by the WebGL parameter
+<code>MAX_TEXTURE_SIZE</code>. Common hardware limits include 4,096,
+8,192, or 16,384 pixels along a single dimension, depending on whether
+the client is running on a mobile device, an integrated GPU, or a
+high-end dedicated graphics card.</p>
+<p>When you define an output dimension or provide input arrays whose
+elements exceed this dimension, GPU.js attempts to allocate a texture
+that is larger than the GPU can physically support. At that point, the
+WebGL context throws an error, resulting in the GPU.js failure.</p>
+<h3 id="common-triggers">Common Triggers</h3>
+<ol type="1">
+<li><strong>Massive 1D Arrays:</strong> If you pass a large
+one-dimensional array (for example, containing several million entries)
+directly into a kernel, GPU.js may attempt to map the array along a
+single texture dimension. If the length exceeds
+<code>MAX_TEXTURE_SIZE</code>, the kernel crashes.</li>
+<li><strong>Oversized Kernel Output Dimensions:</strong> Setting
+<code>.setOutput([width, height])</code> where either <code>width</code>
+or <code>height</code> exceeds the hardware limit will immediately
+trigger the error when GPU.js allocates the output framebuffer.</li>
+<li><strong>Multi-dimensional Data Flattening:</strong> When working
+with 3D or flattened multi-dimensional structures, GPU.js packs data
+into 2D textures. If the internal packing algorithm requires a dimension
+larger than the hardware allows, the allocation fails.</li>
+<li><strong>Device Inconsistency:</strong> Code that functions normally
+on a desktop workstation with a modern dedicated GPU can fail on mobile
+browsers or older machines that possess lower WebGL texture limits.</li>
+</ol>
+<h3 id="checking-your-environments-texture-limit">Checking Your
+Environment's Texture Limit</h3>
+<p>You can check the active GPU texture limit directly in the browser
+console using standard WebGL methods:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">&#39;canvas&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> canvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;webgl&#39;</span>) <span class="op">||</span> canvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;experimental-webgl&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> maxTextureSize <span class="op">=</span> gl<span class="op">.</span><span class="fu">getParameter</span>(gl<span class="op">.</span><span class="at">MAX_TEXTURE_SIZE</span>)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="vs">`Maximum supported texture size: </span><span class="sc">${</span>maxTextureSize<span class="sc">}</span><span class="vs">`</span>)<span class="op">;</span></span></code></pre></div>
+<p>If your kernel dimensions exceed this printed value, you must
+refactor your computation.</p>
+<h3 id="how-to-fix-the-error">How to Fix the Error</h3>
+<h4 id="1-chunk-and-batch-computations">1. Chunk and Batch
+Computations</h4>
+<p>Instead of processing all data in a single kernel execution, break
+your input data into smaller chunks that fit comfortably within the
+device's limits. Process each chunk iteratively and combine the results
+afterwards.</p>
+<h4 id="2-restructure-data-into-2d-grids">2. Restructure Data into 2D
+Grids</h4>
+<p>If you are passing large 1D arrays, restructure them into 2D grids
+(rows and columns) before uploading them to the kernel. A 1D array of
+64,000,000 items will exceed almost all 1D limits, but arranged as an
+8,000 by 8,000 2D matrix, it fits inside a standard 8,192 or 16,384
+limit.</p>
+<h4 id="3-implement-a-cpu-fallback">3. Implement a CPU Fallback</h4>
+<p>If the dataset must remain massive and client hardware is unknown,
+configure GPU.js to fall back to the CPU. The CPU runner handles
+JavaScript arrays natively in memory without WebGL texture
+constraints:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([largeDimension])</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setFallbackMode</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Falls back to CPU execution if GPU limits are reached</span></span></code></pre></div>
+<p>Alternatively, explicitly instantiate the kernel in CPU mode if you
+detect that the input size exceeds the queried
+<code>MAX_TEXTURE_SIZE</code>.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Role of Framebuffers in GPU.js Output Calculations - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates intensive JavaScript computations by compiling standard functions into WebGL shaders that execute in parallel on the graphics processing unit. Because WebGL is fundamentally designed for rendering visual scenes rather than running arbi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/role-of-framebuffers-in-gpu-js-output-calculations">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Role of Framebuffers in GPU.js Output Calculations - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/role-of-framebuffers-in-gpu-js-output-calculations" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates intensive JavaScript computations by compiling standard functions into WebGL shaders that execute in parallel on the graphics processing unit. Because WebGL is fundamentally designed for rendering visual scenes rather than running arbi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="role-of-framebuffers-in-gpujs-output-calculations">Role of
+Framebuffers in GPU.js Output Calculations</h1>
+<p>GPU.js accelerates intensive JavaScript computations by compiling
+standard functions into WebGL shaders that execute in parallel on the
+graphics processing unit. Because WebGL is fundamentally designed for
+rendering visual scenes rather than running arbitrary numerical
+algorithms, GPU.js utilizes Framebuffer Objects (FBOs) to redirect
+render outputs into memory textures rather than displaying them on a
+screen. This article details the structural role framebuffers play in
+capturing shader results, enabling GPU-to-GPU data pipelining, and
+returning numerical data back to the JavaScript runtime.</p>
+<h3 id="repurposing-the-graphics-pipeline-for-computation">Repurposing
+the Graphics Pipeline for Computation</h3>
+<p>WebGL lacks native compute shaders in standard implementations,
+meaning all calculations must pass through the traditional graphics
+rendering pipeline. In this model, numbers are treated as colors,
+mathematical operations are executed inside fragment shaders, and the
+resulting values are output as color channels (Red, Green, Blue,
+Alpha).</p>
+<p>Normally, the WebGL pipeline directs the final fragment colors to the
+default screen buffer, presenting pixels directly onto an HTML
+<code>&lt;canvas&gt;</code> element. For general-purpose computing on
+the GPU (GPGPU), writing directly to a visible canvas is inefficient,
+visually disruptive, and limited by display rendering constraints.</p>
+<h3 id="off-screen-capture-via-framebuffer-objects">Off-Screen Capture
+via Framebuffer Objects</h3>
+<p>To overcome visual rendering constraints, GPU.js creates and binds an
+off-screen Framebuffer Object. A framebuffer acts as a wrapper that
+holds references to render targets, most notably textures or
+renderbuffers.</p>
+<p>When a GPU.js kernel executes:</p>
+<ol type="1">
+<li>The engine binds a custom framebuffer instead of the default display
+buffer.</li>
+<li>A WebGL texture configured for floating-point or integer data is
+attached to the framebuffer’s color attachment point
+(<code>gl.COLOR_ATTACHMENT0</code>).</li>
+<li>The fragment shader executes its calculations and writes the results
+to the output variable (<code>gl_FragColor</code> in WebGL 1 or
+<code>out</code> variables in WebGL 2).</li>
+<li>The framebuffer catches these outputs and writes them directly into
+the attached texture in GPU video memory (VRAM).</li>
+</ol>
+<h3 id="maintaining-data-on-the-gpu-via-pipelining">Maintaining Data on
+the GPU via Pipelining</h3>
+<p>One of the largest performance costs in WebGL compute operations is
+transferring data over the system bus between the CPU and the GPU.
+Framebuffers make kernel pipelining possible.</p>
+<p>When a computation consists of multiple sequential kernels, the
+framebuffer captures the output of the first kernel into a texture.
+Instead of reading that data back to JavaScript, GPU.js binds that
+output texture as the input texture for the subsequent shader. The
+framebuffer essentially acts as the capture mechanism that preserves the
+intermediate state in VRAM, allowing multi-stage mathematical workflows
+to execute entirely on the GPU without intermediate CPU
+communication.</p>
+<h3 id="data-extraction-to-javascript">Data Extraction to
+JavaScript</h3>
+<p>When the final calculation is complete and the application requires
+the numerical results in standard JavaScript format, the framebuffer
+serves as the source for the extraction process:</p>
+<ul>
+<li><strong>Pixel Reading:</strong> GPU.js queries the bound framebuffer
+using <code>gl.readPixels()</code>, reading the raw byte or
+floating-point data stored in the attached texture.</li>
+<li><strong>Data Decoding:</strong> The extracted array of channel
+values is reassembled by GPU.js. Depending on whether the kernel returns
+numbers, vectors, or multidimensional matrices, GPU.js decodes the
+32-bit floating-point or packed 8-bit integer color components back into
+native JavaScript typed arrays or standard arrays.</li>
+</ul>
+<p>Through off-screen capture, efficient pipelining, and structured
+readbacks, framebuffers provide the foundational bridge that transforms
+standard graphical rendering targets into high-performance computing
+memory buffers within GPU.js.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

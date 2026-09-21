@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Forest Fire Propagation with Wind in GPU.js - gpu.js</title>
+    <meta name="description" content="This article provides a technical guide on simulating real-time forest fire propagation under dynamic, variable wind vectors using GPU.js. By translating cellular automata algorithms to WebGL compute shaders, developers can leverage browser-based paralle">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/forest-fire-propagation-with-wind-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Forest Fire Propagation with Wind in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/forest-fire-propagation-with-wind-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides a technical guide on simulating real-time forest fire propagation under dynamic, variable wind vectors using GPU.js. By translating cellular automata algorithms to WebGL compute shaders, developers can leverage browser-based paralle" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="forest-fire-propagation-with-wind-in-gpujs">Forest Fire
+Propagation with Wind in GPU.js</h1>
+<p>This article provides a technical guide on simulating real-time
+forest fire propagation under dynamic, variable wind vectors using
+GPU.js. By translating cellular automata algorithms to WebGL compute
+shaders, developers can leverage browser-based parallel computing to
+simulate thermal transfer and wind-driven combustion across massive 2D
+landscape grids. Below, you will explore the underlying cellular
+automata math, the formulation of wind bias vectors, and the concrete
+implementation of a high-performance GPU.js kernel.</p>
+<h3 id="the-propagation-model-and-wind-dynamics">The Propagation Model
+and Wind Dynamics</h3>
+<p>Forest fire spread is typically modeled via a 2D grid cellular
+automaton using a Moore neighborhood (eight surrounding adjacent cells).
+Each cell exists in one of three discrete states:</p>
+<ul>
+<li><code>0</code>: Unburnt fuel</li>
+<li><code>1</code>: Burning</li>
+<li><code>2</code>: Burnt out (ash)</li>
+</ul>
+<p>When a cell is burning, it emits heat that can ignite adjacent
+unburnt cells. Under calm conditions, propagation probability is
+isotropic (equal in all directions). When wind is introduced,
+propagation becomes anisotropic. The probability of ignition increases
+downwind and decreases upwind.</p>
+<p>To model wind influence, let <span class="math inline">\(\vec{w} =
+(w_x, w_y)\)</span> be the normalized wind direction vector scaled by
+wind magnitude, and let <span class="math inline">\(\vec{d} = (dx,
+dy)\)</span> be the normalized directional vector from a burning
+neighbor to the target unburnt cell. The directional influence is
+derived from the dot product:</p>
+<p><span class="math display">\[\text{influence} = \vec{w} \cdot
+\vec{d}\]</span></p>
+<p>The effective ignition probability <span
+class="math inline">\(P_{\text{ignite}}\)</span> from a burning neighbor
+is expressed as:</p>
+<p><span class="math display">\[P_{\text{ignite}} = \max(0.0,
+P_{\text{base}} \times (1.0 + c \cdot (\vec{w} \cdot
+\vec{d})))\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(P_{\text{base}}\)</span> is the base
+ignition probability under zero wind.</li>
+<li><span class="math inline">\(c\)</span> is a wind sensitivity
+constant.</li>
+<li>If <span class="math inline">\(P_{\text{ignite}} &gt; 1.0\)</span>,
+it is clamped to <span class="math inline">\(1.0\)</span>.</li>
+</ul>
+<h3 id="environment-setup">Environment Setup</h3>
+<p>Install GPU.js via npm or import it via a CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode html"><code class="sourceCode html"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;</span><span class="kw">script</span><span class="ot"> src</span><span class="op">=</span><span class="st">&quot;https://cdnjs.cloudflare.com/ajax/libs/gpu.js/5.1.1/gpu-browser.min.js&quot;</span><span class="dt">&gt;&lt;/</span><span class="kw">script</span><span class="dt">&gt;</span></span></code></pre></div>
+<h3 id="implementing-the-gpujs-kernel">Implementing the GPU.js
+Kernel</h3>
+<p>GPU.js compiles standard JavaScript functions into WebGL shaders. In
+a cellular automaton, writing back to the input buffer causes race
+conditions, so a double-buffering (ping-pong) pattern is required: read
+from <code>gridA</code>, write to <code>gridB</code>, then swap.</p>
+<p>Because true random number generation inside a GPU shader requires a
+deterministic pseudo-random hash, the kernel incorporates a simple
+coordinate-and-time-based PRNG to evaluate the ignition probability.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> GRID_WIDTH <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> GRID_HEIGHT <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="co">// Pseudo-random number generator for WebGL shaders</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">pseudoRandom</span>(x<span class="op">,</span> y<span class="op">,</span> seed) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> n <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> seed) <span class="op">*</span> <span class="fl">43758.5453</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> n <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(n)<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> fireKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (grid<span class="op">,</span> windX<span class="op">,</span> windY<span class="op">,</span> windSpeed<span class="op">,</span> seed) {</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> currentState <span class="op">=</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  <span class="co">// If the cell is burning, it turns to ash (burnt out)</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (currentState <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  <span class="co">// If already burnt out or empty, state does not change</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (currentState <span class="op">===</span> <span class="dv">2</span> <span class="op">||</span> currentState <span class="op">===</span> <span class="op">-</span><span class="dv">1</span>) {</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> currentState<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>  <span class="co">// If unburnt (0), inspect all 8 neighbors</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (currentState <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ignited <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> baseProb <span class="op">=</span> <span class="fl">0.2</span><span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> windCoeff <span class="op">=</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> dy <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> dy <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> dy<span class="op">++</span>) {</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>      <span class="cf">for</span> (<span class="kw">let</span> dx <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> dx <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> dx<span class="op">++</span>) {</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Skip current cell</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (dx <span class="op">===</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> dy <span class="op">===</span> <span class="dv">0</span>) <span class="cf">continue</span><span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> nx <span class="op">=</span> x <span class="op">+</span> dx<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> ny <span class="op">=</span> y <span class="op">+</span> dy<span class="op">;</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Ensure boundary conditions</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (nx <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nx <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span> <span class="op">&amp;&amp;</span> ny <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> ny <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span>) {</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>          <span class="cf">if</span> (grid[ny][nx] <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Direction vector from burning neighbor to target cell (x, y)</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dirX <span class="op">=</span> <span class="op">-</span>dx<span class="op">;</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dirY <span class="op">=</span> <span class="op">-</span>dy<span class="op">;</span></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dist <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(dirX <span class="op">*</span> dirX <span class="op">+</span> dirY <span class="op">*</span> dirY)<span class="op">;</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> normDirX <span class="op">=</span> dirX <span class="op">/</span> dist<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> normDirY <span class="op">=</span> dirY <span class="op">/</span> dist<span class="op">;</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Dot product between wind vector and direction vector</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dot <span class="op">=</span> (windX <span class="op">*</span> normDirX) <span class="op">+</span> (windY <span class="op">*</span> normDirY)<span class="op">;</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Adjust probability based on wind vector</span></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>            <span class="kw">let</span> prob <span class="op">=</span> baseProb <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">+</span> (windSpeed <span class="op">*</span> windCoeff <span class="op">*</span> dot))<span class="op">;</span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (prob <span class="op">&lt;</span> <span class="fl">0.0</span>) prob <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (prob <span class="op">&gt;</span> <span class="fl">1.0</span>) prob <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Generate PRNG value for this interaction</span></span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> rand <span class="op">=</span> <span class="fu">pseudoRandom</span>(x <span class="op">+</span> dx <span class="op">*</span> <span class="fl">0.1</span><span class="op">,</span> y <span class="op">+</span> dy <span class="op">*</span> <span class="fl">0.1</span><span class="op">,</span> seed)<span class="op">;</span></span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (rand <span class="op">&lt;</span> prob) {</span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a>              ignited <span class="op">=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>          }</span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (ignited <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>      <span class="cf">return</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> currentState<span class="op">;</span></span>
+<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setFunctions</span>([pseudoRandom])</span>
+<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ <span class="dt">width</span><span class="op">:</span> GRID_WIDTH<span class="op">,</span> <span class="dt">height</span><span class="op">:</span> GRID_HEIGHT })</span>
+<span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([GRID_WIDTH<span class="op">,</span> GRID_HEIGHT])<span class="op">;</span></span></code></pre></div>
+<h3 id="initializing-grid-and-simulation-loop">Initializing Grid and
+Simulation Loop</h3>
+<p>Construct two grids for ping-pong buffering and trigger an ignition
+source at the center:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentGrid <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> GRID_HEIGHT<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> GRID_WIDTH<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    row<span class="op">.</span><span class="fu">push</span>(<span class="dv">0</span>)<span class="op">;</span> <span class="co">// 0 = Unburnt fuel</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  currentGrid<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Spark ignition at the center</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>currentGrid[<span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(GRID_HEIGHT <span class="op">/</span> <span class="dv">2</span>)][<span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(GRID_WIDTH <span class="op">/</span> <span class="dv">2</span>)] <span class="op">=</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="co">// Simulation parameters</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> windAngleDegrees <span class="op">=</span> <span class="dv">45</span><span class="op">;</span> <span class="co">// Wind blowing toward North-East</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> windSpeed <span class="op">=</span> <span class="fl">2.5</span><span class="op">;</span>       <span class="co">// Velocity scale factor</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> tick <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">stepSimulation</span>() {</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  tick <span class="op">+=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Convert wind angle to vector components</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> radians <span class="op">=</span> (windAngleDegrees <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span>) <span class="op">/</span> <span class="dv">180</span><span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> windX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(radians)<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> windY <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(radians)<span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compute next grid state using the GPU kernel</span></span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> nextGrid <span class="op">=</span> <span class="fu">fireKernel</span>(currentGrid<span class="op">,</span> windX<span class="op">,</span> windY<span class="op">,</span> windSpeed<span class="op">,</span> tick)<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Swap buffers</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>  currentGrid <span class="op">=</span> nextGrid<span class="op">;</span></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="dynamic-updates-and-optimization">Dynamic Updates and
+Optimization</h3>
+<p>Because the <code>windX</code>, <code>windY</code>, and
+<code>windSpeed</code> parameters are uniforms passed directly to the
+kernel, you can alter the wind direction and intensity on every frame
+without recompiling the WebGL shader program.</p>
+<p>To maximize performance in production:</p>
+<ol type="1">
+<li><strong>Pipeline Output</strong>: Set
+<code>.setPipeline(true)</code> on the GPU.js kernel to avoid reading
+back memory to the CPU on every step. This retains the state as a WebGL
+texture directly inside the GPU memory.</li>
+<li><strong>Direct Rendering</strong>: Use a secondary rendering kernel
+that maps state numbers (<code>0</code>, <code>1</code>, <code>2</code>)
+directly to RGB values on a WebGL-enabled <code>&lt;canvas&gt;</code>
+element to maintain a 60 FPS simulation cycle across millions of
+cells.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

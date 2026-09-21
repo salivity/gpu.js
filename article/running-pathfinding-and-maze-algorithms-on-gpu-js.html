@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running Pathfinding and Maze Algorithms on GPU.js - gpu.js</title>
+    <meta name="description" content="This article explores the technical feasibility, architectural constraints, and implementation methods for executing pathfinding and maze generation algorithms on the GPU using gpu.js. It details how parallel flood-fill naturally aligns with GPU fragment">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/running-pathfinding-and-maze-algorithms-on-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Running Pathfinding and Maze Algorithms on GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/running-pathfinding-and-maze-algorithms-on-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores the technical feasibility, architectural constraints, and implementation methods for executing pathfinding and maze generation algorithms on the GPU using gpu.js. It details how parallel flood-fill naturally aligns with GPU fragment" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="running-pathfinding-and-maze-algorithms-on-gpujs">Running
+Pathfinding and Maze Algorithms on GPU.js</h1>
+<p>This article explores the technical feasibility, architectural
+constraints, and implementation methods for executing pathfinding and
+maze generation algorithms on the GPU using gpu.js. It details how
+parallel flood-fill naturally aligns with GPU fragment compute
+architectures, outlines the specific challenges and viable approaches
+for GPU-accelerated maze generation, and highlights performance
+trade-offs such as kernel overhead and memory ping-ponging.</p>
+<h3 id="feasibility-of-parallel-flood-fill">Feasibility of Parallel
+Flood-Fill</h3>
+<p>Parallel flood-fill and breadth-first search (BFS) variations, such
+as the Lee algorithm, are exceptionally well-suited for execution via
+gpu.js. A traditional CPU-based flood-fill evaluates cells sequentially
+using a queue. In contrast, the GPU approaches flood-fill as a cellular
+automaton, operating across the entire 2D grid simultaneously.</p>
+<p>In gpu.js, each grid cell corresponds to an individual execution
+thread mapped to an output texture coordinate. During each execution
+pass:</p>
+<ol type="1">
+<li>Each thread reads the state of its current cell and its orthogonal
+neighbors (North, South, East, West) from the input texture.</li>
+<li>If an open neighbor has already been reached by the flood front, the
+current cell updates its state to mark itself as visited or to store the
+step distance from the source.</li>
+<li>If the cell is an obstacle or already visited, its state remains
+unchanged.</li>
+</ol>
+<p>Because gpu.js functions compile into WebGL fragment shaders, memory
+is inherently stateless between draws. Running an iterative flood-fill
+requires a "ping-pong" buffering technique, where two textures alternate
+as the input and render target over multiple kernel invocations until
+the target is reached or no further cells can be updated.</p>
+<h3 id="maze-generation-on-the-gpu">Maze Generation on the GPU</h3>
+<p>Maze generation is more architecturally constrained than pathfinding
+when mapped to GPU compute shaders. Standard generation algorithms—such
+as Randomized Depth-First Search (Recursive Backtracker), Kruskal’s, or
+Prim’s—are strictly sequential and rely on a shared global state with
+atomic operations, neither of which are natively accessible in gpu.js
+WebGL compute pipelines.</p>
+<p>However, maze and terrain generation can still be achieved on gpu.js
+by selecting parallel-friendly algorithms:</p>
+<ul>
+<li><strong>Cellular Automata (Cave Generation):</strong> Similar to
+Conway's Game of Life, rules can be applied where cells become walls or
+paths based on the density of neighboring walls. This operates cleanly
+within standard gpu.js kernel patterns.</li>
+<li><strong>Perlin/Simplex Noise Thresholding:</strong> Mazes can be
+generated functionally by evaluating procedural noise functions inside
+the kernel, creating labyrinthine structures without inter-thread
+dependencies.</li>
+<li><strong>Parallel Subdivided Division:</strong> Recursive division
+can be parallelized if the boundaries of subdivisions are determined
+mathematically per thread rather than dynamically traversed
+sequentially.</li>
+</ul>
+<p>Traditional "perfect" mazes (mazes with exactly one path between any
+two points and no loops) remain difficult to produce efficiently on
+gpu.js due to the synchronization overhead required to guarantee acyclic
+graphs across independent execution threads.</p>
+<h3
+id="architectural-constraints-and-performance-considerations">Architectural
+Constraints and Performance Considerations</h3>
+<p>While gpu.js can accelerate parallel grid algorithms, several
+technical factors influence practical performance:</p>
+<ul>
+<li><strong>Kernel Dispatch Overhead:</strong> Iterative algorithms
+require the CPU to orchestrate multiple GPU dispatches. If a grid
+requires 500 iterations to bridge start and end points, 500 individual
+draw calls are issued. The cumulative JavaScript-to-WebGL driver
+overhead can negate GPU execution speedups on smaller grids.</li>
+<li><strong>Data Transfer Bottlenecks:</strong> Passing large 2D arrays
+from the CPU to the GPU and reading the final matrix back to the CPU via
+<code>readPixels</code> is computationally expensive. Maximum throughput
+is achieved only when the grid data originates on the GPU (e.g., as a
+texture) and remains there for downstream rendering.</li>
+<li><strong>Grid Scale:</strong> For small grids (under <span
+class="math inline">\(256 \times 256\)</span>), optimized CPU
+pathfinding with a priority queue typically outperforms gpu.js. For
+massive grids (<span class="math inline">\(1024 \times 1024\)</span> and
+larger), the massive parallelism of gpu.js processes thousands of
+neighbor evaluations concurrently, making parallel flood-fill
+significantly faster than a single-threaded CPU loop.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

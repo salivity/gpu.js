@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-DPI Displays and GPU.js Canvas Resolution - gpu.js</title>
+    <meta name="description" content="High-DPI and Retina displays impact the visual output of gpu.js by introducing a discrepancy between CSS display pixels and the physical hardware pixels of the screen. When rendering graphical kernels, gpu.js maps its output dimensions directly to the We">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/high-dpi-displays-and-gpu-js-canvas-resolution">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="High-DPI Displays and GPU.js Canvas Resolution - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/high-dpi-displays-and-gpu-js-canvas-resolution" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="High-DPI and Retina displays impact the visual output of gpu.js by introducing a discrepancy between CSS display pixels and the physical hardware pixels of the screen. When rendering graphical kernels, gpu.js maps its output dimensions directly to the We" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="high-dpi-displays-and-gpujs-canvas-resolution">High-DPI Displays
+and GPU.js Canvas Resolution</h1>
+<p>High-DPI and Retina displays impact the visual output of gpu.js by
+introducing a discrepancy between CSS display pixels and the physical
+hardware pixels of the screen. When rendering graphical kernels, gpu.js
+maps its output dimensions directly to the WebGL drawing buffer, which
+defaults to standard display scaling. Without manual adjustments for the
+browser’s device pixel ratio, canvas outputs appear blurry or pixelated
+on high-resolution screens, while pure computation kernels remain
+entirely unaffected.</p>
+<h3 id="the-device-pixel-ratio-discrepancy">The Device Pixel Ratio
+Discrepancy</h3>
+<p>Modern high-DPI displays utilize a higher physical pixel density than
+standard displays. Browsers handle this via the
+<code>window.devicePixelRatio</code> property, which defines the ratio
+of physical device pixels to logical CSS pixels. On a standard display,
+this ratio is <code>1</code>, while Retina displays typically range from
+<code>2</code> to <code>3</code>.</p>
+<p>When a canvas element is added to the DOM, it has two sets of
+dimensions:</p>
+<ol type="1">
+<li><strong>The drawing buffer size:</strong> The internal resolution
+controlled by the <code>width</code> and <code>height</code> attributes
+of the canvas element.</li>
+<li><strong>The display size:</strong> The visual dimensions defined by
+CSS styles (<code>width</code> and <code>height</code> in CSS
+pixels).</li>
+</ol>
+<h3 id="how-gpujs-interacts-with-canvas-dimensions">How GPU.js Interacts
+with Canvas Dimensions</h3>
+<p>In gpu.js, graphical kernels are initialized with a designated output
+size using the <code>.setOutput([width, height])</code> method. When
+configured with <code>{ graphical: true }</code>, gpu.js binds this
+output directly to an underlying WebGL canvas:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> render <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="dv">500</span><span class="op">,</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> <span class="dv">500</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">500</span><span class="op">,</span> <span class="dv">500</span>])</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">render</span>()<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(render<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span></code></pre></div>
+<p>By default, the internal buffer becomes 500x500 pixels. If this
+canvas is displayed on a display with a <code>devicePixelRatio</code> of
+<code>2</code>, the browser scales the 500x500 raster buffer up to fill
+500x500 CSS pixels. Because 500 CSS pixels require 1000 physical pixels
+on this display, the browser upsamples the image via bilinear filtering,
+resulting in noticeably soft or blurry edges.</p>
+<h3 id="achieving-crisp-rendering-on-retina-displays">Achieving Crisp
+Rendering on Retina Displays</h3>
+<p>To produce sharp visuals on high-DPI screens, the kernel's output
+dimensions must be multiplied by the device pixel ratio, while the
+canvas's CSS dimensions remain scaled to logical screen units.</p>
+<p>To adapt gpu.js to Retina displays:</p>
+<ol type="1">
+<li><strong>Calculate Dimensions:</strong> Multiply the target CSS width
+and height by <code>window.devicePixelRatio</code>.</li>
+<li><strong>Set Kernel Output:</strong> Pass the scaled physical
+dimensions to <code>setOutput()</code>.</li>
+<li><strong>Set CSS Dimensions:</strong> Explicitly set the CSS
+<code>width</code> and <code>height</code> of the canvas to the logical
+pixel size.</li>
+</ol>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dpr <span class="op">=</span> <span class="bu">window</span><span class="op">.</span><span class="at">devicePixelRatio</span> <span class="op">||</span> <span class="dv">1</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> logicalWidth <span class="op">=</span> <span class="dv">500</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> logicalHeight <span class="op">=</span> <span class="dv">500</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> render <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Math adjusts to the scaled coordinate space</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span><span class="op">,</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span><span class="op">,</span> <span class="dv">0</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([logicalWidth <span class="op">*</span> dpr<span class="op">,</span> logicalHeight <span class="op">*</span> dpr])</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="fu">render</span>()<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> render<span class="op">.</span><span class="at">canvas</span><span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">width</span> <span class="op">=</span> <span class="vs">`</span><span class="sc">${</span>logicalWidth<span class="sc">}</span><span class="vs">px`</span><span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>canvas<span class="op">.</span><span class="at">style</span><span class="op">.</span><span class="at">height</span> <span class="op">=</span> <span class="vs">`</span><span class="sc">${</span>logicalHeight<span class="sc">}</span><span class="vs">px`</span><span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(canvas)<span class="op">;</span></span></code></pre></div>
+<p>This ensures that the WebGL drawing buffer contains a 1:1 mapping
+with the screen's physical hardware pixels, eliminating upscaling
+artifacts.</p>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<p>Scaling canvas resolution to match high-DPI displays increases the
+workload on the GPU. A display with a <code>devicePixelRatio</code> of
+<code>2</code> requires four times the number of pixels to be computed
+compared to a standard display (<span class="math inline">\(2 \times 2 =
+4\)</span>). On a display with a ratio of <code>3</code>, the workload
+increases ninefold. Complex fragment shaders or intensive mathematical
+computations run within graphical kernels may experience reduced frame
+rates or performance bottlenecks when scaled up to native Retina
+resolutions.</p>
+<h3 id="pure-computation-vs-graphical-kernels">Pure Computation vs.
+Graphical Kernels</h3>
+<p>The high-DPI scaling issue strictly applies to graphical kernels that
+write directly to the screen via WebGL canvases. If gpu.js is used
+strictly for parallel mathematical computation (such as matrix
+multiplication or numeric simulations without
+<code>{ graphical: true }</code>), screen resolution and display pixel
+ratios have zero impact on the output, internal buffer precision, or
+computational accuracy.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

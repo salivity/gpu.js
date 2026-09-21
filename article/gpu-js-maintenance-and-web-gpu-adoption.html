@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Maintenance and WebGPU Adoption - gpu.js</title>
+    <meta name="description" content="This article explores how the declining maintenance of the open-source library gpu.js intersects with the widespread browser integration of WebGPU. As major browsers progressively roll out native WebGPU support, the need for WebGL-based compute workaroun">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-maintenance-and-web-gpu-adoption">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Maintenance and WebGPU Adoption - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-maintenance-and-web-gpu-adoption" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how the declining maintenance of the open-source library gpu.js intersects with the widespread browser integration of WebGPU. As major browsers progressively roll out native WebGPU support, the need for WebGL-based compute workaroun" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-maintenance-and-webgpu-adoption">GPU.js Maintenance and
+WebGPU Adoption</h1>
+<p>This article explores how the declining maintenance of the
+open-source library gpu.js intersects with the widespread browser
+integration of WebGPU. As major browsers progressively roll out native
+WebGPU support, the need for WebGL-based compute workarounds has
+diminished, leaving gpu.js in a legacy state while modern compute
+pipelines shift toward direct, standardized GPU access.</p>
+<h3 id="the-foundation-and-decline-of-gpujs">The Foundation and Decline
+of gpu.js</h3>
+<p>GPU.js was created to make general-purpose computing on the GPU
+(GPGPU) accessible in JavaScript. It achieved this by transpiling a
+subset of JavaScript into GLSL (OpenGL Shading Language) and executing
+it using WebGL. Because WebGL was designed purely for rendering graphics
+rather than general computation, gpu.js relied on rendering computations
+into hidden textures and reading back the pixel data.</p>
+<p>While innovative, this approach introduced inherent performance
+bottlenecks, memory overhead, and architectural limitations. Over recent
+years, active maintenance of gpu.js has slowed significantly. The
+repository has seen fewer core updates, accumulating open issues and
+outdated dependencies. The project fulfilled its goal in an era when
+WebGL was the only cross-platform GPU standard in browsers, but its
+foundational architecture is difficult to adapt to modern computing
+standards without an entirely new engine.</p>
+<h3 id="the-rise-of-webgpu-in-modern-browsers">The Rise of WebGPU in
+Modern Browsers</h3>
+<p>WebGPU represents a clean break from WebGL. Designed collaboratively
+by the W3C GPU for the Web working group—including Apple, Google,
+Mozilla, and Intel—WebGPU maps closely to modern hardware APIs like
+Vulkan, Metal, and DirectX 12.</p>
+<p>Crucially, WebGPU introduces first-class compute shaders via WGSL
+(WebGPU Shading Language), eliminating the need to repurpose graphics
+pipelines or encode numerical data into color textures. Support has
+steadily landed across major browsers:</p>
+<ul>
+<li><strong>Google Chrome and Microsoft Edge:</strong> Shipped WebGPU
+enabled by default on desktop platforms starting in version 113.</li>
+<li><strong>Mozilla Firefox and Apple Safari:</strong> Both have
+integrated experimental and stable implementations, expanding across
+desktop and mobile platforms.</li>
+</ul>
+<p>Because WebGPU natively handles memory buffers and compute passes, it
+provides direct, low-overhead access to GPU hardware, vastly
+outperforming WebGL-based hacks for parallel processing and machine
+learning workloads.</p>
+<h3 id="how-the-two-trajectories-align">How the Two Trajectories
+Align</h3>
+<p>The decline of gpu.js directly mirrors the maturation of WebGPU. As
+browser vendors prioritized native compute capabilities, the developer
+ecosystem shifted its attention toward building directly atop the new
+standard.</p>
+<ol type="1">
+<li><strong>Obsolescence of WebGL Hacks:</strong> The primary selling
+point of gpu.js—translating simple JavaScript into WebGL textures to
+simulate compute kernels—is no longer necessary. Developers no longer
+need an intermediary to trick the browser into performing parallel
+calculations.</li>
+<li><strong>Resource Reallocation:</strong> Community interest and
+contributor efforts have gravitated toward WebGPU-native libraries and
+frameworks, such as the WebGPU backends for TensorFlow.js, ONNX Runtime
+Web, and emerging WGSL abstraction layers.</li>
+<li><strong>Architectural Redundancy:</strong> Upgrading gpu.js to run
+natively on WebGPU would require replacing its core transpiler (GLSL to
+WGSL) and memory pipeline. Because WebGPU’s API is already significantly
+more developer-friendly than raw WebGL for compute tasks, the utility of
+a high-level JavaScript-to-shader transpiler like gpu.js has
+narrowed.</li>
+</ol>
+<h3 id="the-current-state-of-browser-based-gpu-computing">The Current
+State of Browser-Based GPU Computing</h3>
+<p>While gpu.js remains a functional fallback for legacy environments
+that lack WebGPU support, it is effectively in a maintenance-only,
+plateaued state. Modern projects requiring high-performance browser
+computing increasingly bypass WebGL abstractions entirely. As WebGPU
+approaches universal availability across both desktop and mobile
+platforms, the technical necessity that drove the adoption of gpu.js has
+largely been resolved at the browser engine level.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Template Literal String Interpolation in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how gpu.js handles template literal string interpolation when encountered inside user-defined functions. Because gpu.js relies on an Abstract Syntax Tree (AST) parser to convert JavaScript into WebGL-compatible GLSL (OpenGL Shading">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/template-literal-string-interpolation-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Template Literal String Interpolation in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/template-literal-string-interpolation-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how gpu.js handles template literal string interpolation when encountered inside user-defined functions. Because gpu.js relies on an Abstract Syntax Tree (AST) parser to convert JavaScript into WebGL-compatible GLSL (OpenGL Shading" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="template-literal-string-interpolation-in-gpujs">Template Literal
+String Interpolation in gpu.js</h1>
+<p>This article explains how gpu.js handles template literal string
+interpolation when encountered inside user-defined functions. Because
+gpu.js relies on an Abstract Syntax Tree (AST) parser to convert
+JavaScript into WebGL-compatible GLSL (OpenGL Shading Language), syntax
+that cannot be mapped to graphics hardware receives special handling.
+The sections below break down how gpu.js processes template literals,
+why runtime string operations fail, and how to handle dynamic data
+properly.</p>
+<h3 id="transpilation-and-the-ast">Transpilation and the AST</h3>
+<p>When you define a kernel function in gpu.js, the library does not
+execute your JavaScript code line-by-line in a standard JavaScript
+engine. Instead, it extracts the function's source code using
+<code>.toString()</code> and parses it into an AST via an internal
+parser (Acorn). This AST is then translated node-by-node into
+corresponding GLSL shader code.</p>
+<h3 id="the-glsl-type-limitation">The GLSL Type Limitation</h3>
+<p>GLSL is a strictly typed shading language optimized for mathematical
+computations on the GPU. It contains primitives such as
+<code>float</code>, <code>int</code>, <code>vec2</code>,
+<code>vec3</code>, <code>vec4</code>, and <code>bool</code>. GLSL has no
+native <code>string</code> data type, no string concatenation operators,
+and no dynamic memory allocation to support text processing.</p>
+<p>Because strings do not exist in the GPU execution environment,
+user-defined functions running inside a GPU kernel cannot create,
+manipulate, or return string values.</p>
+<h3 id="behavior-of-template-literals-inside-the-kernel">Behavior of
+Template Literals Inside the Kernel</h3>
+<p>When gpu.js encounters a <code>TemplateLiteral</code> AST node inside
+a kernel function, it cannot map the node to any valid GLSL
+construct:</p>
+<ol type="1">
+<li><strong>Compilation-Time Failure:</strong> If a template literal
+(<code> </code>text ${value}<code> </code>) is used within the body of
+the user-defined kernel, the AST-to-GLSL compiler fails during the
+kernel construction phase. gpu.js throws an unhandled node or
+unsupported feature error before the code ever reaches the GPU.</li>
+<li><strong>No Dynamic String Evaluation:</strong> Unlike the host
+JavaScript environment, the GPU cannot evaluate
+<code>${expression}</code> inside text dynamically per thread.</li>
+</ol>
+<h3 id="correct-alternatives-and-workarounds">Correct Alternatives and
+Workarounds</h3>
+<p>To use dynamic values or logic without triggering compilation errors,
+you must keep string operations in the CPU domain:</p>
+<ul>
+<li><strong>Pre-Compilation Interpolation:</strong> If you need dynamic
+kernel generation, interpolate strings into your function source
+<em>before</em> passing the function to <code>gpu.createKernel()</code>.
+Creating the function using <code>new Function(...)</code> or
+dynamically constructing the kernel via code generation allows the
+JavaScript engine to evaluate the template literal first.</li>
+<li><strong>Numeric Flags Instead of Strings:</strong> Replace
+string-based conditionals with integers, floats, or booleans. Rather
+than checking string values inside the kernel, pass numbers or uniforms
+to conditionally branch execution.</li>
+<li><strong>Constants and Uniforms:</strong> Use the
+<code>constants</code> map or <code>uniform</code> variables provided by
+gpu.js to inject read-only values into the kernel without relying on
+string manipulation inside the GPU function.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

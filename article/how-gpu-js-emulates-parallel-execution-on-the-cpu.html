@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Emulates Parallel Execution on the CPU - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates JavaScript calculations by compiling code to run on the GPU via WebGL, but it also features a robust CPU fallback mode for environments lacking graphics hardware. When operating strictly on the CPU, GPU.js maintains full API compatibil">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-emulates-parallel-execution-on-the-cpu">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Emulates Parallel Execution on the CPU - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-emulates-parallel-execution-on-the-cpu" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates JavaScript calculations by compiling code to run on the GPU via WebGL, but it also features a robust CPU fallback mode for environments lacking graphics hardware. When operating strictly on the CPU, GPU.js maintains full API compatibil" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-emulates-parallel-execution-on-the-cpu">How GPU.js
+Emulates Parallel Execution on the CPU</h1>
+<p>GPU.js accelerates JavaScript calculations by compiling code to run
+on the GPU via WebGL, but it also features a robust CPU fallback mode
+for environments lacking graphics hardware. When operating strictly on
+the CPU, GPU.js maintains full API compatibility by compiling the same
+kernel logic into standard JavaScript. Instead of dispatching
+computation across thousands of physical hardware cores, it emulates
+parallel thread architectures using structured nested loops, mocked
+thread coordinate states, and direct memory manipulation via
+TypedArrays.</p>
+<h3 id="transpiling-kernels-into-nested-loops">Transpiling Kernels into
+Nested Loops</h3>
+<p>When a kernel is compiled for the GPU, GPU.js parses the JavaScript
+Abstract Syntax Tree (AST) and converts the function into GLSL (OpenGL
+Shading Language). In CPU mode, the compilation pipeline takes a
+different path: it transforms the kernel function into an optimized,
+pure JavaScript function wrapped inside nested <code>for</code>
+loops.</p>
+<p>The depth and bounds of these loops are defined by the kernel’s
+<code>.setOutput()</code> configuration:</p>
+<ul>
+<li>A 1D output <code>[x]</code> compiles to a single loop iterating
+from <code>0</code> to <code>x - 1</code>.</li>
+<li>A 2D output <code>[x, y]</code> creates an outer loop for
+<code>y</code> and an inner loop for <code>x</code>.</li>
+<li>A 3D output <code>[x, y, z]</code> creates a three-level deep loop
+structure.</li>
+</ul>
+<p>By iterating sequentially through every coordinate defined in the
+output domain, the single-threaded CPU sequentially walks through the
+exact coordinate matrix that a GPU would compute simultaneously.</p>
+<h3 id="simulating-the-thread-context">Simulating the Thread
+Context</h3>
+<p>On hardware GPUs, individual threads implicitly know their position
+within the computational grid through built-in shader coordinates such
+as <code>gl_FragCoord</code>. To recreate this programming model in
+JavaScript, GPU.js exposes the <code>this.thread</code> interface
+(<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code>).</p>
+<p>Inside the CPU runner's generated loops, GPU.js updates the
+coordinate context before invoking the kernel logic for that specific
+iteration:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">=</span> y<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">=</span> x<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    output[y <span class="op">*</span> width <span class="op">+</span> x] <span class="op">=</span> kernelFunction<span class="op">.</span><span class="fu">call</span>(<span class="kw">this</span>)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>By binding the loop control variables to <code>this.thread</code>,
+the user's kernel code can access its execution coordinates without
+altering its logic, preserving complete code parity between GPU and CPU
+execution pathways.</p>
+<h3 id="memory-allocation-via-typedarrays">Memory Allocation via
+TypedArrays</h3>
+<p>A critical factor in parallel processing is how memory is written and
+accessed. On the GPU, thread outputs write directly into memory
+structures like framebuffers or textures.</p>
+<p>In CPU mode, GPU.js bypasses regular JavaScript arrays—which are
+dynamic, sparse, and non-contiguous in memory—in favor of native
+<code>TypedArrays</code> (such as <code>Float32Array</code> or
+<code>Int32Array</code>). Memory is pre-allocated as a single contiguous
+buffer matching the total size of the output matrix. During each loop
+iteration, GPU.js calculates the linear 1D memory offset:</p>
+<p><span class="math display">\[\text{Index} = x + (y \times
+\text{width}) + (z \times \text{width} \times
+\text{height})\]</span></p>
+<p>Writing the result of each simulated thread directly to a fixed
+memory address mirrors the independent write behavior of hardware
+threads while minimizing garbage collection overhead.</p>
+<h3 id="jit-optimization-and-thread-isolation">JIT Optimization and
+Thread Isolation</h3>
+<p>GPU threads are designed to run in isolation without access to
+external shared mutable states or complex JavaScript runtime features
+like closures and external scope variables. When GPU.js compiles the
+kernel for the CPU, this isolation enables host JavaScript engines (such
+as V8 in Chrome and Node.js, or SpiderMonkey in Firefox) to aggressively
+optimize the code.</p>
+<p>Because the generated loop contains simple arithmetic, predictable
+memory writes to typed arrays, and no unexpected property lookups, the
+engine's Just-In-Time (JIT) compiler can optimize the loop into highly
+efficient machine code. In some environments, the JIT compiler can even
+apply SIMD (Single Instruction, Multiple Data) vectorization at the
+machine level, executing multiple numeric operations within a single CPU
+cycle.</p>
+<p>Through this combination of AST-to-loop translation, state mocking
+via <code>this.thread</code>, contiguous memory layouts, and
+JIT-friendly code structures, GPU.js emulates the complete mental model
+of massively parallel thread execution strictly within a single-threaded
+CPU environment.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

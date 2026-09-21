@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelizing MDS Stress Minimization with GPU.js - gpu.js</title>
+    <meta name="description" content="Multi-Dimensional Scaling (MDS) is an established technique for dimensionality reduction and data visualization that relies on iterative stress minimization algorithms, such as SMACOF (Scaling by Majorizing a Complicated Function) or gradient descent. Be">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelizing-mds-stress-minimization-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelizing MDS Stress Minimization with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelizing-mds-stress-minimization-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Multi-Dimensional Scaling (MDS) is an established technique for dimensionality reduction and data visualization that relies on iterative stress minimization algorithms, such as SMACOF (Scaling by Majorizing a Complicated Function) or gradient descent. Be" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelizing-mds-stress-minimization-with-gpujs">Parallelizing
+MDS Stress Minimization with GPU.js</h1>
+<p>Multi-Dimensional Scaling (MDS) is an established technique for
+dimensionality reduction and data visualization that relies on iterative
+stress minimization algorithms, such as SMACOF (Scaling by Majorizing a
+Complicated Function) or gradient descent. Because calculating pairwise
+distances and coordinate updates scales quadratically at <span
+class="math inline">\(O(N^2)\)</span>, processing large datasets on a
+central processor becomes computationally prohibitive. This article
+explains how the primary mathematical bottlenecks of MDS stress
+minimization can be parallelized in JavaScript environments using the
+WebGL-accelerated library gpu.js.</p>
+<h3 id="the-computational-bottleneck-in-mds">The Computational
+Bottleneck in MDS</h3>
+<p>Stress minimization aims to project high-dimensional data points into
+a lower-dimensional space (typically 2D or 3D) while preserving pairwise
+dissimilarities. The standard approach involves two repetitive phases
+per iteration:</p>
+<ol type="1">
+<li><strong>Distance Computation:</strong> Calculating the Euclidean
+distances between all <span class="math inline">\(N(N - 1) / 2\)</span>
+pairs of projected coordinates.</li>
+<li><strong>Matrix Update (The Guttman Transform):</strong> In the
+SMACOF algorithm, coordinates are updated via matrix multiplication
+involving the B-matrix (which relies on target dissimilarities divided
+by current distances) and the current configuration matrix.</li>
+</ol>
+<p>Both of these steps represent embarrassingly parallel workloads. The
+calculation of distance and B-matrix entries for point pair <span
+class="math inline">\((i, j)\)</span> is completely independent of the
+calculation for point pair <span class="math inline">\((k,
+l)\)</span>.</p>
+<h3 id="how-gpujs-fits-the-problem">How GPU.js Fits the Problem</h3>
+<p>GPU.js transforms standard JavaScript functions into WebGL fragment
+shaders, executing operations across thousands of GPU cores in parallel.
+It works natively in modern browsers and in Node.js via headless WebGL
+contexts.</p>
+<p>Because GPU.js excels at 2D and 3D array manipulations and matrix
+transformations, it is well-suited for the structural mathematics of
+MDS.</p>
+<h3 id="implementing-parallel-steps-with-gpujs-kernels">Implementing
+Parallel Steps with GPU.js Kernels</h3>
+<p>To accelerate MDS stress minimization with gpu.js, the algorithm must
+be decomposed into dedicated compute kernels:</p>
+<h4 id="1-pairwise-distance-calculation">1. Pairwise Distance
+Calculation</h4>
+<p>A 2D kernel computes the current Euclidean distance between every
+point <span class="math inline">\(i\)</span> and point <span
+class="math inline">\(j\)</span> in the low-dimensional embedding:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDistances <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(coords<span class="op">,</span> dimensions) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> d <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> d <span class="op">&lt;</span> dimensions<span class="op">;</span> d<span class="op">++</span>) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> diff <span class="op">=</span> coords[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][d] <span class="op">-</span> coords[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][d]<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> diff <span class="op">*</span> diff<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(sum)<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N<span class="op">,</span> N])<span class="op">;</span></span></code></pre></div>
+<h4 id="2-constructing-the-b-matrix">2. Constructing the B-Matrix</h4>
+<p>The elements of the SMACOF B-matrix <span
+class="math inline">\(B(X)\)</span> depend on the original dissimilarity
+matrix <span class="math inline">\(\Delta\)</span> and the computed
+distance matrix <span class="math inline">\(D(X)\)</span>. For <span
+class="math inline">\(i \neq j\)</span>:</p>
+<ul>
+<li><span class="math inline">\(b_{ij} = -\delta_{ij} /
+d_{ij}(X)\)</span> if <span class="math inline">\(d_{ij}(X) &gt;
+0\)</span></li>
+<li><span class="math inline">\(b_{ij} = 0\)</span> if <span
+class="math inline">\(d_{ij}(X) = 0\)</span></li>
+</ul>
+<p>This mapping can be executed in a single 2D GPU.js kernel that
+receives the precomputed distances and the target dissimilarity matrix
+as input textures.</p>
+<h4 id="3-matrix-multiplication-for-coordinate-updates">3. Matrix
+Multiplication for Coordinate Updates</h4>
+<p>The primary coordinate update step is expressed as:</p>
+<p><span class="math display">\[X_{new} = V^{\dagger} B(X)
+X\]</span></p>
+<p>Where <span class="math inline">\(V^{\dagger}\)</span> is the
+Moore-Penrose pseudoinverse of the normalization matrix (which is static
+and precalculated once on the CPU). The subsequent matrix products <span
+class="math inline">\(B(X) \times X\)</span> and <span
+class="math inline">\(V^{\dagger} \times (B(X) X)\)</span> can be
+executed using standard parallel matrix multiplication kernels in
+gpu.js.</p>
+<h3 id="key-considerations-and-performance-limits">Key Considerations
+and Performance Limits</h3>
+<p>While parallelization delivers significant performance gains, certain
+trade-offs must be managed:</p>
+<ul>
+<li><strong>Memory Transfer Overhead:</strong> Passing large arrays
+between the CPU and the GPU on every iteration introduces latency. To
+maximize efficiency, kernels should be chained using the
+<code>pipeline: true</code> option in gpu.js. This keeps the
+intermediate distance and B-matrix arrays inside GPU memory (textures)
+rather than reading them back into JavaScript RAM.</li>
+<li><strong>Precision Limits:</strong> WebGL often operates with 32-bit
+floating-point numbers. While sufficient for standard visualization
+tasks, high-precision scientific convergence may accumulate minor
+floating-point drift compared to 64-bit CPU implementations.</li>
+<li><strong>Diagonal Values and Reductions:</strong> Calculating the
+diagonal elements of the B-matrix requires summing each row (<span
+class="math inline">\(b_{ii} = -\sum_{j \neq i} b_{ij}\)</span>). Row
+reductions can be executed efficiently in GPU.js by using a 1D kernel
+that loops across columns.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>Multi-dimensional scaling stress minimization steps can be
+parallelized effectively using gpu.js. By delegating pairwise distance
+calculations and matrix-matrix multiplications to WebGL shaders,
+execution times for large point sets can be reduced dramatically
+compared to single-threaded CPU implementations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Resolves Function Hoisting in Kernels - gpu.js</title>
+    <meta name="description" content="GPU.js allows developers to write complex parallel computations in JavaScript and run them on the GPU using WebGL or WebGPU. Because the library transpiles JavaScript into WebGL Shading Language (GLSL), it must bridge the gap between JavaScript's native">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-resolves-function-hoisting-in-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Resolves Function Hoisting in Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-resolves-function-hoisting-in-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js allows developers to write complex parallel computations in JavaScript and run them on the GPU using WebGL or WebGPU. Because the library transpiles JavaScript into WebGL Shading Language (GLSL), it must bridge the gap between JavaScript's native" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-resolves-function-hoisting-in-kernels">How GPU.js
+Resolves Function Hoisting in Kernels</h1>
+<p>GPU.js allows developers to write complex parallel computations in
+JavaScript and run them on the GPU using WebGL or WebGPU. Because the
+library transpiles JavaScript into WebGL Shading Language (GLSL), it
+must bridge the gap between JavaScript's native function hoisting and
+GLSL's strict requirement that functions be declared before they are
+called. GPU.js resolves this difference by parsing code into an Abstract
+Syntax Tree (AST), analyzing function dependencies, and rearranging the
+transpiled code so that all helper functions precede the generated
+<code>main()</code> entry point.</p>
+<h3 id="the-architectural-conflict-javascript-vs-glsl">The Architectural
+Conflict: JavaScript vs. GLSL</h3>
+<p>In standard JavaScript, function declarations are hoisted to the top
+of their enclosing scope during compilation. This behavior allows
+developers to invoke a function before its lexical definition appears in
+the source code.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Native JavaScript permits this:</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">kernel</span>() {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="fu">calculateValue</span>(<span class="dv">5</span>)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">calculateValue</span>(x) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> x <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>GLSL, the C-based language targeted by GPU.js, does not support
+automatic hoisting. In GLSL, an identifier or function must either have
+its complete definition or a forward declaration prototype physically
+present higher in the source file than the site where it is called.
+Direct transpilation of hoisted JavaScript without structural adjustment
+would result in shader compilation errors.</p>
+<h3 id="step-1-ast-parsing-via-acorn">Step 1: AST Parsing via Acorn</h3>
+<p>When a kernel is initialized with
+<code>gpu.createKernel(function() { ... })</code> or when helper
+functions are provided via <code>gpu.addFunction()</code>, GPU.js does
+not execute the function natively. Instead, it extracts the function's
+string representation using <code>.toString()</code> and parses it into
+an Abstract Syntax Tree (AST) using Acorn.</p>
+<p>This AST representation turns the function's lexical structure into
+an object-based tree containing nodes for
+<code>FunctionDeclaration</code>, <code>CallExpression</code>,
+<code>Identifier</code>, and other syntax components.</p>
+<h3 id="step-2-dependency-analysis-and-collection">Step 2: Dependency
+Analysis and Collection</h3>
+<p>During the compilation step, the GPU.js kernel runner traverses the
+AST to identify all calls made within the kernel body.</p>
+<ol type="1">
+<li><strong>Sub-function Discovery:</strong> GPU.js maintains an
+internal registry of available helper functions. When the AST traversal
+encounters a <code>CallExpression</code>, it checks whether the
+identifier maps to a registered sub-function.</li>
+<li><strong>Dependency Resolution:</strong> If helper functions call
+additional nested helper functions, GPU.js traces these references
+recursively, generating an ordered dependency graph.</li>
+</ol>
+<h3 id="step-3-transpilation-to-glsl">Step 3: Transpilation to GLSL</h3>
+<p>Once all dependencies are identified, the GPU.js transpiler converts
+each JavaScript AST branch into valid GLSL code:</p>
+<ol type="1">
+<li><strong>Type Inference:</strong> Argument and return types are
+inferred or validated against user-defined signatures.</li>
+<li><strong>Signature Formatting:</strong> JavaScript parameters are
+converted to typed GLSL parameters (e.g., <code>float</code>,
+<code>vec2</code>, <code>int</code>).</li>
+<li><strong>Body Conversion:</strong> JavaScript mathematical operations
+and control flow are rewritten into equivalent GLSL constructs.</li>
+</ol>
+<h3 id="step-4-code-reordering-and-shader-assembly">Step 4: Code
+Reordering and Shader Assembly</h3>
+<p>The final shader program is assembled as a single formatted GLSL
+string. Regardless of the order in which functions were written in
+JavaScript, GPU.js builds the string sequentially:</p>
+<ol type="1">
+<li><strong>Precision Declarations &amp; Headers:</strong> GLSL version
+tags, precision qualifiers (e.g., <code>precision highp float;</code>),
+and built-in constants.</li>
+<li><strong>Helper Function Implementations:</strong> Transpiled
+versions of all registered helper functions, arranged so that every
+function is defined before it is referenced by another function.</li>
+<li><strong>The Kernel (<code>void main()</code>):</strong> The
+transpiled body of the main kernel function.</li>
+</ol>
+<p>By synthesizing the GLSL source code through this structured
+pipeline, GPU.js eliminates hoisting errors entirely, ensuring that
+helper functions defined below call sites in JavaScript are properly
+positioned above their execution contexts in the GPU pipeline.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

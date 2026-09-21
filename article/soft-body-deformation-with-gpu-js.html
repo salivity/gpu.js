@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soft Body Deformation with GPU.js - gpu.js</title>
+    <meta name="description" content="Simulating soft body deformation in the browser requires calculating physics interactions—such as elastic restoring forces, damping, and collision responses—across hundreds or thousands of vertices simultaneously. This article demonstrates how to imp">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/soft-body-deformation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Soft Body Deformation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/soft-body-deformation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating soft body deformation in the browser requires calculating physics interactions—such as elastic restoring forces, damping, and collision responses—across hundreds or thousands of vertices simultaneously. This article demonstrates how to imp" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="soft-body-deformation-with-gpujs">Soft Body Deformation with
+GPU.js</h1>
+<p>Simulating soft body deformation in the browser requires calculating
+physics interactions—such as elastic restoring forces, damping, and
+collision responses—across hundreds or thousands of vertices
+simultaneously. This article demonstrates how to implement a
+high-performance, real-time mass-spring soft body simulation under
+external forces using gpu.js. By offloading vertex integration and force
+calculations to WebGL shaders through gpu.js, you can achieve
+interactive frame rates that CPU-bound JavaScript loops cannot
+sustain.</p>
+<h3 id="the-physics-model-mass-spring-system">The Physics Model:
+Mass-Spring System</h3>
+<p>A standard approach for simulating soft bodies is a
+mass-spring-damper network. The object is discretized into a set of
+particles (mass points) connected by structural, shear, and bending
+springs.</p>
+<p>The net force acting on each particle <span
+class="math inline">\(i\)</span> is the sum of internal spring forces
+and external forces:</p>
+<p><span class="math display">\[\mathbf{F}_{total, i} = \mathbf{F}_{ext}
++ \sum_{j \in N(i)} (\mathbf{F}_{spring, ij} + \mathbf{F}_{damping,
+ij})\]</span></p>
+<ul>
+<li><strong>Hooke's Law (Spring Force):</strong> <span
+class="math inline">\(\mathbf{F}_{spring, ij} = -k_s (\|\mathbf{x}_i -
+\mathbf{x}_j\| - L_{0, ij}) \frac{\mathbf{x}_i -
+\mathbf{x}_j}{\|\mathbf{x}_i - \mathbf{x}_j\|}\)</span></li>
+<li><strong>Damping Force:</strong> <span
+class="math inline">\(\mathbf{F}_{damping, ij} = -k_d (\mathbf{v}_i -
+\mathbf{v}_j)\)</span></li>
+<li><strong>External Forces (<span
+class="math inline">\(\mathbf{F}_{ext}\)</span>):</strong> Gravity
+(<span class="math inline">\(m \cdot \mathbf{g}\)</span>), user
+interactions (such as cursor drag forces), and contact impulses.</li>
+</ul>
+<h3 id="data-representation-for-gpujs">Data Representation for
+GPU.js</h3>
+<p>Because GPU kernels execute in parallel across independent threads,
+data must be structured in flat arrays or textures rather than nested
+object-oriented graphs.</p>
+<p>For a 2D soft body mesh of dimensions <span class="math inline">\(W
+\times H\)</span>:</p>
+<ol type="1">
+<li><strong>Positions (<code>pos</code>):</strong> A <span
+class="math inline">\(2 \times N\)</span> array storing <span
+class="math inline">\((x, y)\)</span> coordinates.</li>
+<li><strong>Velocities (<code>vel</code>):</strong> A <span
+class="math inline">\(2 \times N\)</span> array storing <span
+class="math inline">\((v_x, v_y)\)</span> components.</li>
+<li><strong>Rest Lengths:</strong> Pre-calculated distances between
+neighboring nodes.</li>
+</ol>
+<h3 id="step-1-initialize-gpujs">Step 1: Initialize GPU.js</h3>
+<p>Install and import gpu.js, then create a GPU instance:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="step-2-compute-internal-and-external-forces-kernel">Step 2:
+Compute Internal and External Forces Kernel</h3>
+<p>The first kernel calculates the combined forces acting on each
+vertex. To optimize GPU memory access, particles only sample their
+immediate neighbors (left, right, up, down).</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeForces <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> restLength<span class="op">,</span> stiffness<span class="op">,</span> damping<span class="op">,</span> gravityY<span class="op">,</span> extForceX<span class="op">,</span> extForceY<span class="op">,</span> extIndex<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> index <span class="op">=</span> y <span class="op">*</span> width <span class="op">+</span> x<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> px <span class="op">=</span> positions[<span class="dv">0</span>][index]<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> py <span class="op">=</span> positions[<span class="dv">1</span>][index]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vx <span class="op">=</span> velocities[<span class="dv">0</span>][index]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vy <span class="op">=</span> velocities[<span class="dv">1</span>][index]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fx <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> fy <span class="op">=</span> gravityY<span class="op">;</span> <span class="co">// Apply constant external gravity</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply external localized interaction force (e.g., mouse pull)</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (index <span class="op">===</span> extIndex) {</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>        fx <span class="op">+=</span> extForceX<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>        fy <span class="op">+=</span> extForceY<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Evaluate 4-way adjacent spring connections</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Neighbor offsets: [dx, dy]</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> neighbors <span class="op">=</span> [</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>        [<span class="op">-</span><span class="dv">1</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">,</span> [<span class="dv">1</span><span class="op">,</span> <span class="dv">0</span>]<span class="op">,</span> [<span class="dv">0</span><span class="op">,</span> <span class="op">-</span><span class="dv">1</span>]<span class="op">,</span> [<span class="dv">0</span><span class="op">,</span> <span class="dv">1</span>]</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    ]<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">4</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> nx <span class="op">=</span> x <span class="op">+</span> neighbors[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> ny <span class="op">=</span> y <span class="op">+</span> neighbors[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (nx <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> nx <span class="op">&lt;</span> width <span class="op">&amp;&amp;</span> ny <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> ny <span class="op">&lt;</span> height) {</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> nIndex <span class="op">=</span> ny <span class="op">*</span> width <span class="op">+</span> nx<span class="op">;</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dx <span class="op">=</span> positions[<span class="dv">0</span>][nIndex] <span class="op">-</span> px<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dy <span class="op">=</span> positions[<span class="dv">1</span>][nIndex] <span class="op">-</span> py<span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> dist <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy)<span class="op">;</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> (dist <span class="op">&gt;</span> <span class="fl">0.0001</span>) {</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Spring force</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>                <span class="kw">const</span> springMag <span class="op">=</span> stiffness <span class="op">*</span> (dist <span class="op">-</span> restLength)<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>                fx <span class="op">+=</span> (dx <span class="op">/</span> dist) <span class="op">*</span> springMag<span class="op">;</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>                fy <span class="op">+=</span> (dy <span class="op">/</span> dist) <span class="op">*</span> springMag<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Damping force relative to neighbor</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>                fx <span class="op">+=</span> damping <span class="op">*</span> (velocities[<span class="dv">0</span>][nIndex] <span class="op">-</span> vx)<span class="op">;</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>                fy <span class="op">+=</span> damping <span class="op">*</span> (velocities[<span class="dv">1</span>][nIndex] <span class="op">-</span> vy)<span class="op">;</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>            }</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [fx<span class="op">,</span> fy]<span class="op">;</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="step-3-numerical-integration-kernel">Step 3: Numerical
+Integration Kernel</h3>
+<p>Using the forces computed in the previous step, update velocities and
+positions via Semi-Implicit Euler integration:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> integrate <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> forces<span class="op">,</span> dt<span class="op">,</span> mass<span class="op">,</span> groundY<span class="op">,</span> width) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> coord <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// 0 for X, 1 for Y</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> index <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> f <span class="op">=</span> forces[coord][index]<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> v <span class="op">=</span> velocities[coord][index] <span class="op">+</span> (f <span class="op">/</span> mass) <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> p <span class="op">=</span> positions[coord][index] <span class="op">+</span> v <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Floor collision handling (External reaction force)</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (coord <span class="op">===</span> <span class="dv">1</span> <span class="op">&amp;&amp;</span> p <span class="op">&lt;</span> groundY) {</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>        p <span class="op">=</span> groundY<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>        v <span class="op">=</span> <span class="op">-</span>v <span class="op">*</span> <span class="fl">0.3</span><span class="op">;</span> <span class="co">// Restitution / bounce loss</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [p<span class="op">,</span> v]<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">2</span><span class="op">,</span> totalParticles])<span class="op">;</span></span></code></pre></div>
+<h3 id="step-4-the-simulation-loop">Step 4: The Simulation Loop</h3>
+<p>Chain the kernels together inside an animation frame loop:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">stepSimulation</span>() {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 1. Calculate internal elastic forces + external inputs</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> forces <span class="op">=</span> <span class="fu">computeForces</span>(</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        currentPositions<span class="op">,</span> </span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        currentVelocities<span class="op">,</span> </span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        restDistance<span class="op">,</span> </span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        stiffnessCoefficient<span class="op">,</span> </span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>        dampingCoefficient<span class="op">,</span> </span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>        <span class="op">-</span><span class="fl">9.81</span><span class="op">,</span>           <span class="co">// External gravity</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        userForceX<span class="op">,</span>      <span class="co">// External user impulse</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>        userForceY<span class="op">,</span> </span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        targetIndex<span class="op">,</span> </span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        gridWidth<span class="op">,</span> </span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>        gridHeight</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 2. Integrate acceleration into velocity and position</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> nextState <span class="op">=</span> <span class="fu">integrate</span>(</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>        currentPositions<span class="op">,</span> </span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>        currentVelocities<span class="op">,</span> </span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>        forces<span class="op">,</span> </span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>        deltaTime<span class="op">,</span> </span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>        particleMass<span class="op">,</span> </span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>        <span class="fl">0.0</span><span class="op">,</span>             <span class="co">// Ground level</span></span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>        gridWidth</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    <span class="co">// 3. Extract updated positions and velocities</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>    currentPositions <span class="op">=</span> nextState<span class="op">.</span><span class="fu">map</span>(p <span class="kw">=&gt;</span> p[<span class="dv">0</span>])<span class="op">;</span></span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>    currentVelocities <span class="op">=</span> nextState<span class="op">.</span><span class="fu">map</span>(p <span class="kw">=&gt;</span> p[<span class="dv">1</span>])<span class="op">;</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(stepSimulation)<span class="op">;</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ol type="1">
+<li><strong>Pipeline Mode:</strong> Use <code>.setPipeline(true)</code>
+on your kernels. This keeps the data in WebGL texture memory between
+computation passes, preventing expensive GPU-to-CPU data readbacks on
+every frame.</li>
+<li><strong>Topology Storage:</strong> For complex 3D meshes where
+regular grid indexing cannot be used, pass an adjacency lookup texture
+that defines connected vertex indices for each node.</li>
+<li><strong>Time Step Stability:</strong> Explicit integration can
+become unstable under high stiffness (<span
+class="math inline">\(k_s\)</span>). Use sub-stepping (running multiple
+smaller integration steps of <span class="math inline">\(dt / N\)</span>
+per visual render frame) to maintain soft body stability without
+introducing structural collapse.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

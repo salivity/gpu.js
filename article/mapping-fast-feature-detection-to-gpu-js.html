@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapping FAST Feature Detection to GPU.js - gpu.js</title>
+    <meta name="description" content="The Features from Accelerated Segment Test (FAST) algorithm can be effectively mapped onto parallel thread evaluation using gpu.js. Because FAST evaluates candidate corner points independently at the pixel level, its computational structure aligns natura">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/mapping-fast-feature-detection-to-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Mapping FAST Feature Detection to GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/mapping-fast-feature-detection-to-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The Features from Accelerated Segment Test (FAST) algorithm can be effectively mapped onto parallel thread evaluation using gpu.js. Because FAST evaluates candidate corner points independently at the pixel level, its computational structure aligns natura" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="mapping-fast-feature-detection-to-gpujs">Mapping FAST Feature
+Detection to GPU.js</h1>
+<p>The Features from Accelerated Segment Test (FAST) algorithm can be
+effectively mapped onto parallel thread evaluation using gpu.js. Because
+FAST evaluates candidate corner points independently at the pixel level,
+its computational structure aligns naturally with the Single
+Instruction, Multiple Threads (SIMT) architecture leveraged by
+GPU-accelerated WebGL shaders. This article examines the feasibility,
+architectural mapping, and technical trade-offs of implementing the FAST
+feature detection pipeline within gpu.js.</p>
+<h3 id="architectural-alignment">Architectural Alignment</h3>
+<p>FAST identifies corners by examining a Bresenham circle of 16 pixels
+surrounding a candidate pixel <span class="math inline">\(p\)</span>. If
+a continuous arc of <span class="math inline">\(N\)</span> pixels
+(commonly <span class="math inline">\(N=9\)</span> or <span
+class="math inline">\(N=12\)</span>) is significantly brighter or darker
+than <span class="math inline">\(p\)</span> by a threshold <span
+class="math inline">\(t\)</span>, the pixel is classified as a feature
+point.</p>
+<p>In gpu.js, computations are executed over a defined output grid. For
+an image of dimensions <span class="math inline">\(W \times H\)</span>,
+the kernel domain is defined as <code>[W, H]</code>. Each thread
+corresponds to an individual pixel coordinate
+<code>(this.thread.x, this.thread.y)</code>. Because the state of pixel
+<span class="math inline">\(p\)</span> depends solely on its local
+neighborhood and does not require mutable cross-pixel synchronization,
+the evaluation step is embarrassingly parallel.</p>
+<h3 id="mapping-the-evaluation-pipeline">Mapping the Evaluation
+Pipeline</h3>
+<p>To implement FAST in gpu.js, the algorithm is translated into a
+parallel execution flow:</p>
+<ol type="1">
+<li><strong>Kernel Input</strong>: The image is passed as a 2D array of
+normalized luminance values (grayscale).</li>
+<li><strong>Offset Lookup</strong>: The thread calculates the values of
+the 16 circle positions relative to
+<code>(this.thread.x, this.thread.y)</code> using hardcoded offset
+vectors:
+<ul>
+<li><span class="math inline">\((0, 3), (1, 3), (2, 2), (3, 1), (3, 0),
+(3, -1), (2, -2), (1, -3)\)</span></li>
+<li><span class="math inline">\((0, -3), (-1, -3), (-2, -2), (-3, -1),
+(-3, 0), (-3, 1), (-2, 2), (-1, 3)\)</span></li>
+</ul></li>
+<li><strong>Contiguity Verification</strong>: The kernel checks whether
+<span class="math inline">\(N\)</span> contiguous pixels satisfy <span
+class="math inline">\(I_x &gt; I_p + t\)</span> or <span
+class="math inline">\(I_x &lt; I_p - t\)</span>.</li>
+<li><strong>Kernel Output</strong>: The kernel outputs a binary mask or
+a corner response score for each pixel.</li>
+</ol>
+<h3 id="handling-gpu-divergence-vs-cpu-early-exits">Handling GPU
+Divergence vs. CPU Early Exits</h3>
+<p>On a CPU, FAST achieves its speed through early rejection: it first
+tests pixels 1, 9, 5, and 13. If at least three of these do not meet the
+threshold criteria, the candidate is discarded immediately without
+checking the remaining 12 pixels.</p>
+<p>In gpu.js, early rejection via standard <code>if/else</code>
+branching can cause warp/wavefront divergence on physical GPU hardware.
+When adjacent threads take different execution paths, both paths must be
+evaluated sequentially across the thread group. In gpu.js:</p>
+<ul>
+<li>Branching is supported, but complex conditional exits may not
+provide the same proportional speedup as they do on CPUs.</li>
+<li>Fully unrolling the evaluation loop or using bitwise operations to
+check circular contiguity often yields more deterministic execution
+times across WebGL fragments.</li>
+</ul>
+<h3 id="non-maximum-suppression-nms">Non-Maximum Suppression (NMS)</h3>
+<p>Raw FAST detection typically produces clusters of adjacent positive
+points around a single corner. To resolve this, non-maximum suppression
+is applied based on a corner response score (such as the sum of absolute
+differences between the candidate pixel and the contiguous arc
+pixels).</p>
+<p>In gpu.js, NMS cannot be reliably calculated in the same execution
+step that detects the corners, as shader threads cannot communicate
+across memory barriers within a single pass. Instead, a two-pass
+pipeline is required:</p>
+<ol type="1">
+<li><strong>Pass 1 (Detection &amp; Scoring)</strong>: Outputs a texture
+where positive detections contain their corner response score and
+non-corners are zeroed.</li>
+<li><strong>Pass 2 (Suppression)</strong>: Reads the output of Pass 1
+and verifies if the center pixel has the maximum score within a <span
+class="math inline">\(3 \times 3\)</span> window.</li>
+</ol>
+<h3 id="technical-limitations-in-gpujs">Technical Limitations in
+GPU.js</h3>
+<ul>
+<li><strong>Boundary Conditions</strong>: Threads processing pixels
+within 3 pixels of the image boundary cannot evaluate full circles.
+These must be explicitly masked out to prevent invalid texture
+reads.</li>
+<li><strong>Memory Overhead</strong>: Moving high-resolution video
+frames back and forth between CPU memory and GPU textures introduces
+PCIe bus overhead. For maximum efficiency, upstream operations (like
+grayscale conversion) and downstream operations should remain in GPU
+memory using gpu.js pipeline mode (<code>pipeline: true</code>).</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

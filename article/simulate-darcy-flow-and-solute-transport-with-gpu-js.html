@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulate Darcy Flow and Solute Transport with GPU.js - gpu.js</title>
+    <meta name="description" content="It is entirely possible to compute Darcy flow and solute transport through porous rock media using GPU.js by discretizing the governing partial differential equations onto regular grids and solving them with parallel stencil algorithms. GPU.js compiles w">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulate-darcy-flow-and-solute-transport-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulate Darcy Flow and Solute Transport with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulate-darcy-flow-and-solute-transport-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="It is entirely possible to compute Darcy flow and solute transport through porous rock media using GPU.js by discretizing the governing partial differential equations onto regular grids and solving them with parallel stencil algorithms. GPU.js compiles w" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulate-darcy-flow-and-solute-transport-with-gpujs">Simulate
+Darcy Flow and Solute Transport with GPU.js</h1>
+<p>It is entirely possible to compute Darcy flow and solute transport
+through porous rock media using GPU.js by discretizing the governing
+partial differential equations onto regular grids and solving them with
+parallel stencil algorithms. GPU.js compiles written JavaScript
+functions into WebGL shader language, allowing parallel computation
+across millions of simulated rock pores directly on the graphics
+hardware. While native environments like CUDA or OpenCL are typically
+used for high-end geological simulations, GPU.js offers an accessible,
+zero-installation platform capable of executing real-time, interactive
+porous media simulations within modern web browsers.</p>
+<h3 id="governing-equations-in-porous-media">Governing Equations in
+Porous Media</h3>
+<p>Simulating fluid dynamics and contaminant migration in geological
+formations requires coupling two physical processes: fluid flow and mass
+transport.</p>
+<p>Darcy flow defines the velocity field of fluid moving through porous
+media. Under steady-state conditions in an isotropic or anisotropic
+medium, the pressure head distribution <span
+class="math inline">\(h\)</span> is governed by the continuity equation
+combined with Darcy's law:</p>
+<p><span class="math display">\[\nabla \cdot (K \nabla h) =
+0\]</span></p>
+<p>where <span class="math inline">\(K\)</span> is the hydraulic
+conductivity tensor representing the rock's permeability. Once the
+hydraulic head field is solved, the Darcy flux vector <span
+class="math inline">\(\mathbf{q}\)</span> and pore water velocity <span
+class="math inline">\(\mathbf{v}\)</span> are calculated using the
+rock's effective porosity <span
+class="math inline">\(\theta\)</span>:</p>
+<p><span class="math display">\[\mathbf{v} = -\frac{K}{\theta} \nabla
+h\]</span></p>
+<p>Solute transport is governed by the Advection-Dispersion Equation
+(ADE), which tracks the concentration <span
+class="math inline">\(C\)</span> of a chemical or contaminant over
+time:</p>
+<p><span class="math display">\[\frac{\partial C}{\partial t} = \nabla
+\cdot (\mathbf{D} \nabla C) - \nabla \cdot (\mathbf{v} C)\]</span></p>
+<p>where <span class="math inline">\(\mathbf{D}\)</span> is the
+hydrodynamic dispersion tensor combining molecular diffusion and
+mechanical dispersion.</p>
+<h3 id="implementing-darcy-flow-in-gpujs">Implementing Darcy Flow in
+GPU.js</h3>
+<p>To solve Darcy's law in GPU.js, the rock domain is discretized into a
+2D or 3D Cartesian grid using the Finite Difference Method (FDM).</p>
+<p>Because the steady-state flow equation is elliptic, it requires an
+iterative solver. In GPU.js, the Jacobi iteration method is the most
+straightforward to implement because every cell's state at iteration
+<span class="math inline">\(k+1\)</span> depends solely on the neighbor
+cells from iteration <span class="math inline">\(k\)</span>:</p>
+<ol type="1">
+<li>Define matrices for hydraulic conductivity <span
+class="math inline">\(K\)</span>, initial head <span
+class="math inline">\(h\)</span>, and boundary conditions (Dirichlet or
+Neumann).</li>
+<li>Create a GPU.js kernel that updates each cell's head value by
+averaging the hydraulic conductivities and heads of its four (in 2D) or
+six (in 3D) orthogonal neighbors.</li>
+<li>Enable the <code>pipeline: true</code> mode in GPU.js to keep
+intermediate texture data on the GPU memory between iterations,
+preventing CPU-GPU memory transfer bottlenecks.</li>
+<li>Iterate until the residual head difference drops below an acceptable
+convergence threshold.</li>
+</ol>
+<h3 id="computing-solute-transport">Computing Solute Transport</h3>
+<p>Once the flow field is established, computing solute transport is an
+explicit parabolic problem that maps directly to the parallel
+architecture of GPU.js.</p>
+<p>The spatial derivatives for dispersion are approximated using central
+differences, while advective terms require upwind differencing schemes
+to prevent non-physical numerical oscillations and instability. A GPU.js
+kernel takes the velocity output from the Darcy solver, the dispersion
+coefficients, and the current concentration state to compute
+concentration updates across explicit time increments <span
+class="math inline">\(\Delta t\)</span>:</p>
+<ol type="1">
+<li>The kernel queries adjacent grid points to determine concentration
+gradients.</li>
+<li>The advection-dispersion flux is calculated per cell.</li>
+<li>The new concentration <span class="math inline">\(C^{t+\Delta
+t}\)</span> is written to an output texture.</li>
+<li>The simulation swaps buffers using a ping-pong approach across time
+steps to model plume evolution continuously.</li>
+</ol>
+<h3 id="representing-heterogeneous-rock-properties">Representing
+Heterogeneous Rock Properties</h3>
+<p>Real geological media are rarely homogeneous. GPU.js handles spatial
+heterogeneity by passing 2D or 3D matrices containing localized rock
+properties directly into kernels:</p>
+<ul>
+<li><strong>Porosity Fields:</strong> Variations in rock storage
+capacity and pore throat distribution.</li>
+<li><strong>Permeability Fields:</strong> Spatially variable matrices
+representing fractures, shale barriers, or variable-grain
+sandstones.</li>
+<li><strong>Retardation and Sorption:</strong> Additional matrices
+mapping linear adsorption (<span class="math inline">\(K_d\)</span>) can
+be integrated directly into the transport step to simulate reactive
+transport.</li>
+</ul>
+<h3 id="capabilities-and-technical-limitations">Capabilities and
+Technical Limitations</h3>
+<p>GPU.js provides massive parallel throughput compared to
+single-threaded CPU JavaScript, often achieving 10x to 100x speedups for
+regular grid problems. It makes interactive subsurface contaminant
+modeling accessible directly inside client web applications.</p>
+<p>However, several limitations must be considered:</p>
+<ul>
+<li><strong>Precision Limits:</strong> GPU.js relies primarily on 32-bit
+floating-point precision (FP32) due to WebGL constraints. Highly
+sensitive iterative solvers may suffer from cumulative round-off
+errors.</li>
+<li><strong>Convergence Rates:</strong> While Jacobi iterations
+parallelize cleanly on GPU threads, they converge much slower than
+advanced sequential algorithms such as Conjugate Gradient or Multigrid
+solvers.</li>
+<li><strong>Memory Bounds:</strong> Web browser context limits the size
+of allocated textures, constraining the maximum grid resolution
+(typically grids larger than <span class="math inline">\(2048 \times
+2048\)</span> in 2D or <span class="math inline">\(256 \times 256 \times
+256\)</span> in 3D require careful memory profiling).</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

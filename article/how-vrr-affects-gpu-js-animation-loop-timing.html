@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How VRR Affects GPU.js Animation Loop Timing - gpu.js</title>
+    <meta name="description" content="Variable Refresh Rate (VRR) technologies, such as NVIDIA G-Sync, AMD FreeSync, and Apple ProMotion, dynamically alter a display's refresh cycle to match the delivery rate of rendered frames. When running GPU-accelerated calculations via GPU.js within an">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-vrr-affects-gpu-js-animation-loop-timing">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How VRR Affects GPU.js Animation Loop Timing - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-vrr-affects-gpu-js-animation-loop-timing" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Variable Refresh Rate (VRR) technologies, such as NVIDIA G-Sync, AMD FreeSync, and Apple ProMotion, dynamically alter a display's refresh cycle to match the delivery rate of rendered frames. When running GPU-accelerated calculations via GPU.js within an" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-vrr-affects-gpujs-animation-loop-timing">How VRR Affects
+GPU.js Animation Loop Timing</h1>
+<p>Variable Refresh Rate (VRR) technologies, such as NVIDIA G-Sync, AMD
+FreeSync, and Apple ProMotion, dynamically alter a display's refresh
+cycle to match the delivery rate of rendered frames. When running
+GPU-accelerated calculations via GPU.js within an animation loop, this
+variable synchronization directly alters the execution frequency of
+<code>requestAnimationFrame</code>. This article explores how VRR
+impacts GPU.js execution timing, the computational challenges introduced
+by fluctuating frame intervals, and the methods required to maintain
+stable, deterministic simulations.</p>
+<h3 id="the-baseline-fixed-refresh-rates-vs-gpujs">The Baseline: Fixed
+Refresh Rates vs. GPU.js</h3>
+<p>Traditional animation loops in JavaScript rely on
+<code>window.requestAnimationFrame()</code> (rAF). On a standard
+fixed-rate display (such as 60Hz or 144Hz), rAF fires at consistent,
+predictable intervals—roughly 16.67ms or 6.94ms, respectively.
+Developers using GPU.js often rely on this predictability, sometimes
+designing kernels that assume a constant delta time (<span
+class="math inline">\(\Delta t\)</span>) per frame for physics
+simulations, particle systems, or cellular automata.</p>
+<p>When the workload of a GPU.js kernel exceeds the frame budget on a
+fixed display, the browser drops frames, causing the effective frame
+rate to halve (e.g., from 60 FPS down to 30 FPS) to maintain
+synchronization with the monitor's V-Sync pulses.</p>
+<h3 id="how-vrr-changes-animation-loop-timing">How VRR Changes Animation
+Loop Timing</h3>
+<p>VRR eliminates fixed refresh cycles by waiting to refresh the screen
+until the GPU presents a finished frame, up to the monitor's maximum
+limit. This changes how GPU.js animation loops behave in several
+critical ways:</p>
+<ol type="1">
+<li><strong>Dynamic rAF Intervals:</strong> Instead of snapping to
+fractions of 60Hz or 144Hz, the interval between consecutive rAF
+callbacks fluctuates dynamically based on the exact execution duration
+of the GPU.js kernel and its surrounding JavaScript code. If a kernel
+takes 18ms to execute, the monitor refreshes at ~55Hz; if the next frame
+takes 12ms, it refreshes at ~83Hz.</li>
+<li><strong>Amplified Micro-Stutter from Pipeline Stalls:</strong>
+Reading data back from the GPU to the CPU (e.g., converting kernel
+results back into JavaScript arrays) blocks the pipeline. On a VRR
+display, these pipeline stalls immediately stretch the monitor's active
+frame time, resulting in visible pacing irregularities rather than being
+absorbed into a standardized refresh window.</li>
+<li><strong>Low Framerate Compensation (LFC) Jitter:</strong> Most VRR
+monitors have a lower boundary (typically between 40Hz and 48Hz). If a
+demanding GPU.js operation pushes frame delivery times past this
+threshold, the display hardware engages LFC, duplicating frames to keep
+the monitor above its minimum refresh rate. If GPU.js frame times
+oscillate around this boundary, the constant engagement and
+disengagement of LFC can cause severe visual stutter and erratic
+timestamp pacing.</li>
+</ol>
+<h3 id="mitigating-vrr-timing-issues-in-gpujs">Mitigating VRR Timing
+Issues in GPU.js</h3>
+<p>To ensure consistent performance and visual fidelity on VRR displays,
+developers must adapt their animation architecture:</p>
+<ul>
+<li><strong>Pass Variable Delta Time to Kernels:</strong> Never hardcode
+time-step constants inside GPU.js kernels. Calculate the elapsed time
+using the <code>DOMHighResTimeStamp</code> argument provided natively by
+<code>requestAnimationFrame</code>, clamp it to prevent physics
+explosions during severe hitches, and pass it directly into the kernel
+as a dynamic uniform argument.</li>
+<li><strong>Implement a Fixed Timestep with an Accumulator:</strong> If
+a GPU.js application performs numeric integration or physics simulations
+that require mathematical determinism, decouple the simulation loop from
+the render loop. Accumulate the variable delta time provided by rAF and
+run the GPU.js kernel in fixed sub-steps (e.g., exactly 60Hz steps)
+while allowing the display to render as frequently as the VRR screen
+requests.</li>
+<li><strong>Avoid Synchronous Readbacks:</strong> Keep data resident on
+the GPU. Instead of calling <code>.toArray()</code> or pulling data to
+the CPU every loop iteration, pipe the output texture of one GPU.js
+kernel directly into the next, or render directly to a WebGL canvas
+using GPU.js graphical output features. This keeps execution times
+predictable and prevents the browser from stalling the VRR frame
+cycle.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

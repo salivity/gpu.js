@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handling Kernel Argument Changes in gpu.js - gpu.js</title>
+    <meta name="description" content="In gpu.js, executing a compiled kernel repeatedly with different inputs is a standard workflow for animations, scientific simulations, and iterative calculations. This article explains how gpu.js processes updated arguments between consecutive kernel inv">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/handling-kernel-argument-changes-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Handling Kernel Argument Changes in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/handling-kernel-argument-changes-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, executing a compiled kernel repeatedly with different inputs is a standard workflow for animations, scientific simulations, and iterative calculations. This article explains how gpu.js processes updated arguments between consecutive kernel inv" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="handling-kernel-argument-changes-in-gpujs">Handling Kernel
+Argument Changes in gpu.js</h1>
+<p>In gpu.js, executing a compiled kernel repeatedly with different
+inputs is a standard workflow for animations, scientific simulations,
+and iterative calculations. This article explains how gpu.js processes
+updated arguments between consecutive kernel invocations, contrasting
+how it handles primitives, dynamic arrays, textures, and immutable
+constants under the hood.</p>
+<h2 id="the-webgl-pipeline-and-argument-binding">The WebGL Pipeline and
+Argument Binding</h2>
+<p>When a kernel is declared using <code>gpu.createKernel()</code>,
+gpu.js compiles the provided JavaScript function into a WebGL GLSL
+shader program. Because WebGL shader compilation is computationally
+expensive, gpu.js does not recompile the shader when kernel arguments
+change on subsequent calls. Instead, it rebinds the incoming values to
+the existing WebGL program using GLSL uniforms and texture memory.</p>
+<h2 id="primitive-types-numbers-and-booleans">Primitive Types (Numbers
+and Booleans)</h2>
+<p>Primitive arguments—such as floats, integers, and booleans—are
+treated as GLSL uniforms.</p>
+<p>When you invoke a kernel consecutively with different primitive
+arguments:</p>
+<ol type="1">
+<li>gpu.js inspects the current values passed into the JavaScript
+wrapper.</li>
+<li>It calls the appropriate WebGL binding method (such as
+<code>gl.uniform1f</code> or <code>gl.uniform1i</code>).</li>
+<li>The GPU uses the updated uniform values during the subsequent draw
+call.</li>
+</ol>
+<p>Because updating uniforms requires almost zero CPU-to-GPU overhead,
+changing primitive arguments between consecutive calls executes at
+near-native speed without pipeline stalls.</p>
+<h2 id="arrays-and-matrix-data">Arrays and Matrix Data</h2>
+<p>Large datasets like 1D, 2D, or 3D arrays cannot be passed via
+standard uniforms due to WebGL uniform buffer limits. Instead, gpu.js
+encodes array data into 2D WebGL textures.</p>
+<p>When passing new arrays across consecutive invocations:</p>
+<ul>
+<li><strong>Consistent Dimensions:</strong> If the array dimensions
+remain identical to previous runs, gpu.js reuses the previously
+allocated WebGL texture and updates the pixel data using
+<code>gl.texSubImage2D</code>.</li>
+<li><strong>Altered Dimensions:</strong> If an array's length or
+dimension structure changes between invocations, gpu.js must reallocate
+the texture memory on the GPU to match the new dimensions. While it
+still does not recompile the shader, texture reallocation incurs a
+memory allocation penalty.</li>
+<li><strong>CPU-to-GPU Transfer Cost:</strong> Uploading raw JavaScript
+arrays to texture memory requires iterating over the arrays and packing
+them into typed arrays (such as <code>Float32Array</code>). For
+high-frequency loops, this serialization can become a CPU
+bottleneck.</li>
+</ul>
+<h2 id="textures-and-pipeline-mode">Textures and Pipeline Mode</h2>
+<p>To eliminate the CPU-to-GPU upload cost between consecutive runs,
+gpu.js supports pipeline mode (<code>{ pipeline: true }</code>).</p>
+<p>When pipeline mode is active, the kernel outputs a WebGL texture
+rather than serializing the result back into a JavaScript array. If the
+output texture of one invocation is passed directly as an argument to
+the next invocation:</p>
+<ol type="1">
+<li>No CPU-to-GPU data transfer takes place.</li>
+<li>gpu.js simply binds the existing texture handle to the input texture
+sampler.</li>
+<li>The data remains entirely in GPU VRAM across consecutive runs.</li>
+</ol>
+<h2 id="arguments-vs-constants">Arguments vs. Constants</h2>
+<p>It is critical to distinguish between kernel arguments and kernel
+constants:</p>
+<ul>
+<li><strong>Kernel Arguments:</strong> Dynamic values passed to the
+invoked kernel function. Handled dynamically via uniforms and textures
+without shader recompilation.</li>
+<li><strong>Constants (<code>this.constants</code>):</strong> Static
+values declared in the kernel configuration object. These are hardcoded
+directly into the GLSL source code at compile time. Modifying a constant
+value requires destroying and recompiling the kernel, whereas changing
+an argument does not.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

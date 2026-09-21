@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Matrix Transpose: Avoiding Bank Conflicts - gpu.js</title>
+    <meta name="description" content="Matrix transposition on the GPU frequently suffers from severe performance degradation due to memory bank conflicts and uncoalesced memory access patterns caused by reading in rows and writing out in columns. In gpu.js, which compiles JavaScript into Web">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-matrix-transpose-avoiding-bank-conflicts">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Matrix Transpose: Avoiding Bank Conflicts - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-matrix-transpose-avoiding-bank-conflicts" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Matrix transposition on the GPU frequently suffers from severe performance degradation due to memory bank conflicts and uncoalesced memory access patterns caused by reading in rows and writing out in columns. In gpu.js, which compiles JavaScript into Web" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-matrix-transpose-avoiding-bank-conflicts">GPU.js Matrix
+Transpose: Avoiding Bank Conflicts</h1>
+<p>Matrix transposition on the GPU frequently suffers from severe
+performance degradation due to memory bank conflicts and uncoalesced
+memory access patterns caused by reading in rows and writing out in
+columns. In gpu.js, which compiles JavaScript into WebGL or WebGPU
+shaders, overcoming these hardware-level serialization issues requires
+strategic memory access patterns. This guide outlines practical
+techniques—including memory padding, 2D tiling, vector packing, and
+virtual transpositions—to eliminate bank conflicts and maximize
+throughput in gpu.js kernel executions.</p>
+<h3
+id="understanding-bank-conflicts-in-matrix-transposition">Understanding
+Bank Conflicts in Matrix Transposition</h3>
+<p>Modern GPUs divide high-speed on-chip memory into distinct, equally
+sized memory banks (typically 32 banks) that can be accessed
+simultaneously. A memory bank conflict occurs when multiple concurrent
+threads in the same warp or execution group request different addresses
+mapped to the same memory bank, forcing the hardware to serialize the
+requests.</p>
+<p>During a standard matrix transpose, elements read sequentially along
+rows must be written down columns (or vice versa). This strided access
+frequently aligns indices directly with bank periodicity, causing
+high-degree bank conflicts and cache-line thrashing.</p>
+<h3 id="1-matrix-padding-array-pitching">1. Matrix Padding (Array
+Pitching)</h3>
+<p>The most direct solution to break bank stride alignment is memory
+padding. When matrix dimensions are exact multiples of the number of
+memory banks (such as 32, 64, or 128), every column element will map to
+the exact same bank.</p>
+<ul>
+<li><strong>Implementation:</strong> Allocate the input matrix with an
+extra dummy column (e.g., <span class="math inline">\(N \times (M +
+1)\)</span> instead of <span class="math inline">\(N \times
+M\)</span>).</li>
+<li><strong>Mechanism:</strong> Shifting each row's starting address by
+one element offsets the column addresses across consecutive banks. When
+a thread accesses a column element, the index no longer lines up with
+the bank cycle, eliminating serialization.</li>
+</ul>
+<h3 id="2-tiled-matrix-transposition">2. Tiled Matrix Transposition</h3>
+<p>Instead of assigning individual threads to read an entire row and
+write an entire column across the whole matrix, partition the workload
+into localized 2D tiles (e.g., <span class="math inline">\(16 \times
+16\)</span> or <span class="math inline">\(32 \times 32\)</span>).</p>
+<ul>
+<li><strong>Mechanism:</strong> Processing data within local tiles keeps
+reads and writes constrained within localized GPU texture cache lines
+and registers.</li>
+<li><strong>In gpu.js:</strong> Configure your kernel dimensions to
+compute small square blocks. By keeping work grouped locally, threads
+access spatially contiguous chunks of texture memory, drastically
+reducing cache misses and strided bank collisions at the driver
+level.</li>
+</ul>
+<h3 id="3-vectorized-transfers-using-vec4-rgba-packing">3. Vectorized
+Transfers Using Vec4 (RGBA Packing)</h3>
+<p>Under WebGL, gpu.js utilizes textures to store array elements. By
+taking advantage of 4-component vectors (<code>vec4</code> or standard
+RGBA channels), you can process <span class="math inline">\(4 \times
+4\)</span> sub-matrices natively.</p>
+<ul>
+<li><strong>Mechanism:</strong> Instead of accessing single floats with
+a stride of <span class="math inline">\(N\)</span>, you read a single
+<code>vec4</code> representing four contiguous elements in one memory
+transaction.</li>
+<li><strong>Execution:</strong> Unroll a <span class="math inline">\(4
+\times 4\)</span> mini-transpose within the kernel using register
+variables:
+<ol type="1">
+<li>Read four <code>vec4</code> values from four consecutive rows.</li>
+<li>Swap components within local variables (which exist in private
+register space, immune to shared bank conflicts).</li>
+<li>Write the results out as four transposed <code>vec4</code>
+entries.</li>
+</ol></li>
+</ul>
+<p>This reduces the total number of memory instructions by 75% and
+ensures fully coalesced transactions.</p>
+<h3 id="4-coalesce-writes-over-reads">4. Coalesce Writes Over Reads</h3>
+<p>GPUs handle uncoalesced and conflicted reads significantly better
+than uncoalesced writes. Because read requests can be cached and
+coalesced via internal read-only texture caches, you should always favor
+structured, continuous writes.</p>
+<ul>
+<li><strong>Optimization:</strong> In your gpu.js kernel logic, arrange
+thread coordinate assignments (<code>this.thread.x</code>,
+<code>this.thread.y</code>) so that output writes are strictly
+sequential:
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> transposeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(matrix) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Read with a stride (gather), but write contiguously (coalesced)</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> matrix[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([ROWS<span class="op">,</span> COLUMNS])<span class="op">;</span></span></code></pre></div>
+Writing contiguously across adjacent threads prevents write-pipeline
+stall and bank collisions during the commit phase.</li>
+</ul>
+<h3 id="5-virtual-transposition-lazy-evaluation">5. Virtual
+Transposition (Lazy Evaluation)</h3>
+<p>The most effective way to eliminate bank conflicts is to avoid the
+physical transpose entirely.</p>
+<ul>
+<li><strong>Mechanism:</strong> Rather than executing an intermediate
+transpose kernel that writes a transformed matrix back to GPU memory,
+invert the indexing logic (<code>matrix[col][row]</code>) directly
+inside downstream kernels (such as matrix multiplication or
+convolution).</li>
+<li><strong>Benefit:</strong> Eliminating the intermediate
+write-and-read pass removes transposition overhead, saves texture memory
+bandwidth, and bypasses memory bank conflicts altogether.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

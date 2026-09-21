@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Buffer Reuse for Frequent Updates in gpu.js - gpu.js</title>
+    <meta name="description" content="WebGL buffer and texture reuse techniques can significantly optimize performance in gpu.js applications requiring frequent input updates, such as physics simulations, real-time audio processing, or video manipulation. By default, passing standard JavaScr">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-buffer-reuse-for-frequent-updates-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL Buffer Reuse for Frequent Updates in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-buffer-reuse-for-frequent-updates-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="WebGL buffer and texture reuse techniques can significantly optimize performance in gpu.js applications requiring frequent input updates, such as physics simulations, real-time audio processing, or video manipulation. By default, passing standard JavaScr" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl-buffer-reuse-for-frequent-updates-in-gpujs">WebGL Buffer
+Reuse for Frequent Updates in gpu.js</h1>
+<p>WebGL buffer and texture reuse techniques can significantly optimize
+performance in gpu.js applications requiring frequent input updates,
+such as physics simulations, real-time audio processing, or video
+manipulation. By default, passing standard JavaScript arrays to a gpu.js
+kernel forces CPU-to-GPU memory reallocation and expensive data
+serialization on every call. By leveraging pipeline mode, feeding
+textures directly into kernels, and recycling underlying WebGL texture
+targets, developers can bypass the CPU-GPU bandwidth bottleneck and
+achieve near-native WebGL execution speeds within gpu.js.</p>
+<h3 id="the-problem-with-standard-array-inputs">The Problem with
+Standard Array Inputs</h3>
+<p>When an application passes a standard JavaScript array into a gpu.js
+kernel, the library must parse the data, allocate GPU memory, and
+transmit the data over the system bus using WebGL texture upload
+commands like <code>gl.texImage2D</code>. When this transfer occurs
+every frame (such as in a 60 FPS animation loop), it introduces two
+major performance hurdles:</p>
+<ol type="1">
+<li><strong>Memory Bandwidth Bottleneck:</strong> Serializing and
+transferring large data arrays continuously saturates the PCIe bus.</li>
+<li><strong>Garbage Collection Pressure:</strong> Repeatedly allocating
+and deallocating memory buffers creates heavy garbage collection spikes
+on the CPU main thread.</li>
+</ol>
+<h3 id="leveraging-pipeline-mode-for-in-vram-reuse">Leveraging Pipeline
+Mode for In-VRAM Reuse</h3>
+<p>The most effective native technique in gpu.js to implement buffer
+reuse is enabling pipeline mode via
+<code>kernel.setPipeline(true)</code>.</p>
+<p>Normally, a kernel execution reads an array, processes it via a
+fragment shader, renders it to an off-screen framebuffer texture, reads
+the pixels back to the CPU via <code>gl.readPixels</code>, and returns a
+JavaScript array. When pipeline mode is enabled:</p>
+<ul>
+<li>The kernel returns a lightweight <code>Texture</code> object
+pointing directly to the WebGL texture memory instead of a serialized
+CPU array.</li>
+<li>This returned <code>Texture</code> can be fed directly as an
+argument into the next kernel execution or even back into itself
+recursively.</li>
+<li>The computational loop runs entirely in VRAM without data ever
+traveling back to the CPU, eliminating memory reallocation.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> compute <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(prevData) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> prevData[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="fl">1.01</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000000</span>])</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> dataTexture <span class="op">=</span> <span class="fu">compute</span>(initialArray)<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Simulation loop: memory stays on the GPU</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">step</span>() {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    dataTexture <span class="op">=</span> <span class="fu">compute</span>(dataTexture)<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="direct-texture-management">Direct Texture Management</h3>
+<p>If data must be altered dynamically outside the kernel, feeding raw
+JavaScript arrays directly should still be avoided. Instead, developers
+can use the <code>gpu.createTexture()</code> method or pass WebGL
+textures created in an external WebGL context.</p>
+<p>By keeping data wrapped in a persistent <code>Texture</code> wrapper,
+gpu.js avoids destroying and re-binding WebGL texture units on every
+iteration. When data changes only partially, writing to the underlying
+texture using <code>gl.texSubImage2D</code> (if accessing the underlying
+<code>gpu.context</code>) allows in-place updates to existing buffers,
+preventing the driver from allocating fresh memory blocks.</p>
+<h3 id="integrating-with-existing-webgl-contexts">Integrating with
+Existing WebGL Contexts</h3>
+<p>gpu.js allows users to pass an existing WebGL context into the
+initial constructor:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> canvas <span class="op">=</span> <span class="bu">document</span><span class="op">.</span><span class="fu">createElement</span>(<span class="st">&#39;canvas&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> canvas<span class="op">.</span><span class="fu">getContext</span>(<span class="st">&#39;webgl2&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">context</span><span class="op">:</span> gl })<span class="op">;</span></span></code></pre></div>
+<p>Sharing a single WebGL context provides lower-level control over
+buffer allocations. Developers can use raw WebGL APIs—such as Transform
+Feedback buffers or Pixel Buffer Objects (PBOs)—to manipulate and upload
+dynamic inputs asynchronously, then bind those same buffers as textures
+for gpu.js kernels to compute.</p>
+<h3 id="best-practices-for-high-frequency-updates">Best Practices for
+High-Frequency Updates</h3>
+<p>To maintain high throughput when updating inputs repeatedly in
+gpu.js:</p>
+<ul>
+<li><strong>Eliminate <code>toArray()</code> in the Hot Loop:</strong>
+Only extract data from <code>Texture</code> instances to CPU arrays when
+it is strictly necessary to present text or pass data outside the
+GPU.</li>
+<li><strong>Batch Small Updates:</strong> If dynamic inputs change
+frequently, combine individual scalar or vector changes into a single
+packed texture to minimize the number of texture binding
+operations.</li>
+<li><strong>Keep Dimensions Constant:</strong> Changing kernel input or
+output dimensions forces gpu.js to recompile shaders and reconstruct
+framebuffers. Keep buffer dimensions fixed and use masking logic inside
+the kernel to handle variable data lengths.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cellular Potts Models in gpu.js for Morphogenesis - gpu.js</title>
+    <meta name="description" content="This article provides a practical guide to implementing the Cellular Potts Model (CPM) for simulating biological tissue morphogenesis using gpu.js. It covers the mathematical formulation of the Hamiltonian, strategies to circumvent the sequential nature">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/cellular-potts-models-in-gpu-js-for-morphogenesis">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Cellular Potts Models in gpu.js for Morphogenesis - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/cellular-potts-models-in-gpu-js-for-morphogenesis" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides a practical guide to implementing the Cellular Potts Model (CPM) for simulating biological tissue morphogenesis using gpu.js. It covers the mathematical formulation of the Hamiltonian, strategies to circumvent the sequential nature" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="cellular-potts-models-in-gpujs-for-morphogenesis">Cellular Potts
+Models in gpu.js for Morphogenesis</h1>
+<p>This article provides a practical guide to implementing the Cellular
+Potts Model (CPM) for simulating biological tissue morphogenesis using
+gpu.js. It covers the mathematical formulation of the Hamiltonian,
+strategies to circumvent the sequential nature of traditional Monte
+Carlo methods on parallel architectures, and the step-by-step creation
+of GPU kernels for energy evaluation, state updates, and visualization
+in the browser.</p>
+<hr />
+<h3 id="the-cellular-potts-model-framework">The Cellular Potts Model
+Framework</h3>
+<p>The Cellular Potts Model (also known as the Glazier-Graner-Hogeweg
+model) represents cells as collections of contiguous pixels (or voxels)
+on a discrete lattice. Each lattice site <span
+class="math inline">\(\vec{x}\)</span> is assigned a spin value <span
+class="math inline">\(\sigma(\vec{x})\)</span> identifying the cell
+occupying that site, alongside a cell type <span
+class="math inline">\(\tau(\sigma(\vec{x}))\)</span>.</p>
+<p>Morphogenesis is driven by minimizing a system Hamiltonian <span
+class="math inline">\(H\)</span>, typically defined as:</p>
+<p><span class="math display">\[H = \sum_{(\vec{x}, \vec{x}&#39;)}
+J(\tau(\sigma(\vec{x})), \tau(\sigma(\vec{x}&#39;))) (1 -
+\delta(\sigma(\vec{x}), \sigma(\vec{x}&#39;))) + \sum_{\sigma}
+\lambda_{V} (V(\sigma) - V_0(\sigma))^2\]</span></p>
+<ul>
+<li><strong>Adhesion Energy (<span
+class="math inline">\(J\)</span>):</strong> Quantifies contact energy
+between neighboring lattice sites belonging to different cells.</li>
+<li><strong>Volume Constraint (<span
+class="math inline">\(\lambda_V\)</span>):</strong> Penalizes deviations
+of the cell's current volume <span
+class="math inline">\(V(\sigma)\)</span> from its target volume <span
+class="math inline">\(V_0(\sigma)\)</span>.</li>
+</ul>
+<p>Dynamic evolution is typically executed using a modified Metropolis
+algorithm: a source site attempts to copy its spin into an adjacent
+target site, with acceptance dictated by the change in energy:</p>
+<p><span class="math display">\[P(\Delta H) = \begin{cases} 1 &amp;
+\text{if } \Delta H \le 0 \\ e^{-\Delta H / T} &amp; \text{if } \Delta H
+&gt; 0 \end{cases}\]</span></p>
+<p>where <span class="math inline">\(T\)</span> corresponds to
+biological cell membrane fluctuation amplitude.</p>
+<hr />
+<h3 id="overcoming-gpu-parallelization-bottlenecks">Overcoming GPU
+Parallelization Bottlenecks</h3>
+<p>Standard CPM runs sequentially using Metropolis-Hastings updates.
+Writing simultaneously to neighboring sites on a GPU creates race
+conditions and violates detailed balance.</p>
+<p>To parallelize CPM execution in gpu.js:</p>
+<ol type="1">
+<li><strong>Sub-Lattice (Checkerboard) Decomposition:</strong> Divide
+the lattice into non-interacting sets (e.g., 2-color checkerboard for
+von Neumann neighborhoods, or 4-phase/9-phase blocks for Moore
+neighborhoods). In each phase, only sites in the active set evaluate
+spin copies from their immediate neighbors, ensuring no neighboring
+sites update at the exact same time.</li>
+<li><strong>Volume Reduction Decoupling:</strong> Global volume
+calculation requires an aggregation pass. In gpu.js, compute volume
+arrays via an accumulation kernel or run an auxiliary reduction pass
+between sub-lattice update cycles.</li>
+</ol>
+<hr />
+<h3 id="implementation-in-gpujs">Implementation in gpu.js</h3>
+<h4 id="1-setup-and-lattice-representation">1. Setup and Lattice
+Representation</h4>
+<p>Install <code>gpu.js</code> and initialize the context. Store the
+spatial domain as a 2D array where each element contains the cell ID
+<span class="math inline">\(\sigma(\vec{x})\)</span>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> WIDTH <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> HEIGHT <span class="op">=</span> <span class="dv">256</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> NUM_CELLS <span class="op">=</span> <span class="dv">50</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize lattice with background (0) and assigned cell IDs (1..NUM_CELLS)</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> lattice <span class="op">=</span> <span class="kw">new</span> <span class="bu">Int32Array</span>(WIDTH <span class="op">*</span> HEIGHT)<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Seed cells at random positions...</span></span></code></pre></div>
+<h4 id="2-calculating-adhesion-and-target-candidates">2. Calculating
+Adhesion and Target Candidates</h4>
+<p>Due to limitations of GLSL transpilation in gpu.js (e.g., constrained
+dynamic memory allocation), store contact energies in a flat 1D texture
+or matrix of size <code>NUM_TYPES x NUM_TYPES</code>.</p>
+<p>Define the checkerboard update kernel. The following example
+processes a red-black pass (<code>phase = 0</code> or
+<code>1</code>):</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> cpmKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid<span class="op">,</span> phase<span class="op">,</span> seed<span class="op">,</span> T<span class="op">,</span> J_MATRIX) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> width <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">width</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> height <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">height</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Check if the current pixel belongs to the active checkerboard phase</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> ((x <span class="op">+</span> y) <span class="op">%</span> <span class="dv">2</span> <span class="op">!==</span> phase) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Pseudo-random neighbor selection (Von Neumann)</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> rand <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> y <span class="op">*</span> <span class="fl">78.233</span> <span class="op">+</span> seed) <span class="op">*</span> <span class="fl">43758.5453</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> dir <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(rand) <span class="op">%</span> <span class="dv">4</span>)<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nx <span class="op">=</span> x<span class="op">;</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> ny <span class="op">=</span> y<span class="op">;</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (dir <span class="op">===</span> <span class="dv">0</span>) nx <span class="op">=</span> (x <span class="op">+</span> <span class="dv">1</span>) <span class="op">%</span> width<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (dir <span class="op">===</span> <span class="dv">1</span>) nx <span class="op">=</span> (x <span class="op">-</span> <span class="dv">1</span> <span class="op">+</span> width) <span class="op">%</span> width<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (dir <span class="op">===</span> <span class="dv">2</span>) ny <span class="op">=</span> (y <span class="op">+</span> <span class="dv">1</span>) <span class="op">%</span> height<span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span> <span class="cf">if</span> (dir <span class="op">===</span> <span class="dv">3</span>) ny <span class="op">=</span> (y <span class="op">-</span> <span class="dv">1</span> <span class="op">+</span> height) <span class="op">%</span> height<span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sourceSpin <span class="op">=</span> grid[ny][nx]<span class="op">;</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> targetSpin <span class="op">=</span> grid[y][x]<span class="op">;</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (sourceSpin <span class="op">===</span> targetSpin) {</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> targetSpin<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Compute local adhesion energy before proposed copy</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    <span class="co">// (Exemplified with 4-neighborhood sum)</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> H_before <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> H_after <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Evaluate bonds with immediate neighbors</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> neighborsX <span class="op">=</span> [x <span class="op">+</span> <span class="dv">1</span><span class="op">,</span> x <span class="op">-</span> <span class="dv">1</span><span class="op">,</span> x<span class="op">,</span> x]<span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> neighborsY <span class="op">=</span> [y<span class="op">,</span> y<span class="op">,</span> y <span class="op">+</span> <span class="dv">1</span><span class="op">,</span> y <span class="op">-</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">4</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> checkX <span class="op">=</span> (neighborsX[i] <span class="op">+</span> width) <span class="op">%</span> width<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> checkY <span class="op">=</span> (neighborsY[i] <span class="op">+</span> height) <span class="op">%</span> height<span class="op">;</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> neighborSpin <span class="op">=</span> grid[checkY][checkX]<span class="op">;</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Contact energy before copy</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (targetSpin <span class="op">!==</span> neighborSpin) {</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>            H_before <span class="op">+=</span> <span class="fl">2.0</span><span class="op">;</span> <span class="co">// Retrieve from J_MATRIX via cell type lookup</span></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Contact energy after copy</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (sourceSpin <span class="op">!==</span> neighborSpin) {</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>            H_after <span class="op">+=</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> deltaH <span class="op">=</span> H_after <span class="op">-</span> H_before<span class="op">;</span></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Metropolis Acceptance Rule</span></span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (deltaH <span class="op">&lt;=</span> <span class="fl">0.0</span>) {</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> sourceSpin<span class="op">;</span></span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> acceptProb <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>deltaH <span class="op">/</span> T)<span class="op">;</span></span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> roll <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(rand <span class="op">*</span> <span class="fl">1.5</span>)) <span class="op">%</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (roll <span class="op">&lt;</span> acceptProb) {</span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> sourceSpin<span class="op">;</span></span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> targetSpin<span class="op">;</span></span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>    <span class="dt">constants</span><span class="op">:</span> { <span class="dt">width</span><span class="op">:</span> WIDTH<span class="op">,</span> <span class="dt">height</span><span class="op">:</span> HEIGHT }<span class="op">,</span></span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [WIDTH<span class="op">,</span> HEIGHT]<span class="op">,</span></span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span> <span class="co">// Keeps output in texture memory for sequential passes</span></span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h4 id="3-integrating-areavolume-conservation">3. Integrating
+Area/Volume Conservation</h4>
+<p>Strict volume constraints require updating cell sizes
+dynamically:</p>
+<ol type="1">
+<li><strong>Volume Count Kernel:</strong> Compute the area of each cell
+by running an aggregation pass where each cell ID increments a
+corresponding index in an area array.</li>
+<li><strong>Global Integration:</strong> Include the volume penalty
+<span class="math inline">\(\Delta H_{vol} = \lambda_V \left[ (V_{new} -
+V_0)^2 - (V_{old} - V_0)^2 \right]\)</span> within the
+<code>cpmKernel</code>. Pass the volume table as an auxiliary input
+texture.</li>
+</ol>
+<h4 id="4-the-simulation-loop">4. The Simulation Loop</h4>
+<p>To perform continuous morphogenesis, alternate the phases, swap GPU
+textures, and render to a canvas:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentGrid <span class="op">=</span> lattice<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> seed <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">stepSimulation</span>() {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    seed <span class="op">+=</span> <span class="fl">0.01</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Pass 1: Even phase update</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> textureEven <span class="op">=</span> <span class="fu">cpmKernel</span>(currentGrid<span class="op">,</span> <span class="dv">0</span><span class="op">,</span> seed<span class="op">,</span> <span class="fl">10.0</span><span class="op">,</span> jMatrix)<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Pass 2: Odd phase update</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> textureOdd <span class="op">=</span> <span class="fu">cpmKernel</span>(textureEven<span class="op">,</span> <span class="dv">1</span><span class="op">,</span> seed <span class="op">+</span> <span class="fl">1.0</span><span class="op">,</span> <span class="fl">10.0</span><span class="op">,</span> jMatrix)<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    currentGrid <span class="op">=</span> textureOdd<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="5-real-time-visualization">5. Real-Time Visualization</h4>
+<p><code>gpu.js</code> supports rendering directly to an HTML5 canvas
+without reading data back to the CPU using graphical kernels:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(grid) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> spin <span class="op">=</span> grid[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (spin <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(<span class="fl">0.1</span><span class="op">,</span> <span class="fl">0.1</span><span class="op">,</span> <span class="fl">0.1</span><span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span> <span class="co">// Background</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Color mapping derived from spin ID</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> r <span class="op">=</span> (spin <span class="op">*</span> <span class="dv">37</span> <span class="op">%</span> <span class="dv">255</span>) <span class="op">/</span> <span class="dv">255</span><span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> g <span class="op">=</span> (spin <span class="op">*</span> <span class="dv">59</span> <span class="op">%</span> <span class="dv">255</span>) <span class="op">/</span> <span class="dv">255</span><span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> b <span class="op">=</span> (spin <span class="op">*</span> <span class="dv">83</span> <span class="op">%</span> <span class="dv">255</span>) <span class="op">/</span> <span class="dv">255</span><span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(r<span class="op">,</span> g<span class="op">,</span> b<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">renderLoop</span>() {</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stepSimulation</span>()<span class="op">;</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">renderKernel</span>(currentGrid)<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>    <span class="fu">requestAnimationFrame</span>(renderLoop)<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="optimization-notes">Optimization Notes</h3>
+<ul>
+<li><strong>Pipeline Mode:</strong> Set <code>pipeline: true</code> on
+iterative simulation kernels to maintain textures entirely within VRAM,
+preventing CPU-GPU bus bottlenecks.</li>
+<li><strong>Neighborhood Size:</strong> Using higher-order neighborhoods
+(e.g., 2nd- or 3rd-order Euclidean neighbors) reduces lattice anisotropy
+(grid bias) in cell shapes, but requires expanding the checkerboard
+decomposition to an <span class="math inline">\(N \times N\)</span>
+block-stride pattern to avoid race conditions.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

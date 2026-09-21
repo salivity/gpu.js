@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Integer Overflow Handling Explained - gpu.js</title>
+    <meta name="description" content="This article explores how the GPU.js library handles integer overflow when variables exceed 32-bit signed boundaries. Because GPU.js transpiles JavaScript functions into WebGL shader code, its numerical limits and overflow characteristics are determined">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-integer-overflow-handling-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Integer Overflow Handling Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-integer-overflow-handling-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how the GPU.js library handles integer overflow when variables exceed 32-bit signed boundaries. Because GPU.js transpiles JavaScript functions into WebGL shader code, its numerical limits and overflow characteristics are determined" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-integer-overflow-handling-explained">GPU.js Integer
+Overflow Handling Explained</h1>
+<p>This article explores how the GPU.js library handles integer overflow
+when variables exceed 32-bit signed boundaries. Because GPU.js
+transpiles JavaScript functions into WebGL shader code, its numerical
+limits and overflow characteristics are determined by the underlying
+Graphics Library Shading Language (GLSL) rather than standard JavaScript
+runtime behavior. Readers will learn about two's complement wrap-around
+in WebGL 2, the effects of float fallback in WebGL 1, and the
+discrepancies between CPU and GPU numerical precision.</p>
+<h2 id="the-transpilation-layer-javascript-to-glsl">The Transpilation
+Layer: JavaScript to GLSL</h2>
+<p>GPU.js works by parsing standard JavaScript functions and transpiling
+them into GLSL shaders executed directly on the GPU. In native
+JavaScript, numbers are 64-bit double-precision floating-point values
+(IEEE 754), capable of representing integers safely up to <span
+class="math inline">\(2^{53} - 1\)</span>.</p>
+<p>When code is offloaded to the GPU via GPU.js, variables typed as
+integers are mapped to GLSL 32-bit signed integers (<code>int</code>).
+Consequently, standard JavaScript numerical safety limits no longer
+apply within kernel execution.</p>
+<h2 id="webgl-2-hardware-twos-complement-wrap-around">WebGL 2: Hardware
+Two's Complement Wrap-Around</h2>
+<p>When GPU.js runs in a WebGL 2 context, it utilizes native 32-bit
+signed integer types (<code>int</code>). The boundary limits for these
+values are:</p>
+<ul>
+<li><strong>Minimum:</strong> <span
+class="math inline">\(-2,147,483,648\)</span> (<span
+class="math inline">\(-2^{31}\)</span>)</li>
+<li><strong>Maximum:</strong> <span
+class="math inline">\(2,147,483,647\)</span> (<span
+class="math inline">\(2^{31} - 1\)</span>)</li>
+</ul>
+<p>If an operation exceeds <span
+class="math inline">\(2,147,483,647\)</span>, the GPU does not throw an
+exception, clamp the value, or raise a warning. Modern graphics hardware
+evaluates integer arithmetic using two's complement binary
+representation. When an integer exceeds the maximum limit, the sign bit
+flips, causing the value to wrap around to the negative boundary:</p>
+<p><span class="math display">\[2,147,483,647 + 1 =
+-2,147,483,648\]</span></p>
+<p>Similarly, underflowing below <span
+class="math inline">\(-2,147,483,648\)</span> wraps around back to the
+maximum positive integer:</p>
+<p><span class="math display">\[-2,147,483,648 - 1 =
+2,147,483,647\]</span></p>
+<p>While the GLSL specification defines integer overflow as undefined
+behavior, contemporary GPU architectures consistently execute
+wrap-around arithmetic at the register level.</p>
+<h2 id="webgl-1-fallback-single-precision-float-emulation">WebGL 1
+Fallback: Single-Precision Float Emulation</h2>
+<p>In environments where WebGL 2 is unavailable, GPU.js falls back to
+WebGL 1. WebGL 1 shaders lack native support for integer arithmetic in
+many implementations and instead emulate numbers using 32-bit
+single-precision floating-point values (<code>highp float</code>).</p>
+<p>In this scenario, numbers do not exhibit traditional two's complement
+wrap-around:</p>
+<ul>
+<li>A 32-bit float provides 24 bits of mantissa precision.</li>
+<li>Integers are accurately represented only up to <span
+class="math inline">\(2^{24}\)</span> (<span
+class="math inline">\(16,777,216\)</span>).</li>
+<li>Calculations exceeding <span
+class="math inline">\(16,777,216\)</span> suffer from precision
+degradation rather than sudden sign inversion. Increments of
+<code>1</code> will round to the nearest representable float, leading to
+silent inaccuracies instead of wrapping to negative values.</li>
+</ul>
+<h2 id="discrepancies-between-kernel-code-and-javascript">Discrepancies
+Between Kernel Code and JavaScript</h2>
+<p>The primary hazard when using GPU.js is the behavioral divergence
+between the CPU and the GPU:</p>
+<ol type="1">
+<li><strong>CPU Execution:</strong> If a kernel falls back to CPU
+execution (e.g., via <code>mode: 'cpu'</code>), operations proceed using
+standard JavaScript 64-bit floats. A value exceeding <span
+class="math inline">\(2,147,483,647\)</span> continues incrementing
+normally up to <span
+class="math inline">\(9,007,199,254,740,991\)</span>.</li>
+<li><strong>GPU Execution:</strong> The exact same code executed on the
+GPU via WebGL 2 wraps around to negative numbers as soon as it passes
+<span class="math inline">\(2,147,483,647\)</span>.</li>
+</ol>
+<h2 id="preventing-integer-overflow-in-gpujs">Preventing Integer
+Overflow in GPU.js</h2>
+<p>To avoid unexpected wrap-around or precision errors during kernel
+execution:</p>
+<ul>
+<li><strong>Enforce Manual Modulo Operations:</strong> If maintaining
+cyclic counter states, explicitly restrict boundaries using the modulo
+operator before reaching the 32-bit limit.</li>
+<li><strong>Utilize Floating-Point Math:</strong> Declare variables
+intended for large computations as floats rather than integers to
+leverage a broader numerical range, accounting for standard
+floating-point precision constraints.</li>
+<li><strong>Normalize Inputs:</strong> Scale large integer data down on
+the CPU before passing input arrays or textures into the GPU
+kernel.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

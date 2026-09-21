@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Memory Optimization in Animation Loops - gpu.js</title>
+    <meta name="description" content="High-frequency animation loops in the browser demand consistent frame rates, where even minor memory allocation stalls can trigger garbage collection pauses and drop frames. GPU.js avoids these performance bottlenecks by translating JavaScript computatio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-memory-optimization-in-animation-loops">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Memory Optimization in Animation Loops - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-memory-optimization-in-animation-loops" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="High-frequency animation loops in the browser demand consistent frame rates, where even minor memory allocation stalls can trigger garbage collection pauses and drop frames. GPU.js avoids these performance bottlenecks by translating JavaScript computatio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-memory-optimization-in-animation-loops">GPU.js Memory
+Optimization in Animation Loops</h1>
+<p>High-frequency animation loops in the browser demand consistent frame
+rates, where even minor memory allocation stalls can trigger garbage
+collection pauses and drop frames. GPU.js avoids these performance
+bottlenecks by translating JavaScript computations into WebGL shaders
+and executing them directly on the graphics card. To sustain continuous
+rendering without CPU or GPU allocation churn, GPU.js relies on texture
+pipelining, buffer reuse, typed array structures, and kernel
+precompilation.</p>
+<h3 id="pipeline-mode-and-gpu-texture-retention">Pipeline Mode and GPU
+Texture Retention</h3>
+<p>The most effective strategy GPU.js uses to avoid allocation stalls is
+its pipeline feature. In typical operations, a GPU kernel reads data,
+computes results, and downloads the output back to the CPU via
+operations like <code>readPixels</code>. This download forces memory
+allocation in JavaScript heaps and creates CPU-GPU synchronization
+stalls.</p>
+<p>By enabling <code>pipeline: true</code> on a kernel, GPU.js bypasses
+this round trip. Instead of returning raw JavaScript arrays, the kernel
+outputs a WebGL texture that remains in VRAM. This texture can be passed
+directly as an input into subsequent kernels or rendered directly to an
+HTML5 canvas. Keeping data resident in GPU memory completely eliminates
+JavaScript-side allocations during frame-by-frame updates.</p>
+<h3 id="webgl-texture-and-framebuffer-recycling">WebGL Texture and
+Framebuffer Recycling</h3>
+<p>Repeatedly creating and destroying WebGL textures or Framebuffer
+Objects (FBOs) during an animation loop triggers internal graphics
+driver overhead and memory churn. GPU.js avoids this by implementing an
+internal object pooling mechanism.</p>
+<p>When a kernel runs repeatedly with the same output dimensions, GPU.js
+reuses existing textures and framebuffers rather than instantiating new
+WebGL handles. By recycling these allocated blocks in VRAM, the engine
+maintains a stable memory footprint throughout prolonged 60 FPS or 120
+FPS animation runs.</p>
+<h3 id="typedarray-memory-continuity">TypedArray Memory Continuity</h3>
+<p>When data must move between the CPU and GPU, GPU.js relies strictly
+on JavaScript <code>TypedArrays</code> (such as
+<code>Float32Array</code>) rather than native JavaScript arrays. Dynamic
+JavaScript arrays are continuously resized and reorganized in memory by
+the browser's JavaScript engine, generating garbage collection
+overhead.</p>
+<p>TypedArrays use fixed-length, contiguous memory buffers that map
+cleanly to WebGL data formats. By passing references to pre-allocated
+<code>Float32Array</code> buffers on the CPU side, developers and GPU.js
+eliminate runtime object reallocations, ensuring that the JavaScript
+engine's garbage collector remains idle during rendering cycles.</p>
+<h3 id="kernel-caching-and-precompilation">Kernel Caching and
+Precompilation</h3>
+<p>Parsing JavaScript code and compiling it into GLSL shaders at runtime
+requires memory for string manipulation and abstract syntax tree (AST)
+generation. GPU.js compiles kernels during initialization rather than
+during the execution loop.</p>
+<p>Once a kernel is compiled into a WebGL program, GPU.js caches the
+execution context, uniform locations, and attribute pointers. Subsequent
+invocations within the animation loop only bind updated dynamic uniforms
+(such as timestamps or coordinates) to existing WebGL program states,
+requiring zero auxiliary memory allocation per frame.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Variable Scoping and Shadowing Explained - gpu.js</title>
+    <meta name="description" content="GPU.js converts standard JavaScript functions into WebGL-compatible GLSL (OpenGL Shading Language) shaders to run computations massively parallel on the GPU. When handling nested block scopes containing identical variable names—a concept known as varia">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-variable-scoping-and-shadowing-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Variable Scoping and Shadowing Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-variable-scoping-and-shadowing-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js converts standard JavaScript functions into WebGL-compatible GLSL (OpenGL Shading Language) shaders to run computations massively parallel on the GPU. When handling nested block scopes containing identical variable names—a concept known as varia" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-variable-scoping-and-shadowing-explained">GPU.js Variable
+Scoping and Shadowing Explained</h1>
+<p>GPU.js converts standard JavaScript functions into WebGL-compatible
+GLSL (OpenGL Shading Language) shaders to run computations massively
+parallel on the GPU. When handling nested block scopes containing
+identical variable names—a concept known as variable shadowing—GPU.js
+relies on an internal Abstract Syntax Tree (AST) transpiler to prevent
+scope collisions, resolve ambiguity, and generate valid GLSL code. This
+article explains the underlying mechanism GPU.js uses to parse, track,
+and rename shadowed variables across nested blocks.</p>
+<h3 id="the-javascript-to-glsl-scoping-challenge">The JavaScript to GLSL
+Scoping Challenge</h3>
+<p>JavaScript (ES6+) supports block scoping via <code>let</code> and
+<code>const</code>, allowing a nested block (such as an <code>if</code>
+condition or a <code>for</code> loop) to declare a variable that shares
+its name with a variable in an outer block:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> value <span class="op">=</span> <span class="fl">10.0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">&gt;</span> <span class="dv">5</span>) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> value <span class="op">=</span> <span class="fl">20.0</span><span class="op">;</span> <span class="co">// Shadows the outer &#39;value&#39;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> value<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>While modern GLSL versions permit standard block scoping, target
+platforms (such as WebGL 1.0 or non-compliant mobile GPU drivers) often
+enforce strict limitations or exhibit driver-specific bugs when
+variables are redeclared in nested compound statements. To ensure
+cross-platform compatibility and maintain correct execution flow, GPU.js
+cannot always emit shadowed variable names verbatim.</p>
+<h3 id="ast-parsing-and-the-symbol-table">AST Parsing and the Symbol
+Table</h3>
+<p>GPU.js begins execution by inspecting the stringified JavaScript
+kernel function and converting it into an Abstract Syntax Tree (AST)
+using Acorn. During the traversal of this tree, the transpiler manages a
+lexical environment structure:</p>
+<ol type="1">
+<li><strong>Scope Stack:</strong> A stack data structure tracks the
+current scope level. Entering a block statement pushes a new scope
+layer, while exiting pops it.</li>
+<li><strong>Symbol Table:</strong> Each scope maintains an inventory of
+locally declared identifiers (variables, constants, and loop
+counters).</li>
+<li><strong>Type and Context Tracking:</strong> Because GLSL is
+statically typed, GPU.js tracks the inferred types of these identifiers
+alongside their names.</li>
+</ol>
+<h3 id="variable-renaming-and-disambiguation">Variable Renaming and
+Disambiguation</h3>
+<p>When the compiler encounters a <code>VariableDeclaration</code> in a
+nested block, it queries the active scope stack. If the declared
+identifier already exists in an ancestor scope, GPU.js treats the new
+declaration as a shadowed variable.</p>
+<p>To prevent GLSL compilation errors and ensure deterministic behavior
+across diverse graphics drivers, GPU.js applies identifier mangling. The
+inner variable is rewritten to a unique internal name. This is typically
+accomplished by appending an incremented integer, scope depth
+identifier, or internal prefix (for example, transforming the nested
+<code>value</code> into <code>_value_1</code> or a similar unique GLSL
+identifier).</p>
+<p>All subsequent references (<code>Identifier</code> nodes) to
+<code>value</code> within that nested block are resolved to the newly
+generated identifier. Once the compiler exits the nested block,
+references to <code>value</code> fall back to resolving to the outer
+variable declaration.</p>
+<h3 id="handling-loop-scopes">Handling Loop Scopes</h3>
+<p>A common scenario involves re-declaring index variables across
+sibling or nested loops:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// First loop scope</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">10</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Sibling loop scope</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>In GLSL ES 1.0, re-declaring loop indices can trigger compiler
+warnings or errors depending on shader compiler implementations. GPU.js
+tracks loop iterators explicitly. If loop variables share identical
+identifiers in nested or sequential scopes, GPU.js guarantees that
+emitted loop variables receive unique names in the output shader string,
+decoupling the runtime GLSL identifiers from the original JavaScript
+names.</p>
+<h3 id="cpu-fallback-execution">CPU Fallback Execution</h3>
+<p>GPU.js includes a CPU fallback mode for environments lacking WebGL
+support. In this mode, the kernel function is not compiled to GLSL; it
+executes as standard JavaScript inside a CPU-bound loop. In this
+scenario, scope resolution is not handled by GPU.js itself, but rather
+delegated directly to the host JavaScript runtime engine (such as V8 or
+SpiderMonkey), which natively respects standard ECMAScript lexical block
+scoping rules.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

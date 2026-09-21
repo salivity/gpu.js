@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Terser and UglifyJS Minification - gpu.js</title>
+    <meta name="description" content="GPU.js converts JavaScript functions into WebGL shaders at runtime by stringifying and parsing their source code, a process that code minifiers like Terser and UglifyJS can inadvertently disrupt. While GPU.js uses an internal Abstract Syntax Tree (AST) p">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-terser-and-uglify-js-minification">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Terser and UglifyJS Minification - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-terser-and-uglify-js-minification" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js converts JavaScript functions into WebGL shaders at runtime by stringifying and parsing their source code, a process that code minifiers like Terser and UglifyJS can inadvertently disrupt. While GPU.js uses an internal Abstract Syntax Tree (AST) p" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-terser-and-uglifyjs-minification">How GPU.js
+Handles Terser and UglifyJS Minification</h1>
+<p>GPU.js converts JavaScript functions into WebGL shaders at runtime by
+stringifying and parsing their source code, a process that code
+minifiers like Terser and UglifyJS can inadvertently disrupt. While
+GPU.js uses an internal Abstract Syntax Tree (AST) parser to reconstruct
+the logic of minified kernels, aggressive optimizations—such as variable
+mangling, syntax simplification, and dead code elimination—can still
+trigger transpilation errors. This article explains the technical
+mechanics behind GPU.js kernel compilation, how minification affects the
+process, and how to configure your build pipeline to avoid runtime
+failures.</p>
+<h2 id="the-transpilation-mechanism-of-gpujs">The Transpilation
+Mechanism of GPU.js</h2>
+<p>GPU.js works by compiling high-level JavaScript functions into
+low-level OpenGL Shading Language (GLSL) shaders to execute them on the
+graphics card. Unlike traditional JavaScript libraries that execute
+functions directly via the JavaScript engine, GPU.js takes the kernel
+function passed to <code>gpu.createKernel()</code> and calls
+<code>.toString()</code> on it at runtime.</p>
+<p>Once the function is converted to a string, GPU.js uses an internal
+parser (built on Acorn) to analyze its AST. The library maps standard
+JavaScript loops, assignments, math operations, and conditionals
+directly to GLSL equivalents. Because the compilation happens
+dynamically inside the browser, GPU.js requires the function's
+structural syntax to remain predictable.</p>
+<h2 id="how-minification-conflicts-with-kernel-compilation">How
+Minification Conflicts with Kernel Compilation</h2>
+<p>Tools like Terser, UglifyJS, and ESBuild optimize bundle sizes by
+transforming code into the shortest possible valid JavaScript. While
+valid for standard JavaScript runtimes, these transformations often
+break the assumptions GPU.js makes when converting code to GLSL:</p>
+<ol type="1">
+<li><strong>Syntax Modernization and Simplification:</strong> Minifiers
+often convert standard <code>if/else</code> branches into ternary
+expressions or rewrite traditional <code>for</code> loops into
+unconventional patterns. GPU.js relies on standard <code>for</code> loop
+structures to map iterations to WebGL texture coordinates; heavily
+rewritten loops can fail AST conversion.</li>
+<li><strong>Variable Mangling:</strong> Minifiers rename variables to
+single letters to save space. While GPU.js can generally map renamed
+local variables, issues arise when minifiers alter function argument
+names or eliminate names required for internal variable tracking within
+the shader context.</li>
+<li><strong>Inlining and Expression Simplification:</strong> Aggressive
+dead code removal and constant folding can evaluate calculations at
+build time that GPU.js might expect to parse as dynamic GPU expressions,
+potentially causing syntax mismatch during GLSL generation.</li>
+</ol>
+<h2 id="how-gpujs-accommodates-minified-code">How GPU.js Accommodates
+Minified Code</h2>
+<p>To prevent outright failures, GPU.js includes an AST parser capable
+of handling compressed code formats. It normalizes whitespace, parses
+single-line blocks, and handles shorthand variable assignments produced
+by standard minifier passes.</p>
+<p>However, GPU.js cannot reverse-engineer structural modifications,
+such as transformed loop logic or hoisted logic that moves outside the
+kernel boundary. It handles superficial minification (such as whitespace
+removal and standard variable shortening) automatically, but relies on
+developer configuration when build tools alter the underlying execution
+flow.</p>
+<h2 id="strategies-for-reliable-build-configurations">Strategies for
+Reliable Build Configurations</h2>
+<p>To prevent Terser or UglifyJS from corrupting GPU.js kernels,
+implement the following best practices in your build pipeline:</p>
+<h3 id="1-pass-kernels-as-strings">1. Pass Kernels as Strings</h3>
+<p>GPU.js allows you to pass kernel functions as raw strings rather than
+native JavaScript functions. When code is represented as a string
+literal, minifiers will not compress or alter the contents:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernelFunction <span class="op">=</span> <span class="vs">`function(a, b) {</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="vs">  return a[this.thread.x] + b[this.thread.x];</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="vs">}`</span><span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(kernelFunction)<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span></code></pre></div>
+<h3 id="2-configure-minifier-settings">2. Configure Minifier
+Settings</h3>
+<p>If defining kernels as standard functions, configure your minifier to
+avoid destructive transformations on files containing GPU.js logic:</p>
+<ul>
+<li><strong>Disable Mangling for Kernels:</strong> Add kernel function
+names to the <code>reserved</code> list in Terser or UglifyJS
+configuration options.</li>
+<li><strong>Keep Class and Function Names:</strong> Set
+<code>keep_fnames: true</code> and <code>keep_classnames: true</code> to
+prevent renaming of GPU.js internals.</li>
+<li><strong>Turn Off Dangerous Compressions:</strong> In Terser, disable
+transformations such as <code>sequences</code>,
+<code>conditionals</code>, or <code>loops</code> if you encounter
+runtime syntax errors from GPU.js.</li>
+</ul>
+<h3 id="3-isolate-kernels-in-unminified-modules">3. Isolate Kernels in
+Unminified Modules</h3>
+<p>Place complex GPU kernels in separate files or external assets that
+bypass the minification step of your bundler (such as Webpack, Rollup,
+or Vite) entirely, importing them as raw strings using standard
+loaders.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

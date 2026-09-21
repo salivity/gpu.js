@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Testing GPU.js Kernels Using fast-check - gpu.js</title>
+    <meta name="description" content="This guide demonstrates how to design property-based tests using fast-check to thoroughly stress-test mathematical kernels written in gpu.js. By shifting away from static, example-based assertions and instead testing broad mathematical invariants and dif">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/testing-gpu-js-kernels-using-fast-check">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Testing GPU.js Kernels Using fast-check - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/testing-gpu-js-kernels-using-fast-check" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide demonstrates how to design property-based tests using fast-check to thoroughly stress-test mathematical kernels written in gpu.js. By shifting away from static, example-based assertions and instead testing broad mathematical invariants and dif" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="testing-gpujs-kernels-using-fast-check">Testing GPU.js Kernels
+Using fast-check</h1>
+<p>This guide demonstrates how to design property-based tests using
+<code>fast-check</code> to thoroughly stress-test mathematical kernels
+written in <code>gpu.js</code>. By shifting away from static,
+example-based assertions and instead testing broad mathematical
+invariants and differential behaviors against CPU reference models, you
+can systematically uncover precision drift, race conditions, dimension
+mismatch crashes, and boundary anomalies across thousands of randomly
+generated inputs.</p>
+<hr />
+<h3 id="the-challenge-of-testing-gpu-kernels">The Challenge of Testing
+GPU Kernels</h3>
+<p>Mathematical kernels executing on the GPU run in highly parallel
+environments with hardware-specific constraints. In <code>gpu.js</code>,
+JavaScript functions are compiled down to WebGL or WebGPU shaders. This
+transformation introduces unique failure modes:</p>
+<ul>
+<li><strong>Floating-point discrepancies:</strong> GPU shaders default
+to 32-bit single-precision (IEEE 754 float32), whereas JavaScript
+numbers are 64-bit double-precision (float64).</li>
+<li><strong>Out-of-bounds thread indexing:</strong> Off-by-one errors in
+dimensional indexing (<code>this.thread.x</code>,
+<code>this.thread.y</code>) often return <code>0.0</code> silently or
+cause memory faults.</li>
+<li><strong>Driver and optimization quirks:</strong> Aggressive hardware
+compiler optimizations can cause subtle arithmetic drift.</li>
+</ul>
+<p>Property-based testing with <code>fast-check</code> mitigates these
+risks by generating wide distributions of inputs—including extreme
+values like zeros, infinities, subnormals, and large matrices—and
+shrinking failures to minimal reproducible cases.</p>
+<hr />
+<h3 id="step-1-establish-a-differential-oracle">Step 1: Establish a
+Differential Oracle</h3>
+<p>The most effective pattern for testing a <code>gpu.js</code> kernel
+is <strong>differential testing</strong> (or test oracle comparison).
+You compare the output of the compiled GPU kernel against a simple,
+demonstrably correct CPU reference implementation.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> fc <span class="im">from</span> <span class="st">&#39;fast-check&#39;</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;gpu&#39;</span> })<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co">// 1. Define the GPU Kernel (e.g., Element-wise Matrix Multiplication)</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixMultiplyGPU <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">4</span><span class="op">,</span> <span class="dv">4</span>])<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="co">// 2. Define the CPU Reference Implementation</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">matrixMultiplyCPU</span>(a<span class="op">,</span> b<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> height<span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> row <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> width<span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>      row<span class="op">.</span><span class="fu">push</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">fround</span>(a[y][x] <span class="op">*</span> b[y][x]))<span class="op">;</span> <span class="co">// Math.fround forces 32-bit precision</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    result<span class="op">.</span><span class="fu">push</span>(row)<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> result<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Using <code>Math.fround()</code> in your CPU oracle ensures your
+reference computations replicate the single-precision semantics native
+to GPU fragment shaders.</p>
+<hr />
+<h3 id="step-2-define-targeted-arbitraries">Step 2: Define Targeted
+Arbitraries</h3>
+<p>Generators (arbitraries) must be designed to generate valid
+structural shapes while stressing floating-point boundaries.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Generates finite, 32-bit float values that avoid immediate overflow</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> floatArbitrary <span class="op">=</span> fc<span class="op">.</span><span class="fu">float</span>({</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">noDefaultInfinity</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">noNaN</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">min</span><span class="op">:</span> <span class="op">-</span><span class="fl">1e4</span><span class="op">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">max</span><span class="op">:</span> <span class="fl">1e4</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Generates an N x M 2D array of floats</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixArbitrary <span class="op">=</span> (width<span class="op">,</span> height) <span class="kw">=&gt;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">array</span>(fc<span class="op">.</span><span class="fu">array</span>(floatArbitrary<span class="op">,</span> { <span class="dt">minLength</span><span class="op">:</span> width<span class="op">,</span> <span class="dt">maxLength</span><span class="op">:</span> width })<span class="op">,</span> {</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">minLength</span><span class="op">:</span> height<span class="op">,</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="dt">maxLength</span><span class="op">:</span> height</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span></code></pre></div>
+<p>To stress-test hardware robustness, define a secondary arbitrary that
+explicitly permits non-standard inputs:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> adversarialFloatArbitrary <span class="op">=</span> fc<span class="op">.</span><span class="fu">oneof</span>(</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">constant</span>(<span class="dv">0</span>)<span class="op">,</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">constant</span>(<span class="op">-</span><span class="dv">0</span>)<span class="op">,</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">constant</span>(<span class="bu">Number</span><span class="op">.</span><span class="cn">EPSILON</span>)<span class="op">,</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">constant</span>(<span class="fl">1.0</span>)<span class="op">,</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">constant</span>(<span class="op">-</span><span class="fl">1.0</span>)<span class="op">,</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">float</span>()</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-3-implement-tolerance-based-assertions">Step 3: Implement
+Tolerance-Based Assertions</h3>
+<p>Exact equality (<code>===</code>) fails in GPU testing due to
+differences in fused multiply-add (FMA) instructions and intermediate
+rounding. Instead, use a relative and absolute tolerance comparison:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">matricesClose</span>(gpuResult<span class="op">,</span> cpuResult<span class="op">,</span> epsilon <span class="op">=</span> <span class="fl">1e-4</span>) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> y <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> y <span class="op">&lt;</span> gpuResult<span class="op">.</span><span class="at">length</span><span class="op">;</span> y<span class="op">++</span>) {</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> x <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> x <span class="op">&lt;</span> gpuResult[y]<span class="op">.</span><span class="at">length</span><span class="op">;</span> x<span class="op">++</span>) {</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> g <span class="op">=</span> gpuResult[y][x]<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> c <span class="op">=</span> cpuResult[y][x]<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> diff <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(g <span class="op">-</span> c)<span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>      <span class="kw">const</span> largest <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(<span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(g)<span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(c))<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Handle exact matches (e.g., zeros) or values within tolerance</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (diff <span class="op">&gt;</span> epsilon <span class="op">&amp;&amp;</span> diff <span class="op">&gt;</span> largest <span class="op">*</span> epsilon) {</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="kw">false</span><span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">true</span><span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3 id="step-4-construct-the-property-based-test">Step 4: Construct the
+Property-Based Test</h3>
+<p>Combine the arbitrary, the execution steps, and the assertion inside
+<code>fc.assert</code> and <code>fc.property</code>.</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">describe</span>(<span class="st">&#39;Matrix Kernel Stress Tests&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> WIDTH <span class="op">=</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> HEIGHT <span class="op">=</span> <span class="dv">4</span><span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  })<span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">it</span>(<span class="st">&#39;maintains parity with the CPU reference implementation&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> {</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    fc<span class="op">.</span><span class="fu">assert</span>(</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>      fc<span class="op">.</span><span class="fu">property</span>(</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        <span class="fu">matrixArbitrary</span>(WIDTH<span class="op">,</span> HEIGHT)<span class="op">,</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        <span class="fu">matrixArbitrary</span>(WIDTH<span class="op">,</span> HEIGHT)<span class="op">,</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>        (matrixA<span class="op">,</span> matrixB) <span class="kw">=&gt;</span> {</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>          <span class="kw">const</span> gpuOut <span class="op">=</span> <span class="fu">kernel</span>(matrixA<span class="op">,</span> matrixB)<span class="op">;</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>          <span class="kw">const</span> cpuOut <span class="op">=</span> <span class="fu">matrixMultiplyCPU</span>(matrixA<span class="op">,</span> matrixB<span class="op">,</span> WIDTH<span class="op">,</span> HEIGHT)<span class="op">;</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>          <span class="cf">return</span> <span class="fu">matricesClose</span>(gpuOut<span class="op">,</span> cpuOut)<span class="op">;</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>      )<span class="op">,</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>      {</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>        <span class="dt">numRuns</span><span class="op">:</span> <span class="dv">1000</span><span class="op">,</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>        <span class="dt">endOnFailure</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>        <span class="dt">verbose</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>    )<span class="op">;</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-5-test-intrinsic-mathematical-invariants">Step 5: Test
+Intrinsic Mathematical Invariants</h3>
+<p>If a CPU reference is unavailable or computationally prohibitive,
+test algebraic invariants inherent to the operation:</p>
+<ol type="1">
+<li><strong>Identity Laws:</strong> Multiplying a matrix by an
+identity-equivalent representation must return the original matrix
+within floating-point tolerance.</li>
+<li><strong>Commutativity:</strong> Operations like element-wise
+addition or dot products must yield: <span
+class="math display">\[\text{kernel}(A, B) \approx \text{kernel}(B,
+A)\]</span></li>
+<li><strong>Homogeneity:</strong> Scaling inputs by a scalar <span
+class="math inline">\(k\)</span> must scale the output by <span
+class="math inline">\(k\)</span> (for linear operations): <span
+class="math display">\[\text{kernel}(k \cdot A) \approx k \cdot
+\text{kernel}(A)\]</span></li>
+</ol>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">it</span>(<span class="st">&#39;satisfies commutativity: kernel(A, B) == kernel(B, A)&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  fc<span class="op">.</span><span class="fu">assert</span>(</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    fc<span class="op">.</span><span class="fu">property</span>(</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">matrixArbitrary</span>(WIDTH<span class="op">,</span> HEIGHT)<span class="op">,</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>      <span class="fu">matrixArbitrary</span>(WIDTH<span class="op">,</span> HEIGHT)<span class="op">,</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>      (matrixA<span class="op">,</span> matrixB) <span class="kw">=&gt;</span> {</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> outAB <span class="op">=</span> <span class="fu">kernel</span>(matrixA<span class="op">,</span> matrixB)<span class="op">;</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> outBA <span class="op">=</span> <span class="fu">kernel</span>(matrixB<span class="op">,</span> matrixA)<span class="op">;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="fu">matricesClose</span>(outAB<span class="op">,</span> outBA)<span class="op">;</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    )<span class="op">,</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>    { <span class="dt">numRuns</span><span class="op">:</span> <span class="dv">500</span> }</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="critical-considerations">Critical Considerations</h3>
+<ul>
+<li><strong>GPU Memory Leaks:</strong> Avoid compiling kernels inside
+<code>fc.property</code>. Creating WebGL contexts or compiling shaders
+repeatedly during a 10,000-run test will exhaust GPU memory. Instantiate
+kernels once outside the test loop and pass dynamic inputs into the
+runner.</li>
+<li><strong>Context Teardown:</strong> Call <code>gpu.destroy()</code>
+in an <code>afterAll</code> hook to prevent dangling WebGL contexts
+during test runner teardown.</li>
+<li><strong>Dynamic Dimensions:</strong> If testing kernels over
+arbitrary array sizes, use dynamic kernels via
+<code>gpu.createKernel(...).setOutput([w, h])</code> wrapped in a
+factory that manages a finite pool of dimensions, rather than creating a
+new kernel for every random size.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelize Black-Scholes Across Strikes in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to parallelize the Black-Scholes European call option pricing model across an array of strike prices using gpu.js. By mapping individual GPU threads to distinct strike prices, computational workloads shift from sequential CPU lo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelize-black-scholes-across-strikes-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelize Black-Scholes Across Strikes in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelize-black-scholes-across-strikes-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to parallelize the Black-Scholes European call option pricing model across an array of strike prices using gpu.js. By mapping individual GPU threads to distinct strike prices, computational workloads shift from sequential CPU lo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelize-black-scholes-across-strikes-in-gpujs">Parallelize
+Black-Scholes Across Strikes in GPU.js</h1>
+<p>This article explains how to parallelize the Black-Scholes European
+call option pricing model across an array of strike prices using gpu.js.
+By mapping individual GPU threads to distinct strike prices,
+computational workloads shift from sequential CPU loops to massively
+parallel WebGL compute shaders. You will learn how the analytical model
+translates into a gpu.js kernel, how to approximate the cumulative
+normal distribution function on the GPU, and how to structure inputs for
+optimal throughput.</p>
+<hr />
+<h3 id="understanding-the-parallel-mapping-strategy">Understanding the
+Parallel Mapping Strategy</h3>
+<p>The Black-Scholes formula for a European call option requires five
+parameters: the current underlying price (<span
+class="math inline">\(S\)</span>), the strike price (<span
+class="math inline">\(K\)</span>), the risk-free interest rate (<span
+class="math inline">\(r\)</span>), time to maturity in years (<span
+class="math inline">\(T\)</span>), and volatility (<span
+class="math inline">\(\sigma\)</span>).</p>
+<p>The call option price (<span class="math inline">\(C\)</span>) is
+calculated as:</p>
+<p><span class="math display">\[C = S \cdot N(d_1) - K \cdot e^{-rT}
+\cdot N(d_2)\]</span></p>
+<p>where: <span class="math display">\[d_1 = \frac{\ln(S / K) + (r +
+\frac{\sigma^2}{2})T}{\sigma \sqrt{T}}\]</span> <span
+class="math display">\[d_2 = d_1 - \sigma \sqrt{T}\]</span></p>
+<p>When evaluating an option surface or a volatility smile across
+hundreds of thousands of strike prices, <span
+class="math inline">\(S\)</span>, <span
+class="math inline">\(r\)</span>, <span
+class="math inline">\(T\)</span>, and <span
+class="math inline">\(\sigma\)</span> remain constant while <span
+class="math inline">\(K\)</span> varies. In gpu.js, this problem is
+parallelized using a 1D kernel dimension where the output dimension
+matches the length of the strike price array
+(<code>K.length</code>).</p>
+<p>Each GPU thread uses its unique identifier,
+<code>this.thread.x</code>, to fetch its assigned strike price from the
+input array, evaluate <span class="math inline">\(d_1\)</span> and <span
+class="math inline">\(d_2\)</span>, evaluate the cumulative normal
+distribution <span class="math inline">\(N(\cdot)\)</span>, and write
+the resulting option price directly to the output buffer in
+parallel.</p>
+<hr />
+<h3 id="implementing-the-kernel-in-gpujs">Implementing the Kernel in
+gpu.js</h3>
+<p>Because standard WebGL shaders lack a native Cumulative Normal
+Distribution function (<span class="math inline">\(N(x)\)</span>), an
+approximation must be implemented within the kernel. The Abramowitz and
+Stegun numerical approximation is standard for GPU compute due to its
+balance of single-precision accuracy and computational efficiency.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel creation</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeCallOptionChain <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(S<span class="op">,</span> r<span class="op">,</span> T<span class="op">,</span> sigma<span class="op">,</span> strikes) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> K <span class="op">=</span> strikes[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sqrtT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(T)<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sigmaSqrtT <span class="op">=</span> sigma <span class="op">*</span> sqrtT<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> d1 <span class="op">=</span> (<span class="bu">Math</span><span class="op">.</span><span class="fu">log</span>(S <span class="op">/</span> K) <span class="op">+</span> (r <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> sigma <span class="op">*</span> sigma) <span class="op">*</span> T) <span class="op">/</span> sigmaSqrtT<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> d2 <span class="op">=</span> d1 <span class="op">-</span> sigmaSqrtT<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Approximation constants for Cumulative Normal Distribution</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b1 <span class="op">=</span>  <span class="fl">0.319381530</span><span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b2 <span class="op">=</span> <span class="op">-</span><span class="fl">0.356563782</span><span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b3 <span class="op">=</span>  <span class="fl">1.781477937</span><span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b4 <span class="op">=</span> <span class="op">-</span><span class="fl">1.821255978</span><span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> b5 <span class="op">=</span>  <span class="fl">1.330274429</span><span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> p  <span class="op">=</span>  <span class="fl">0.2316419</span><span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> c  <span class="op">=</span>  <span class="fl">0.3989422804014327</span><span class="op">;</span> <span class="co">// 1 / sqrt(2 * PI)</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate N(d1)</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> absD1 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(d1)<span class="op">;</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t1 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> p <span class="op">*</span> absD1)<span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> poly1 <span class="op">=</span> t1 <span class="op">*</span> (b1 <span class="op">+</span> t1 <span class="op">*</span> (b2 <span class="op">+</span> t1 <span class="op">*</span> (b3 <span class="op">+</span> t1 <span class="op">*</span> (b4 <span class="op">+</span> t1 <span class="op">*</span> b5))))<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nd1 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> c <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> d1 <span class="op">*</span> d1) <span class="op">*</span> poly1<span class="op">;</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (d1 <span class="op">&lt;</span> <span class="fl">0.0</span>) {</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>        nd1 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> nd1<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate N(d2)</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> absD2 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(d2)<span class="op">;</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> t2 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> (<span class="fl">1.0</span> <span class="op">+</span> p <span class="op">*</span> absD2)<span class="op">;</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> poly2 <span class="op">=</span> t2 <span class="op">*</span> (b1 <span class="op">+</span> t2 <span class="op">*</span> (b2 <span class="op">+</span> t2 <span class="op">*</span> (b3 <span class="op">+</span> t2 <span class="op">*</span> (b4 <span class="op">+</span> t2 <span class="op">*</span> b5))))<span class="op">;</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> nd2 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> c <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span><span class="fl">0.5</span> <span class="op">*</span> d2 <span class="op">*</span> d2) <span class="op">*</span> poly2<span class="op">;</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (d2 <span class="op">&lt;</span> <span class="fl">0.0</span>) {</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>        nd2 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> nd2<span class="op">;</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Black-Scholes Call Price: S * N(d1) - K * exp(-r * T) * N(d2)</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> callPrice <span class="op">=</span> S <span class="op">*</span> nd1 <span class="op">-</span> K <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>r <span class="op">*</span> T) <span class="op">*</span> nd2<span class="op">;</span></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> callPrice<span class="op">;</span></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100000</span>])<span class="op">;</span> <span class="co">// Matches strikes array length</span></span></code></pre></div>
+<hr />
+<h3 id="executing-the-calculation">Executing the Calculation</h3>
+<p>To invoke the parallelized kernel, compile the input data as
+JavaScript floating-point numbers and a typed array for optimal memory
+packing:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> S <span class="op">=</span> <span class="fl">100.0</span><span class="op">;</span>       <span class="co">// Underlying stock price</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> r <span class="op">=</span> <span class="fl">0.05</span><span class="op">;</span>        <span class="co">// Risk-free interest rate (5%)</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> T <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span>         <span class="co">// Time to expiration (1 year)</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sigma <span class="op">=</span> <span class="fl">0.20</span><span class="op">;</span>    <span class="co">// Volatility (20%)</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> strikeCount <span class="op">=</span> <span class="dv">100000</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> strikes <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(strikeCount)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Generate varying strike prices from $50 to $150</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> strikeCount<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    strikes[i] <span class="op">=</span> <span class="fl">50.0</span> <span class="op">+</span> (i <span class="op">/</span> strikeCount) <span class="op">*</span> <span class="fl">100.0</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="co">// Execute parallel kernel on GPU</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> callPrices <span class="op">=</span> <span class="fu">computeCallOptionChain</span>(S<span class="op">,</span> r<span class="op">,</span> T<span class="op">,</span> sigma<span class="op">,</span> strikes)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="key-technical-considerations">Key Technical Considerations</h3>
+<ol type="1">
+<li><strong>Precision</strong>: WebGL 1.0 kernels operate on 32-bit
+floating-point numbers. Ensure that option values with extreme moneyness
+(very deep in-the-money or out-of-the-money) do not produce
+<code>NaN</code> due to underflow in the standard normal distribution
+exponential term.</li>
+<li><strong>Buffer Transfer Overhead</strong>: Transferring large arrays
+between CPU memory and GPU VRAM introduces latency. Parallelizing across
+strike prices is computationally advantageous when processing batches
+exceeding tens of thousands of elements; smaller arrays may execute
+faster on the CPU using single-instruction, multiple-data (SIMD)
+paths.</li>
+<li><strong>Pipeline Pipelining</strong>: If repeatedly calculating
+pricing for animated graphs or streaming ticker updates, set
+<code>.setPipeline(true)</code> on the kernel to keep output data on the
+GPU texture memory instead of converting it back to CPU arrays after
+every computation.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

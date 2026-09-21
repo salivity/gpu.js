@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelizing GIS Distance Matrices with GPU.js - gpu.js</title>
+    <meta name="description" content="Computing spatial distance matrices for Geographic Information System (GIS) routing problems can be successfully parallelized using gpu.js. Because calculating pairwise distances across large sets of geographical coordinates is an embarrassingly parallel">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelizing-gis-distance-matrices-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelizing GIS Distance Matrices with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelizing-gis-distance-matrices-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Computing spatial distance matrices for Geographic Information System (GIS) routing problems can be successfully parallelized using gpu.js. Because calculating pairwise distances across large sets of geographical coordinates is an embarrassingly parallel" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelizing-gis-distance-matrices-with-gpujs">Parallelizing
+GIS Distance Matrices with GPU.js</h1>
+<p>Computing spatial distance matrices for Geographic Information System
+(GIS) routing problems can be successfully parallelized using gpu.js.
+Because calculating pairwise distances across large sets of geographical
+coordinates is an embarrassingly parallel computational task, offloading
+these mathematical calculations to the GPU via WebGL shaders
+significantly outperforms traditional CPU-bound JavaScript loops. This
+article explores how gpu.js handles these operations, what types of
+spatial calculations are best suited for it, and the architectural
+limitations to consider when working with road networks.</p>
+<h2 id="the-suitability-of-distance-matrices-for-gpu-acceleration">The
+Suitability of Distance Matrices for GPU Acceleration</h2>
+<p>A spatial distance matrix computes the cost or distance between every
+origin <span class="math inline">\(i\)</span> and destination <span
+class="math inline">\(j\)</span> across a dataset of <span
+class="math inline">\(N\)</span> locations, resulting in an <span
+class="math inline">\(N \times N\)</span> matrix. On a central
+processing unit (CPU), this operation scales quadratically with a time
+complexity of <span class="math inline">\(O(N^2)\)</span>, quickly
+causing performance bottlenecks in standard web or Node.js environments
+when <span class="math inline">\(N\)</span> exceeds a few thousand
+points.</p>
+<p>Because each pair calculation operates independently of all others,
+the workload is ideal for graphics processing units. Using gpu.js,
+JavaScript functions are compiled into WebGL shaders, allowing thousands
+of matrix cells to be evaluated simultaneously across dedicated GPU
+threads.</p>
+<h2 id="implementing-spatial-formulas-in-gpujs">Implementing Spatial
+Formulas in gpu.js</h2>
+<p>gpu.js is particularly effective when calculating mathematical
+distances derived from coordinate pairs (longitude and latitude).</p>
+<ul>
+<li><strong>Euclidean Distance:</strong> Suitable for small, projected
+Cartesian coordinate systems (e.g., UTM coordinates). This involves
+simple arithmetic operations (subtraction, multiplication, square roots)
+that execute rapidly on GPU hardware.</li>
+<li><strong>Haversine and Spherical Law of Cosines:</strong> Required
+for computing great-circle distances across spherical approximations of
+the Earth. These formulas require multiple trigonometric functions
+(sine, cosine, arctangent). While trigonometric functions are
+computationally expensive on a CPU, GPUs possess hardware-accelerated
+transcendental math functions, resulting in substantial speedups.</li>
+</ul>
+<p>To construct the matrix, coordinates are passed as flat arrays or 2D
+textures into a gpu.js kernel. The kernel output dimension is set to
+<code>[N, N]</code>, where each parallel thread computes the distance
+for coordinates at index <code>this.thread.x</code> and
+<code>this.thread.y</code>.</p>
+<h2 id="limitations-with-real-world-road-networks">Limitations with
+Real-World Road Networks</h2>
+<p>While gpu.js excels at geometric spatial calculations, routing
+problems based on actual road networks present architectural
+challenges:</p>
+<ul>
+<li><strong>Graph Traversal Constraints:</strong> Real-world driving
+distances depend on graph traversal algorithms like Dijkstra, A*, or
+Contraction Hierarchies. These algorithms rely heavily on dynamic
+pointer chasing, priority queues, and non-uniform memory access, which
+do not map cleanly to the simple data-parallel pipeline of gpu.js.</li>
+<li><strong>Memory and Data Transfer Overhead:</strong> Large road
+network graphs cannot easily fit into standard WebGL textures.
+Additionally, transferring massive topology datasets between CPU system
+memory and GPU memory introduces latency that can offset the computation
+gains.</li>
+<li><strong>Shader Limitations:</strong> gpu.js abstracts WebGL, which
+restricts complex branching, recursive functions, and dynamic memory
+allocation inside kernel routines.</li>
+</ul>
+<h2 id="practical-use-cases-in-gis-routing">Practical Use Cases in GIS
+Routing</h2>
+<p>Despite the constraints of full road network traversal, gpu.js
+remains highly valuable within GIS routing workflows:</p>
+<ol type="1">
+<li><strong>Routing Heuristics and Pre-Filtering:</strong> Fast
+generation of straight-line distance matrices to eliminate distant nodes
+before performing detailed network pathfinding.</li>
+<li><strong>Traveling Salesperson Problem (TSP) Seeds:</strong>
+Generating initial cost matrices for unconstrained TSP approximations,
+vehicle routing problem (VRP) clustering, or spatial cluster analysis
+(such as k-means or DBSCAN).</li>
+<li><strong>Cost-Surface Computations:</strong> Calculating raster-based
+cost matrices across continuous terrain where cell values represent
+travel friction rather than distinct topological edges.</li>
+</ol>
+<p>gpu.js provides an accessible and performant pathway to accelerate
+spatial distance calculations directly in JavaScript, provided the
+routing calculations rely on mathematical coordinate relationships
+rather than topological graph traversals.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

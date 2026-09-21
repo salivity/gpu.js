@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wildfire Simulation with GPU.js Cellular Automata - gpu.js</title>
+    <meta name="description" content="This article explores how cellular automata (CA) can be implemented and visualized for wildfire spread simulation using GPU.js. By compiling JavaScript functions into WebGL shaders, GPU.js leverages hardware acceleration to evaluate grid states simultane">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/wildfire-simulation-with-gpu-js-cellular-automata">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Wildfire Simulation with GPU.js Cellular Automata - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/wildfire-simulation-with-gpu-js-cellular-automata" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how cellular automata (CA) can be implemented and visualized for wildfire spread simulation using GPU.js. By compiling JavaScript functions into WebGL shaders, GPU.js leverages hardware acceleration to evaluate grid states simultane" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="wildfire-simulation-with-gpujs-cellular-automata">Wildfire
+Simulation with GPU.js Cellular Automata</h1>
+<p>This article explores how cellular automata (CA) can be implemented
+and visualized for wildfire spread simulation using GPU.js. By compiling
+JavaScript functions into WebGL shaders, GPU.js leverages hardware
+acceleration to evaluate grid states simultaneously, making it fully
+capable of executing high-resolution, real-time fire propagation models
+directly in web browsers.</p>
+<h3 id="cellular-automata-for-wildfires">Cellular Automata for
+Wildfires</h3>
+<p>Cellular automata model fire behavior by dividing an environment into
+a uniform 2D grid of cells. Each cell contains distinct state
+parameters, such as vegetation density, moisture level, elevation, and
+burn status (unburned, burning, or burned).</p>
+<p>During each simulation step, the state of a cell changes based on
+deterministic or probabilistic transition rules that evaluate its
+neighboring cells. These local rules can account for complex physical
+variables:</p>
+<ul>
+<li><strong>Fuel load and moisture:</strong> Determines ignition delay
+and burn duration.</li>
+<li><strong>Wind speed and direction:</strong> Skews the probability of
+ignition toward downwind neighbors.</li>
+<li><strong>Topography and slope:</strong> Accelerates fire spread
+uphill and slows it downhill.</li>
+</ul>
+<h3 id="why-use-gpujs">Why Use GPU.js?</h3>
+<p>Traditional CPU-based implementations iterate through each cell
+sequentially using nested loops. For grids exceeding <span
+class="math inline">\(512 \times 512\)</span> cells, CPU execution times
+degrade rapidly, preventing fluid interaction or real-time
+simulation.</p>
+<p>GPU.js solves this bottleneck by compiling standard JavaScript code
+into GLSL shaders executed on the user's graphics processor. Because
+cellular automaton transition rules only depend on the previous state of
+neighboring cells, every cell update is independent and embarrassingly
+parallel. The GPU processes thousands of cells concurrently, maintaining
+interactive frame rates even at high resolutions.</p>
+<h3 id="implementation-architecture">Implementation Architecture</h3>
+<p>Building a wildfire simulation with GPU.js involves three primary
+steps:</p>
+<ol type="1">
+<li><strong>Grid Representation:</strong> Data is stored in 2D arrays
+representing elevation, fuel, and fire states.</li>
+<li><strong>The Compute Kernel:</strong> A GPU.js kernel takes the
+current grid state as an input texture, inspects the adjacent cells
+(typically using a Moore neighborhood of eight cells), computes ignition
+probabilities based on wind and slope equations, and returns the updated
+state.</li>
+<li><strong>Double Buffering (Ping-Ponging):</strong> To advance
+simulation steps continuously without reading and writing to the same
+memory space, two framebuffers alternate roles between source and
+destination textures.</li>
+</ol>
+<h3 id="real-time-visualization">Real-Time Visualization</h3>
+<p>GPU.js natively supports rendering output directly to an HTML5
+<code>&lt;canvas&gt;</code> element using graphical kernels
+(<code>graphical: true</code>). Inside the kernel, each cell's state is
+mapped to an RGBA color value:</p>
+<ul>
+<li>Unburned vegetation can be assigned varying shades of green based on
+fuel density.</li>
+<li>Active fire cells transition from bright yellow to red according to
+temperature and burn progression.</li>
+<li>Consumed cells render as gray or black to depict ash and scorched
+earth.</li>
+</ul>
+<p>Because the computation and rendering happen within the same WebGL
+pipeline, the simulation avoids expensive memory transfers between CPU
+and GPU memory, ensuring consistent 60 FPS performance.</p>
+<h3 id="limitations-to-consider">Limitations to Consider</h3>
+<p>While GPU.js is effective for browser-based simulations, developers
+should account for certain constraints:</p>
+<ul>
+<li><strong>Memory Bandwidth:</strong> Large state arrays passed between
+CPU and GPU each frame will degrade performance; state updates should
+remain on the GPU as textures whenever possible.</li>
+<li><strong>Floating-Point Precision:</strong> Mobile and low-end GPUs
+may lack full 32-bit floating-point precision in WebGL contexts, which
+can cause minor drift in fine-grained probabilistic models.</li>
+<li><strong>Global Data Access:</strong> Simulating dynamic, non-local
+environmental shifts—such as sudden shifts in atmospheric wind patterns
+influenced by the fire itself—requires multi-pass rendering
+architectures.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Symbol Mangling in GPU.js Fragment Shaders - gpu.js</title>
+    <meta name="description" content="GPU.js compiles JavaScript functions into WebGL fragment shaders to execute high-performance parallel computations on the GPU. Because WebGL requires valid, strictly typed GLSL (OpenGL Shading Language), GPU.js must prevent identifier clashes between Jav">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/symbol-mangling-in-gpu-js-fragment-shaders">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Symbol Mangling in GPU.js Fragment Shaders - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/symbol-mangling-in-gpu-js-fragment-shaders" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js compiles JavaScript functions into WebGL fragment shaders to execute high-performance parallel computations on the GPU. Because WebGL requires valid, strictly typed GLSL (OpenGL Shading Language), GPU.js must prevent identifier clashes between Jav" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="symbol-mangling-in-gpujs-fragment-shaders">Symbol Mangling in
+GPU.js Fragment Shaders</h1>
+<p>GPU.js compiles JavaScript functions into WebGL fragment shaders to
+execute high-performance parallel computations on the GPU. Because WebGL
+requires valid, strictly typed GLSL (OpenGL Shading Language), GPU.js
+must prevent identifier clashes between JavaScript variable names, GLSL
+built-in keywords, user-defined helper functions, and internal runtime
+uniforms. It accomplishes this through an Abstract Syntax Tree (AST)
+translation pipeline that parses variable scopes, maps identifiers, and
+applies deterministic prefixing to ensure symbol isolation.</p>
+<h3 id="ast-driven-variable-renaming">AST-Driven Variable Renaming</h3>
+<p>During kernel compilation, GPU.js passes the JavaScript kernel
+function through an AST parser. The parser identifies every variable
+declaration, parameter, and reference within the code. Instead of
+directly injecting raw variable names into the final GLSL string, the
+compiler builds a symbol table that tracks local scopes. When an
+identifier is encountered, GPU.js checks it against a dictionary of GLSL
+reserved words (such as <code>vec2</code>, <code>texture2D</code>,
+<code>precision</code>, or <code>sampler2D</code>). If a variable name
+collides with a GLSL keyword or a WebGL internal construct, the compiler
+renames the identifier using an internal naming pattern, ensuring the
+generated GLSL remains syntactically valid.</p>
+<h3 id="parameter-and-uniform-prefixing">Parameter and Uniform
+Prefixing</h3>
+<p>Kernel inputs and environment state must be transferred from the CPU
+to the GPU as WebGL textures or uniforms. To prevent an input parameter
+like <code>width</code> or <code>data</code> from colliding with
+built-in shader properties or internal math routines, GPU.js prefixes
+and namespaces kernel arguments.</p>
+<p>Arguments defined in the JavaScript kernel signature are converted
+into standardized uniform identifiers (typically prepended with internal
+namespace indicators like <code>user_</code>). When the kernel body
+references these inputs, the AST compiler automatically rewrites the
+read operations to target the corresponding uniform or texture lookup
+function, creating a strict boundary between user inputs and shader
+mechanics.</p>
+<h3 id="sub-function-namespacing-and-isolation">Sub-Function Namespacing
+and Isolation</h3>
+<p>GPU.js allows developers to register custom JavaScript helper
+functions via the <code>addSubFunction()</code> API. In a standard WebGL
+fragment shader, all functions reside in a flat, global namespace. To
+prevent two sub-functions with identical helper variables from
+interfering with each other—or colliding with the primary kernel
+logic—GPU.js performs signature and variable transformation:</p>
+<ol type="1">
+<li><strong>Unique Function Signatures:</strong> Sub-functions are
+declared with sanitized identifiers, stripping out invalid characters
+and qualifying function names where necessary to avoid native GLSL
+clashes.</li>
+<li><strong>Local Scope Encapsulation:</strong> Variables declared
+inside sub-functions are isolated to their local function body. The
+translator tracks the call tree so that locally declared identifiers do
+not leak into the global shader scope.</li>
+<li><strong>Texture Fetch Helpers:</strong> Mathematical operations and
+array lookups are often replaced by synthetic GLSL helper routines (such
+as custom float unpacking functions). These auto-generated routines use
+reserved internal prefixes, ensuring that user logic never accidentally
+overrides an essential memory-access function.</li>
+</ol>
+<h3 id="contextual-thread-mapping">Contextual Thread Mapping</h3>
+<p>Special runtime properties—such as <code>this.thread.x</code>,
+<code>this.thread.y</code>, and <code>this.output</code>—do not exist in
+native GLSL. GPU.js translates accesses to the <code>this</code> context
+into internally managed GLSL expressions derived from
+<code>gl_FragCoord</code> and predefined uniform bounds. By replacing
+these property lookups during the AST traversal phase, GPU.js eliminates
+the need for dynamic property evaluation, neutralizing naming conflicts
+between user-defined object properties and native WebGL rendering
+coordinates.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

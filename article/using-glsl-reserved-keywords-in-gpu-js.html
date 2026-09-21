@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using GLSL Reserved Keywords in GPU.js - gpu.js</title>
+    <meta name="description" content="When developing kernels with gpu.js, using OpenGL Shading Language (GLSL) reserved keywords as JavaScript variable names leads to syntax errors, shader compilation failures, and automatic performance degradation. Because gpu.js transpiles JavaScript func">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-glsl-reserved-keywords-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using GLSL Reserved Keywords in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-glsl-reserved-keywords-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When developing kernels with gpu.js, using OpenGL Shading Language (GLSL) reserved keywords as JavaScript variable names leads to syntax errors, shader compilation failures, and automatic performance degradation. Because gpu.js transpiles JavaScript func" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-glsl-reserved-keywords-in-gpujs">Using GLSL Reserved
+Keywords in GPU.js</h1>
+<p>When developing kernels with gpu.js, using OpenGL Shading Language
+(GLSL) reserved keywords as JavaScript variable names leads to syntax
+errors, shader compilation failures, and automatic performance
+degradation. Because gpu.js transpiles JavaScript functions directly
+into WebGL GLSL shader code, using protected identifiers breaks the
+underlying code generation pipeline. This overview explains the
+transpilation behavior, error mechanics, and performance consequences
+when reserved words enter a gpu.js kernel.</p>
+<h3 id="the-transpilation-process-and-keyword-collisions">The
+Transpilation Process and Keyword Collisions</h3>
+<p>gpu.js works by parsing a JavaScript function's Abstract Syntax Tree
+(AST) and translating its logic into GLSL shader source code. During
+this translation, gpu.js preserves most JavaScript variable identifiers
+and maps them directly into equivalent GLSL variable declarations.</p>
+<p>JavaScript and GLSL have vastly different sets of reserved keywords.
+While variable names such as <code>float</code>, <code>int</code>,
+<code>input</code>, <code>output</code>, <code>texture</code>,
+<code>varying</code>, or <code>sample</code> are entirely valid in
+standard JavaScript, they are strictly reserved in GLSL. When gpu.js
+converts these identifiers into shader strings without prefixing or
+sanitizing them, the resulting GLSL string contains syntactically
+invalid shader declarations.</p>
+<h3 id="webgl-shader-compilation-errors">WebGL Shader Compilation
+Errors</h3>
+<p>Once gpu.js constructs the GLSL shader string, it passes the source
+code to the browser's WebGL context via <code>gl.compileShader()</code>.
+The graphics driver's GLSL compiler analyzes the code. When it
+encounters a reserved word in an illegal position (such as declaring
+<code>let float = 1.0;</code>, which translates to
+<code>float float = 1.0;</code>), the compilation fails immediately.</p>
+<p>The WebGL context flags a compilation failure and outputs an error to
+the browser console. Typical errors generated include:</p>
+<ul>
+<li><code>ERROR: 0:X: 'keyword' : syntax error</code></li>
+<li><code>ERROR: 0:X: 'keyword' : reserved word</code></li>
+</ul>
+<h3 id="fallback-behavior-to-the-cpu">Fallback Behavior to the CPU</h3>
+<p>By default, gpu.js uses a fallback mechanism designed to prevent
+application crashes when a GPU is unavailable or when shader compilation
+fails. When the WebGL shader fails to compile due to a GLSL reserved
+keyword, gpu.js intercepts the error and switches the kernel’s execution
+mode from the GPU to the CPU.</p>
+<p>When this fallback occurs:</p>
+<ol type="1">
+<li><strong>Silent Performance Degradation:</strong> The operation
+continues using pure JavaScript on a single thread. The program may not
+crash, but parallel processing capabilities are lost, resulting in
+severe performance drops for compute-heavy workloads.</li>
+<li><strong>Explicit Failures in Strict Mode:</strong> If the kernel is
+configured strictly with <code>{ mode: 'gpu' }</code>, gpu.js suppresses
+the CPU fallback and throws an unhandled JavaScript exception, halting
+execution entirely.</li>
+</ol>
+<h3 id="preventing-and-debugging-keyword-conflicts">Preventing and
+Debugging Keyword Conflicts</h3>
+<p>To prevent collisions between JavaScript identifiers and GLSL
+keywords:</p>
+<ul>
+<li><strong>Inspect Generated Code:</strong> Use
+<code>kernel.toString()</code> to view the compiled GLSL shader source
+code and identify syntax issues flagged by WebGL.</li>
+<li><strong>Avoid Overlapping Names:</strong> Refrain from using type
+names (<code>vec2</code>, <code>vec3</code>, <code>vec4</code>,
+<code>float</code>, <code>int</code>, <code>sampler2D</code>), layout
+qualifiers (<code>attribute</code>, <code>uniform</code>,
+<code>varying</code>), and standard GLSL built-in functions
+(<code>texture2D</code>, <code>smoothstep</code>, <code>clamp</code>) as
+variable identifiers.</li>
+<li><strong>Adopt Naming Conventions:</strong> Prefix local variables
+(e.g., <code>itemCount</code> instead of <code>count</code>, or
+<code>dataInput</code> instead of <code>input</code>) within kernel
+functions to ensure safe transpilation into valid GLSL.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

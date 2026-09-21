@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using Math.atan2 in Multi-Threaded gpu.js Kernels - gpu.js</title>
+    <meta name="description" content="When invoked inside a multi-threaded gpu.js kernel, Math.atan2 is transpiled from JavaScript into native WebGL shading language (GLSL), allowing it to execute simultaneously across thousands of GPU cores. Rather than executing sequentially with standard">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-math-atan-2-in-multi-threaded-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using Math.atan2 in Multi-Threaded gpu.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-math-atan-2-in-multi-threaded-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When invoked inside a multi-threaded gpu.js kernel, Math.atan2 is transpiled from JavaScript into native WebGL shading language (GLSL), allowing it to execute simultaneously across thousands of GPU cores. Rather than executing sequentially with standard" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-mathatan2-in-multi-threaded-gpujs-kernels">Using
+Math.atan2 in Multi-Threaded gpu.js Kernels</h1>
+<p>When invoked inside a multi-threaded gpu.js kernel,
+<code>Math.atan2</code> is transpiled from JavaScript into native WebGL
+shading language (GLSL), allowing it to execute simultaneously across
+thousands of GPU cores. Rather than executing sequentially with standard
+JavaScript 64-bit double-precision floats, it runs in a massively
+parallel Single Instruction, Multiple Threads (SIMT) architecture using
+32-bit single-precision floating-point arithmetic. This article explains
+how <code>Math.atan2</code> is mapped to hardware, its execution flow
+across parallel threads, precision considerations, and edge-case
+behaviors.</p>
+<h2 id="transpilation-to-glsl">Transpilation to GLSL</h2>
+<p>gpu.js operates by parsing JavaScript Abstract Syntax Trees (AST) and
+translating supported mathematical functions into equivalent GLSL
+expressions.</p>
+<p>In standard JavaScript, the signature is:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="bu">Math</span><span class="op">.</span><span class="fu">atan2</span>(y<span class="op">,</span> x)</span></code></pre></div>
+<p>During kernel compilation, gpu.js maps this call directly to the
+overloaded GLSL function:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="bu">atan</span><span class="op">(</span><span class="dt">float</span> y<span class="op">,</span> <span class="dt">float</span> x<span class="op">)</span></span></code></pre></div>
+<p>Because both JavaScript's <code>Math.atan2</code> and GLSL's
+two-argument <code>atan</code> accept <code>y</code> as the first
+argument and <code>x</code> as the second argument, the parameter order
+remains identical. The GPU compiler generates machine code targeting the
+hardware’s native Special Function Units (SFUs), which calculate
+trigonometric and transcendental values directly in silicon.</p>
+<h2 id="parallel-thread-execution">Parallel Thread Execution</h2>
+<p>In gpu.js, "multi-threading" corresponds to GPU thread invocation
+over a defined output grid
+(<code>output: [width, height, depth]</code>).</p>
+<p>When a thread runs:</p>
+<ol type="1">
+<li>Each thread evaluates <code>this.thread.x</code>,
+<code>this.thread.y</code>, or <code>this.thread.z</code>.</li>
+<li>Threads pass thread-specific inputs into
+<code>Math.atan2(y, x)</code>.</li>
+<li>The GPU cores process these operations in lockstep via warps
+(Nvidia) or wavefronts (AMD).</li>
+<li>Since <code>Math.atan2</code> is a pure function that does not read
+or write shared memory, there are no race conditions, memory barriers,
+or thread synchronization overheads. Every compute unit computes the
+angle <span class="math inline">\((-\pi \text{ to } \pi)\)</span>
+independently.</li>
+</ol>
+<h2 id="precision-and-performance-differences">Precision and Performance
+Differences</h2>
+<p>While the programmatic syntax mirrors JavaScript, execution on the
+GPU introduces behavioral variations:</p>
+<ul>
+<li><strong>32-bit vs. 64-bit Precision:</strong> Standard V8/browser
+JavaScript computes <code>Math.atan2</code> using IEEE 754 double
+precision (64-bit). GPUs typically run WebGL shaders using single
+precision (<code>highp float</code>, 32-bit). As a result, outputs on
+the GPU may exhibit subtle truncation differences in the least
+significant digits compared to CPU execution.</li>
+<li><strong>Hardware Approximation:</strong> Most GPUs calculate
+trigonometric values using polynomial approximations or the CORDIC
+algorithm inside hardware SFUs. While significantly faster, slight
+variations in precision can occur between different GPU vendors (e.g.,
+Nvidia vs. AMD vs. Intel integrated graphics).</li>
+</ul>
+<h2 id="boundary-conditions-and-edge-cases">Boundary Conditions and Edge
+Cases</h2>
+<p>The behavior of edge cases generally aligns with standard IEEE 754
+rules, but hardware implementations can produce slight deviations:</p>
+<ul>
+<li><strong>Zero Division / Origin <code>(0, 0)</code>:</strong> In
+JavaScript, <code>Math.atan2(0, 0)</code> returns <code>0</code>. In
+GLSL, <code>atan(0.0, 0.0)</code> is defined to return <code>0.0</code>
+in most modern drivers, though older GLSL specifications marked this
+condition as technically undefined.</li>
+<li><strong>Signs of Zero:</strong> IEEE 754 recognizes signed zeroes
+(<code>+0</code> and <code>-0</code>). <code>Math.atan2</code> uses
+these signs to determine the quadrant. Most modern mobile and desktop
+GPUs preserve signed zeroes properly, matching standard JavaScript
+quadrant behavior.</li>
+<li><strong>Infinities and NaNs:</strong> If inputs contain
+<code>Infinity</code> or <code>NaN</code>, the GPU handles these
+according to hardware floating-point capabilities. Some low-power mobile
+GPUs clamp values rather than propagating <code>NaN</code>, which can
+produce divergent values from CPU-based JavaScript runs.</li>
+</ul>
+<h2 id="cpu-fallback-mode">CPU Fallback Mode</h2>
+<p>If gpu.js fails to initialize hardware acceleration (such as when
+WebGL is unsupported or disabled), the kernel falls back to CPU
+execution. In this fallback state, gpu.js runs standard JavaScript loops
+using multi-core CPU workers or a single thread. When this happens,
+<code>Math.atan2</code> runs using the host machine’s standard 64-bit
+IEEE 754 implementation, restoring full JavaScript precision at the cost
+of parallel throughput.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

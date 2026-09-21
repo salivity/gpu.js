@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Handles Unsupported JavaScript Syntax - gpu.js</title>
+    <meta name="description" content="gpu.js accelerates web applications by compiling JavaScript functions into WebGL or WebGPU shader language (GLSL), but it cannot translate every standard JavaScript feature. When gpu.js encounters unsupported JavaScript syntax during compilation, it iden">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-unsupported-java-script-syntax">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Handles Unsupported JavaScript Syntax - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-unsupported-java-script-syntax" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="gpu.js accelerates web applications by compiling JavaScript functions into WebGL or WebGPU shader language (GLSL), but it cannot translate every standard JavaScript feature. When gpu.js encounters unsupported JavaScript syntax during compilation, it iden" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-unsupported-javascript-syntax">How gpu.js
+Handles Unsupported JavaScript Syntax</h1>
+<p>gpu.js accelerates web applications by compiling JavaScript functions
+into WebGL or WebGPU shader language (GLSL), but it cannot translate
+every standard JavaScript feature. When gpu.js encounters unsupported
+JavaScript syntax during compilation, it identifies the invalid
+constructs by analyzing the Abstract Syntax Tree (AST), halts the
+transpilation process, throws a descriptive compile-time error, or
+automatically falls back to standard CPU execution depending on the
+configured runtime mode.</p>
+<h3 id="ast-parsing-and-syntax-validation">AST Parsing and Syntax
+Validation</h3>
+<p>The compilation pipeline begins by converting the target JavaScript
+function into an Abstract Syntax Tree using an internal parser (Acorn).
+During this phase, gpu.js traverses the AST nodes to evaluate whether
+the code can map directly to typed, parallelized GLSL primitives.</p>
+<p>Graphics hardware requires strictly typed variables, deterministic
+memory allocations, and linear execution flows. If the AST visitor
+encounters a node that cannot be mapped to equivalent shader code—such
+as closures, dynamic property lookups, or non-numeric object types—it
+marks the node as illegal.</p>
+<h3 id="compile-time-errors-and-rejection">Compile-Time Errors and
+Rejection</h3>
+<p>When configured strictly for GPU execution (such as setting the
+kernel mode to <code>gpu</code> or <code>webgl</code>), encountering
+unsupported syntax results in an immediate compilation failure. Rather
+than silently failing or emitting invalid GLSL code that crashes the GPU
+driver, gpu.js throws a runtime JavaScript exception.</p>
+<p>These exceptions typically detail the exact line, column, and
+unsupported syntax construct. Common constructs that immediately trigger
+compilation errors include:</p>
+<ul>
+<li><strong>Complex Objects and Prototypes:</strong> Custom JavaScript
+classes, non-primitive objects, and prototype method calls.</li>
+<li><strong>Recursion:</strong> Functions that call themselves, as most
+GPU shading languages forbid dynamic call stacks.</li>
+<li><strong>Dynamic Standard Library Functions:</strong> Built-in
+methods outside of the supported mathematical utilities, such as
+<code>Array.prototype.map()</code>, <code>String</code> manipulations,
+and <code>JSON.parse()</code>.</li>
+<li><strong>Dynamic Memory Allocation:</strong> Instantiating arrays
+with variable lengths inside the kernel body.</li>
+</ul>
+<h3 id="dynamic-typing-and-loop-constraints">Dynamic Typing and Loop
+Constraints</h3>
+<p>Shaders require explicit static typing. When gpu.js processes
+variables, it attempts type inference based on assignment and usage. If
+a variable changes its type dynamically during execution (e.g., starting
+as a number and later becoming an array or boolean), the AST validator
+rejects it.</p>
+<p>Similarly, loops are closely scrutinized. While standard
+<code>for</code> loops with constant or uniform-bound iterations
+translate cleanly to GLSL, <code>while</code> loops with
+non-deterministic exit conditions or unbounded execution can fail
+validation to prevent infinite loops on the graphics hardware.</p>
+<h3 id="automatic-cpu-fallback">Automatic CPU Fallback</h3>
+<p>By default, gpu.js operates in an automatic mode that prioritizes
+execution continuity over strict hardware acceleration. If a kernel
+fails to compile due to an unsupported JavaScript construct or hardware
+limitation, the library catches the compilation error internally and
+routes execution to the CPU.</p>
+<p>In this fallback state, gpu.js runs the original JavaScript function
+within the standard V8 or browser JavaScript engine using multi-threaded
+Web Workers or basic CPU loops. While this ensures that unsupported
+syntax executes without breaking application flow, it bypasses the GPU
+entirely, resulting in standard JavaScript execution speeds rather than
+hardware-accelerated performance.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

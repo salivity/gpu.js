@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moore-Penrose Pseudoinverse in gpu.js - gpu.js</title>
+    <meta name="description" content="This guide explains how to efficiently compute the Moore-Penrose pseudoinverse of a non-square matrix using gpu.js. Because traditional Singular Value Decomposition (SVD) is branching-heavy and inefficient to implement directly in WebGL shaders, the reco">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/moore-penrose-pseudoinverse-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Moore-Penrose Pseudoinverse in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/moore-penrose-pseudoinverse-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide explains how to efficiently compute the Moore-Penrose pseudoinverse of a non-square matrix using gpu.js. Because traditional Singular Value Decomposition (SVD) is branching-heavy and inefficient to implement directly in WebGL shaders, the reco" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="moore-penrose-pseudoinverse-in-gpujs">Moore-Penrose
+Pseudoinverse in gpu.js</h1>
+<p>This guide explains how to efficiently compute the Moore-Penrose
+pseudoinverse of a non-square matrix using <code>gpu.js</code>. Because
+traditional Singular Value Decomposition (SVD) is branching-heavy and
+inefficient to implement directly in WebGL shaders, the recommended
+approach relies on the iterative Newton-Schulz algorithm or the normal
+equations method. By framing the computation around parallel General
+Matrix Multiply (GEMM) operations, <code>gpu.js</code> can rapidly
+converge on an accurate pseudoinverse entirely on the GPU.</p>
+<h3 id="why-avoid-direct-svd-on-the-gpu">Why Avoid Direct SVD on the
+GPU</h3>
+<p>The textbook definition of the Moore-Penrose pseudoinverse (<span
+class="math inline">\(A^+\)</span>) relies on Singular Value
+Decomposition:</p>
+<p><span class="math display">\[A^+ = V \Sigma^+ U^T\]</span></p>
+<p>While SVD handles matrices of arbitrary rank, implementing two-sided
+Jacobi rotations or bidiagonalization with QR iterations in
+<code>gpu.js</code> introduces massive pipeline stalls, sequential
+dependencies, and excessive thread synchronization. As a result, exact
+SVD in shader environments performs poorly compared to GEMM-centric
+algorithms.</p>
+<h3 id="recommended-method-newton-schulz-iteration">Recommended Method:
+Newton-Schulz Iteration</h3>
+<p>The Newton-Schulz method is a matrix-inversion analogue of
+Newton-Raphson iteration. It approximates the pseudoinverse using only
+matrix multiplication and subtraction, which are natively suited to
+WebGL fragment shaders in <code>gpu.js</code>.</p>
+<p>The update formula is:</p>
+<p><span class="math display">\[X_{k+1} = X_k (2I - A X_k)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(A\)</span> is the input <span
+class="math inline">\(m \times n\)</span> matrix.</li>
+<li><span class="math inline">\(X_k\)</span> is the current
+approximation of <span class="math inline">\(A^+\)</span>, with
+dimensions <span class="math inline">\(n \times m\)</span>.</li>
+<li><span class="math inline">\(I\)</span> is the <span
+class="math inline">\(m \times m\)</span> identity matrix.</li>
+</ul>
+<h4 id="step-1-initialize-x_0">Step 1: Initialize <span
+class="math inline">\(X_0\)</span></h4>
+<p>Convergence requires a stable starting matrix <span
+class="math inline">\(X_0\)</span>. A standard, robust initialization
+is:</p>
+<p><span class="math display">\[X_0 = \alpha A^T\]</span></p>
+<p>where:</p>
+<p><span class="math display">\[\alpha = \frac{1}{\|A\|_1
+\|A\|_\infty}\]</span></p>
+<p>Here, <span class="math inline">\(\|A\|_1\)</span> is the maximum
+absolute column sum and <span
+class="math inline">\(\|A\|_\infty\)</span> is the maximum absolute row
+sum. Computing <span class="math inline">\(\alpha\)</span> can be done
+quickly on the CPU prior to passing the data to the GPU.</p>
+<h4 id="step-2-implement-gpu-kernels-in-gpujs">Step 2: Implement GPU
+Kernels in gpu.js</h4>
+<p>Newton-Schulz requires two primary GPU kernels:</p>
+<ol type="1">
+<li><strong>Matrix Multiplication Kernel:</strong> Multiplies two
+matrices (<span class="math inline">\(C = AB\)</span>).</li>
+<li><strong>Residual Update Kernel:</strong> Multiplies <span
+class="math inline">\(X_k\)</span> by <span class="math inline">\((2I -
+AX_k)\)</span>.</li>
+</ol>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Parallel Matrix Multiplication</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiplyMatrices <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b<span class="op">,</span> commonDim) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> commonDim<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> b[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="co">/* cols */</span><span class="op">,</span> <span class="co">/* rows */</span>])<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">// Scaled Subtraction Kernel: (2 * I) - AX</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeResidual <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(ax<span class="op">,</span> m) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> identity <span class="op">=</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">===</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>) <span class="op">?</span> <span class="fl">2.0</span> <span class="op">:</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> identity <span class="op">-</span> ax[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([m<span class="op">,</span> m])<span class="op">;</span></span></code></pre></div>
+<h4 id="step-3-run-the-iteration-loop">Step 3: Run the Iteration
+Loop</h4>
+<p>Keep intermediate textures in GPU memory to prevent readback
+overhead. Run the iteration until the difference <span
+class="math inline">\(\|X_{k+1} - X_k\|\)</span> drops below your
+desired tolerance threshold (typically 10 to 15 iterations are
+sufficient for moderate condition numbers).</p>
+<hr />
+<h3
+id="alternative-method-normal-equations-full-rank-matrices">Alternative
+Method: Normal Equations (Full-Rank Matrices)</h3>
+<p>If your matrix is guaranteed to have full rank, you can avoid
+iterative methods by solving the normal equations directly:</p>
+<ul>
+<li><strong>Full Column Rank (<span class="math inline">\(m &gt;
+n\)</span>):</strong> <span class="math display">\[A^+ = (A^T A)^{-1}
+A^T\]</span></li>
+<li><strong>Full Row Rank (<span class="math inline">\(m &lt;
+n\)</span>):</strong> <span class="math display">\[A^+ = A^T (A
+A^T)^{-1}\]</span></li>
+</ul>
+<h4 id="implementation-steps">Implementation Steps:</h4>
+<ol type="1">
+<li>Compute the Gram matrix (<span class="math inline">\(A^T A\)</span>
+or <span class="math inline">\(A A^T\)</span>) using a
+<code>gpu.js</code> matrix multiplication kernel. The result is a small,
+symmetric positive-definite square matrix.</li>
+<li>Invert the small square matrix. For matrices smaller than roughly
+<span class="math inline">\(100 \times 100\)</span>, transfer the Gram
+matrix to the CPU and use standard Cholesky decomposition or LU
+inversion via an optimized library (such as <code>mathjs</code>).</li>
+<li>Send the inverted square matrix back to <code>gpu.js</code> and
+execute a final multiplication with <span
+class="math inline">\(A^T\)</span>.</li>
+</ol>
+<h3 id="summary-recommendation">Summary Recommendation</h3>
+<ul>
+<li>Use the <strong>Newton-Schulz iterative method</strong> if your
+matrix is large, close to square, or if you require an end-to-end GPU
+pipeline without round-trip data transfers between the CPU and GPU.</li>
+<li>Use the <strong>Normal Equations hybrid method</strong> if the
+matrix has a small inner dimension (<span class="math inline">\(n \ll
+m\)</span> or <span class="math inline">\(m \ll n\)</span>) and full
+rank, as the square matrix inversion becomes computationally trivial on
+the CPU.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

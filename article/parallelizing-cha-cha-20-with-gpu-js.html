@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelizing ChaCha20 with gpu.js - gpu.js</title>
+    <meta name="description" content="ChaCha20 is a counter-based stream cipher whose mathematical structure makes its keystream generation exceptionally well-suited for parallel execution. By utilizing gpu.js, an accelerated JavaScript library that compiles code to run on the GPU via WebGL,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelizing-cha-cha-20-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelizing ChaCha20 with gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelizing-cha-cha-20-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="ChaCha20 is a counter-based stream cipher whose mathematical structure makes its keystream generation exceptionally well-suited for parallel execution. By utilizing gpu.js, an accelerated JavaScript library that compiles code to run on the GPU via WebGL," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelizing-chacha20-with-gpujs">Parallelizing ChaCha20 with
+gpu.js</h1>
+<p>ChaCha20 is a counter-based stream cipher whose mathematical
+structure makes its keystream generation exceptionally well-suited for
+parallel execution. By utilizing gpu.js, an accelerated JavaScript
+library that compiles code to run on the GPU via WebGL, developers can
+compute independent keystream blocks simultaneously across thousands of
+GPU cores. This article examines the architectural reasons why ChaCha20
+block generation can be parallelized, explains how to structure the
+kernel within gpu.js, and analyzes the practical limitations, including
+WebGL integer arithmetic constraints and memory transfer overhead.</p>
+<h2 id="the-parallel-nature-of-chacha20">The Parallel Nature of
+ChaCha20</h2>
+<p>ChaCha20 operates on a 4x4 state matrix consisting of sixteen 32-bit
+words (64 bytes in total). The state is initialized with four constant
+words, eight key words (256-bit key), one 32-bit block counter, and
+three nonce words (96-bit nonce).</p>
+<p>Because ChaCha20 is a counter-mode stream cipher, every 64-byte block
+of the keystream is computed independently:</p>
+<ul>
+<li>Block 0 uses counter = 0</li>
+<li>Block 1 uses counter = 1</li>
+<li>Block <span class="math inline">\(N\)</span> uses counter = <span
+class="math inline">\(N\)</span></li>
+</ul>
+<p>There is no data dependency between consecutive blocks. Unlike cipher
+modes that require the output of a previous block to compute the next
+(such as CBC mode), any block in ChaCha20 can be computed at any time in
+any order. This property directly matches the Single Instruction,
+Multiple Threads (SIMT) model used by modern graphics processing
+units.</p>
+<h2 id="implementing-chacha20-block-generation-in-gpujs">Implementing
+ChaCha20 Block Generation in gpu.js</h2>
+<p>gpu.js abstracts WebGL fragment shaders into standard JavaScript
+syntax. In a gpu.js kernel, each thread can be assigned the task of
+generating a single 64-byte block (or individual 32-bit words within
+that block).</p>
+<h3 id="1-mapping-threads-to-blocks">1. Mapping Threads to Blocks</h3>
+<p>The execution pipeline maps the global thread index
+(<code>this.thread.x</code>) directly to the ChaCha20 counter:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;webgl2&#39;</span> })<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> generateKeystreamBlocks <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(key<span class="op">,</span> nonce<span class="op">,</span> baseCounter) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> blockIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> currentCounter <span class="op">=</span> baseCounter <span class="op">+</span> blockIndex<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Initialize state matrix, run 20 rounds of quarter-rounds, and output state</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// ...</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([totalBlocks])<span class="op">;</span></span></code></pre></div>
+<h3 id="2-executing-the-quarter-round-function">2. Executing the
+Quarter-Round Function</h3>
+<p>The core primitive of ChaCha20 is the quarter-round operation, which
+relies on ARX (Add-Rotate-Xor) operations on 32-bit unsigned
+integers:</p>
+<ul>
+<li>Addition: <code>a = (a + b) &gt;&gt;&gt; 0</code></li>
+<li>XOR: <code>d = d ^ a</code></li>
+<li>Left Rotation:
+<code>d = ((d &lt;&lt; n) | (d &gt;&gt;&gt; (32 - n))) &gt;&gt;&gt; 0</code></li>
+</ul>
+<p>Each block runs 20 rounds (alternating between four column rounds and
+four diagonal rounds), adds the original state to the permuted state,
+and produces the finalized 64-byte block.</p>
+<h2 id="technical-constraints-and-considerations">Technical Constraints
+and Considerations</h2>
+<p>While theoretically straightforward, parallelizing ChaCha20 in
+JavaScript using gpu.js presents several practical challenges:</p>
+<h3 id="webgl-2-and-32-bit-integer-support">WebGL 2 and 32-bit Integer
+Support</h3>
+<p>ChaCha20 requires native 32-bit unsigned integer arithmetic and
+bitwise shifts. WebGL 1 only supports single-precision floating-point
+numbers, making bitwise operations inefficient and prone to precision
+loss. Consequently, gpu.js must run in a WebGL 2 environment where
+32-bit integer data types and bitwise operations are natively supported
+by the underlying GLSL shaders.</p>
+<h3 id="cpu-to-gpu-transfer-latency">CPU-to-GPU Transfer Latency</h3>
+<p>GPUs excel at compute-heavy tasks, but data transfer between CPU
+memory and GPU VRAM over the PCIe bus introduces latency. In
+ChaCha20:</p>
+<ul>
+<li>The input data (key, nonce, and counter) is very small.</li>
+<li>The output data (the generated keystream) can be massive.</li>
+</ul>
+<p>If the application only requires generating a few kilobytes of data,
+the overhead of compiling shaders, invoking the WebGL pipeline, and
+reading back pixel buffers (<code>gl.readPixels</code>) often exceeds
+the execution time of a highly optimized SIMD or WebAssembly
+implementation running on the CPU. GPU parallelization becomes
+advantageous primarily when generating megabytes or gigabytes of
+keystream data in parallel.</p>
+<h3 id="cryptographic-security-on-the-gpu">Cryptographic Security on the
+GPU</h3>
+<p>Storing cryptographic keys in GPU memory buffers requires caution.
+WebGL contexts can be subject to memory inspection or side-channel
+leakage depending on the browser environment and driver isolation. For
+production cryptographic implementations, dedicated hardware
+instructions (such as AVX-512 or ARM Neon on the CPU) are generally
+preferred for both side-channel resistance and low-latency
+execution.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>ChaCha20 block generation can be successfully parallelized using
+gpu.js due to the absolute independence of its block counter mechanism.
+By mapping each GPU thread to a unique block counter and executing the
+standard 20 ARX rounds, large volumes of keystream can be produced
+concurrently. However, real-world utility requires a WebGL 2-compatible
+environment and workloads large enough to amortize the memory
+synchronization cost between the GPU and CPU.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

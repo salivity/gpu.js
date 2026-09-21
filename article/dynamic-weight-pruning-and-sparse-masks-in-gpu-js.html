@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Weight Pruning and Sparse Masks in GPU.js - gpu.js</title>
+    <meta name="description" content="Dynamic weight pruning and sparse parameter masks can be applied using gpu.js by executing conditional shader kernels directly on the GPU. While the underlying WebGL architecture enforces a fixed-memory, dense tensor model that limits true physical memor">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/dynamic-weight-pruning-and-sparse-masks-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Dynamic Weight Pruning and Sparse Masks in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/dynamic-weight-pruning-and-sparse-masks-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Dynamic weight pruning and sparse parameter masks can be applied using gpu.js by executing conditional shader kernels directly on the GPU. While the underlying WebGL architecture enforces a fixed-memory, dense tensor model that limits true physical memor" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="dynamic-weight-pruning-and-sparse-masks-in-gpujs">Dynamic Weight
+Pruning and Sparse Masks in GPU.js</h1>
+<p>Dynamic weight pruning and sparse parameter masks can be applied
+using gpu.js by executing conditional shader kernels directly on the
+GPU. While the underlying WebGL architecture enforces a fixed-memory,
+dense tensor model that limits true physical memory compression, gpu.js
+allows developers to dynamically compute pruning masks and apply
+element-wise zeroing across neural network weights during both training
+and inference.</p>
+<h3 id="how-dynamic-pruning-works-in-gpujs">How Dynamic Pruning Works in
+gpu.js</h3>
+<p>Dynamic pruning requires evaluating weight magnitudes or gradient
+thresholds at runtime and disabling specific connections without taking
+the model offline. In gpu.js, this is achieved by treating weights and
+masks as 2D or 3D arrays executed within custom compute kernels.</p>
+<ol type="1">
+<li><strong>Dynamic Mask Generation:</strong> A kernel evaluates current
+weight matrices against an updated threshold or percentile. If a
+weight’s absolute value falls below the cutoff, the kernel outputs a
+<code>0</code> to the mask matrix; otherwise, it outputs a
+<code>1</code>.</li>
+<li><strong>Mask Application (Hadamard Product):</strong> A
+matrix-multiplication or element-wise kernel computes the effective
+weights by multiplying the raw parameter matrix by the sparse mask
+matrix in parallel.</li>
+<li><strong>In-Kernel Pruning:</strong> Instead of maintaining a
+separate mask matrix, dynamic pruning can be calculated inline within
+the forward pass kernel. The kernel checks the threshold on-the-fly,
+returning zero for pruned parameters to eliminate the memory overhead of
+an auxiliary mask tensor.</li>
+</ol>
+<h3 id="code-pattern-for-masked-operations">Code Pattern for Masked
+Operations</h3>
+<p>The standard approach uses two coordinated gpu.js kernels: one to
+generate the sparse mask dynamically, and another to apply it to matrix
+multiplications.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to dynamically generate a binary mask based on a threshold</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> createPruneMask <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(weights<span class="op">,</span> threshold) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> val <span class="op">=</span> weights[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(val) <span class="op">&gt;=</span> threshold <span class="op">?</span> <span class="dv">1</span> <span class="op">:</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to compute masked dense matrix multiplication</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> maskedMatMul <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(A<span class="op">,</span> B<span class="op">,</span> Mask) {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">sharedDim</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> maskVal <span class="op">=</span> Mask[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (maskVal <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>      sum <span class="op">+=</span> A[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> B[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setConstants</span>({ <span class="dt">sharedDim</span><span class="op">:</span> width })</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([outWidth<span class="op">,</span> outHeight])<span class="op">;</span></span></code></pre></div>
+<h3
+id="architectural-constraints-and-performance-realities">Architectural
+Constraints and Performance Realities</h3>
+<p>While dynamic sparse masking is functional in gpu.js, developers must
+account for the hardware execution model of WebGL:</p>
+<ul>
+<li><strong>Dense Storage Overhead:</strong> WebGL textures require
+rigid dimensional bounds. gpu.js cannot dynamically reallocate memory
+into Compressed Sparse Row (CSR) or Compressed Sparse Column (CSC)
+formats without custom encoding schemes. Pruned networks still consume
+the same GPU memory footprint as dense networks.</li>
+<li><strong>Warp Branch Divergence:</strong> Conditional statements
+inside gpu.js kernels (<code>if (mask === 1)</code>) do not always
+bypass computation. Modern GPU architectures execute instructions in
+lockstep (warps or wavefronts). If adjacent threads within the same warp
+take different branches, both branches are executed, mitigating the
+compute savings of unstructured dynamic pruning.</li>
+<li><strong>Pipeline Synchronization:</strong> Computing dynamic
+thresholds (such as determining the bottom 20% of weights across a
+layer) requires reductions. Reductions in gpu.js require multi-pass
+rendering, introducing latency if performed on every training step.</li>
+</ul>
+<h3 id="structured-vs-unstructured-masking">Structured vs. Unstructured
+Masking</h3>
+<p>To achieve real performance gains with dynamic pruning in gpu.js,
+structured pruning should be favored over unstructured pruning.
+Structured pruning zeros out entire rows, columns, or channels. By
+removing entire blocks, you can dynamically slice kernel output
+dimensions, reducing the actual grid dispatch size and achieving
+measurable execution speedups within WebGL's constraints.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solving Crank-Nicolson Iteratively in GPU.js - gpu.js</title>
+    <meta name="description" content="The Crank-Nicolson implicit method for differential equations can be successfully solved in GPU.js by using iterative linear solvers. Because the implicit nature of Crank-Nicolson produces a coupled system of algebraic equations at each time step, standa">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/solving-crank-nicolson-iteratively-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Solving Crank-Nicolson Iteratively in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/solving-crank-nicolson-iteratively-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The Crank-Nicolson implicit method for differential equations can be successfully solved in GPU.js by using iterative linear solvers. Because the implicit nature of Crank-Nicolson produces a coupled system of algebraic equations at each time step, standa" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="solving-crank-nicolson-iteratively-in-gpujs">Solving
+Crank-Nicolson Iteratively in GPU.js</h1>
+<p>The Crank-Nicolson implicit method for differential equations can be
+successfully solved in GPU.js by using iterative linear solvers. Because
+the implicit nature of Crank-Nicolson produces a coupled system of
+algebraic equations at each time step, standard direct solvers like the
+tridiagonal matrix algorithm (Thomas algorithm) fail to parallelize
+efficiently across GPU threads. However, by substituting a parallel
+iterative solver such as the Jacobi method or Red-Black Gauss-Seidel,
+developers can leverage GPU.js to accelerate solutions to partial
+differential equations (PDEs) directly in the browser.</p>
+<h3 id="the-challenge-with-implicit-solvers-on-gpus">The Challenge with
+Implicit Solvers on GPUs</h3>
+<p>The Crank-Nicolson method is widely used for solving parabolic
+PDEs—such as the heat equation—because it is numerically stable and
+second-order accurate in both time and space. Applying the method
+discretizes the domain into a linear system of equations:</p>
+<p><span class="math display">\[A u^{n+1} = B u^n\]</span></p>
+<p>Where <span class="math inline">\(u^n\)</span> is the current state
+and <span class="math inline">\(u^{n+1}\)</span> is the unknown state at
+the next time step.</p>
+<p>On a CPU, a tridiagonal system of this type is typically solved using
+the Thomas algorithm in <span
+class="math inline">\(\mathcal{O}(N)\)</span> sequential operations. On
+a GPU, this algorithm is inefficient because each step depends strictly
+on the value calculated in the preceding step, preventing parallel
+thread execution across the grid.</p>
+<h3 id="using-iterative-solvers-in-gpujs">Using Iterative Solvers in
+GPU.js</h3>
+<p>To utilize the parallel architecture of GPU.js, the global matrix
+inversion must be converted into local, independent operations.
+Iterative relaxation methods—most notably the Jacobi iteration—allow
+every grid point to update simultaneously based solely on values from
+the previous iteration.</p>
+<p>In a standard 1D heat equation discretized via Crank-Nicolson, the
+update equation for a point <span class="math inline">\(i\)</span> can
+be rearranged into the iterative Jacobi form:</p>
+<p><span class="math display">\[u_i^{(k+1)} = \frac{b_i - c_1
+u_{i-1}^{(k)} - c_2 u_{i+1}^{(k)}}{c_0}\]</span></p>
+<p>Here, <span class="math inline">\(k\)</span> denotes the iteration
+index, and <span class="math inline">\(b\)</span> represents the known
+explicit terms derived from time step <span
+class="math inline">\(n\)</span>. Because the computation of <span
+class="math inline">\(u_i^{(k+1)}\)</span> depends only on values from
+iteration <span class="math inline">\(k\)</span>, each thread in a
+GPU.js kernel can compute one spatial point concurrently.</p>
+<h3 id="implementation-architecture-in-gpujs">Implementation
+Architecture in GPU.js</h3>
+<p>Implementing an iterative Crank-Nicolson solver in GPU.js involves a
+nested execution loop:</p>
+<ol type="1">
+<li><strong>Explicit Step Kernel:</strong> A GPU kernel computes the
+known right-hand vector (<span class="math inline">\(B u^n\)</span>)
+from the current state.</li>
+<li><strong>Iterative Solver Kernels:</strong> A secondary GPU kernel
+executes the relaxation step (e.g., Jacobi update).</li>
+<li><strong>Ping-Pong Textures:</strong> GPU.js handles memory via WebGL
+textures. Because an array cannot be read from and written to in the
+same pass, two buffers are alternated ("ping-ponged"): one acts as the
+read texture (<span class="math inline">\(u^{(k)}\)</span>), and the
+other acts as the render target (<span
+class="math inline">\(u^{(k+1)}\)</span>).</li>
+<li><strong>Convergence Check:</strong> The CPU controls the inner loop,
+alternating the textures for a fixed number of iterations or until the
+difference between iterations drops below a specified tolerance.</li>
+<li><strong>Time Advance:</strong> Once the inner iteration converges,
+the resulting texture becomes <span class="math inline">\(u^n\)</span>
+for the next global time step.</li>
+</ol>
+<h3 id="limitations-and-considerations">Limitations and
+Considerations</h3>
+<ul>
+<li><strong>Convergence Rates:</strong> Jacobi iteration converges
+slowly for fine spatial grids. While highly parallel, the number of
+iterations required per time step can offset parallelization gains if
+the grid is excessively large or the time step is wide.</li>
+<li><strong>Precision:</strong> GPU.js relies on WebGL, which
+traditionally uses 32-bit floating-point precision (or 16-bit on older
+hardware). Double-precision (64-bit) floats are generally unsupported,
+which can introduce numerical drift over long simulation runtimes.</li>
+<li><strong>CPU-GPU Overhead:</strong> Checking for convergence
+dynamically requires reading data back to the CPU via
+<code>kernel()</code>, which causes a pipeline stall. To maintain high
+throughput, it is usually more efficient to run a fixed number of
+iterations entirely on the GPU without reading back data until final
+visualization.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

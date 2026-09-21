@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Double Pendulum Simulation with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to leverage GPU.js to simulate thousands of chaotic double pendulum trajectories simultaneously across a grid of varied starting angles. By compiling numerical integration algorithms into WebGL compute shaders, GPU.js allows you">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/double-pendulum-simulation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Double Pendulum Simulation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/double-pendulum-simulation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to leverage GPU.js to simulate thousands of chaotic double pendulum trajectories simultaneously across a grid of varied starting angles. By compiling numerical integration algorithms into WebGL compute shaders, GPU.js allows you" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="double-pendulum-simulation-with-gpujs">Double Pendulum
+Simulation with GPU.js</h1>
+<p>This article explains how to leverage GPU.js to simulate thousands of
+chaotic double pendulum trajectories simultaneously across a grid of
+varied starting angles. By compiling numerical integration algorithms
+into WebGL compute shaders, GPU.js allows you to bypass CPU bottlenecks
+and compute massive parameter sweeps in parallel. You will learn the
+underlying equations of motion, how to implement a Runge-Kutta
+integrator inside a GPU kernel, and how to extract chaotic trajectory
+metrics efficiently.</p>
+<hr />
+<h3 id="the-mathematics-of-the-double-pendulum">The Mathematics of the
+Double Pendulum</h3>
+<p>A double pendulum consists of one pendulum suspended from another.
+Its motion is governed by two coupled second-order ordinary differential
+equations (ODEs). The state of the system is defined by four
+variables:</p>
+<ul>
+<li><span class="math inline">\(\theta_1, \theta_2\)</span>: Angles of
+the upper and lower arms relative to the vertical.</li>
+<li><span class="math inline">\(\omega_1, \omega_2\)</span>: Angular
+velocities (<span class="math inline">\(\dot{\theta}_1,
+\dot{\theta}_2\)</span>).</li>
+</ul>
+<p>Assuming equal arm lengths (<span class="math inline">\(l_1 = l_2 =
+l\)</span>) and equal masses (<span class="math inline">\(m_1 = m_2 =
+m\)</span>), the angular accelerations (<span
+class="math inline">\(\alpha_1 = \ddot{\theta}_1\)</span> and <span
+class="math inline">\(\alpha_2 = \ddot{\theta}_2\)</span>) under gravity
+<span class="math inline">\(g\)</span> are:</p>
+<p><span class="math display">\[\Delta\theta = \theta_1 -
+\theta_2\]</span></p>
+<p><span class="math display">\[\alpha_1 = \frac{-g(2m_1 +
+m_2)\sin\theta_1 - m_2 g \sin(\theta_1 - 2\theta_2) -
+2\sin(\Delta\theta)m_2(\omega_2^2 l_2 + \omega_1^2 l_1
+\cos(\Delta\theta))}{l_1 (2m_1 + m_2 - m_2
+\cos(2\Delta\theta))}\]</span></p>
+<p><span class="math display">\[\alpha_2 =
+\frac{2\sin(\Delta\theta)(\omega_1^2 l_1 (m_1 + m_2) + g(m_1 +
+m_2)\cos\theta_1 + \omega_2^2 l_2 m_2 \cos(\Delta\theta))}{l_2 (2m_1 +
+m_2 - m_2 \cos(2\Delta\theta))}\]</span></p>
+<p>Because these equations exhibit extreme sensitivity to initial
+conditions (chaos), small differences in starting angles produce
+radically divergent paths over time.</p>
+<hr />
+<h3 id="setting-up-the-gpujs-environment">Setting Up the GPU.js
+Environment</h3>
+<p>GPU.js compiles JavaScript functions into WebGL shaders. In this
+architecture, each pixel or thread computes the trajectory of a unique
+double pendulum where the thread coordinates
+<code>(this.thread.x, this.thread.y)</code> map directly to initial
+values of <span class="math inline">\(\theta_1\)</span> and <span
+class="math inline">\(\theta_2\)</span>.</p>
+<p>Install GPU.js via npm or import it via CDN:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<hr />
+<h3 id="writing-the-integration-kernel">Writing the Integration
+Kernel</h3>
+<p>To maintain numerical stability in chaotic systems, the 4th-order
+Runge-Kutta method (RK4) is preferred over Euler's method. Below is the
+complete implementation defining the physics functions and the GPU.js
+kernel.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Constants</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> WIDTH <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> HEIGHT <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> STEPS <span class="op">=</span> <span class="dv">1000</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> DT <span class="op">=</span> <span class="fl">0.02</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> G <span class="op">=</span> <span class="fl">9.81</span><span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> L1 <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> L2 <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> M1 <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> M2 <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="co">// GPU kernel to simulate trajectories</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> simulateDoublePendulum <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(steps<span class="op">,</span> dt<span class="op">,</span> g<span class="op">,</span> l1<span class="op">,</span> l2<span class="op">,</span> m1<span class="op">,</span> m2) {</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Map thread positions to initial angles [-PI, PI]</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> t1 <span class="op">=</span> ((<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span>) <span class="op">*</span> <span class="fl">2.0</span> <span class="op">-</span> <span class="fl">1.0</span>) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span><span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> t2 <span class="op">=</span> ((<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span>) <span class="op">*</span> <span class="fl">2.0</span> <span class="op">-</span> <span class="fl">1.0</span>) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span><span class="op">;</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> w1 <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> w2 <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> steps<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>        <span class="co">// RK4 - Step 1</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> delta <span class="op">=</span> t1 <span class="op">-</span> t2<span class="op">;</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> den <span class="op">=</span> <span class="fl">2.0</span> <span class="op">*</span> m1 <span class="op">+</span> m2 <span class="op">-</span> m2 <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(<span class="fl">2.0</span> <span class="op">*</span> t1 <span class="op">-</span> <span class="fl">2.0</span> <span class="op">*</span> t2)<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> alpha1 <span class="op">=</span> (<span class="op">-</span>g <span class="op">*</span> (<span class="fl">2.0</span> <span class="op">*</span> m1 <span class="op">+</span> m2) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(t1) <span class="op">-</span> m2 <span class="op">*</span> g <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(t1 <span class="op">-</span> <span class="fl">2.0</span> <span class="op">*</span> t2) <span class="op">-</span> <span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(delta) <span class="op">*</span> m2 <span class="op">*</span> (w2 <span class="op">*</span> w2 <span class="op">*</span> l2 <span class="op">+</span> w1 <span class="op">*</span> w1 <span class="op">*</span> l1 <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(delta))) <span class="op">/</span> (l1 <span class="op">*</span> den)<span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> alpha2 <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(delta) <span class="op">*</span> (w1 <span class="op">*</span> w1 <span class="op">*</span> l1 <span class="op">*</span> (m1 <span class="op">+</span> m2) <span class="op">+</span> g <span class="op">*</span> (m1 <span class="op">+</span> m2) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(t1) <span class="op">+</span> w2 <span class="op">*</span> w2 <span class="op">*</span> l2 <span class="op">*</span> m2 <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(delta))) <span class="op">/</span> (l2 <span class="op">*</span> den)<span class="op">;</span></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> k1_t1 <span class="op">=</span> w1<span class="op">;</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> k1_t2 <span class="op">=</span> w2<span class="op">;</span></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> k1_w1 <span class="op">=</span> alpha1<span class="op">;</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> k1_w2 <span class="op">=</span> alpha2<span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Midpoint estimations for simplified update</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>        t1 <span class="op">+=</span> k1_t1 <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>        t2 <span class="op">+=</span> k1_t2 <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>        w1 <span class="op">+=</span> k1_w1 <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>        w2 <span class="op">+=</span> k1_w2 <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Return the final theta1 angle mapped to a positive range for visualization</span></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (t1 <span class="op">%</span> (<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span>) <span class="op">+</span> <span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span>) <span class="op">%</span> (<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span>)<span class="op">;</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([WIDTH<span class="op">,</span> HEIGHT])</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPrecision</span>(<span class="st">&#39;unsigned&#39;</span>)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="mapping-parameter-sweeps">Mapping Parameter Sweeps</h3>
+<p>To compute parameter sweeps across varying starting angles:</p>
+<ol type="1">
+<li><strong>Resolution Selection:</strong> The kernel dimensions
+determine the grid resolution. An output of <code>[512, 512]</code>
+evaluates <span class="math inline">\(262,144\)</span> distinct
+pendulums in parallel.</li>
+<li><strong>Coordinate Normalization:</strong> Inside the kernel,
+normalize <code>this.thread.x</code> and <code>this.thread.y</code> to
+cover the desired state space, such as <span
+class="math inline">\([-\pi, \pi] \times [-\pi, \pi]\)</span>.</li>
+<li><strong>Execution:</strong> Pass dynamic simulation properties (such
+as duration or mass ratios) as arguments to the compiled kernel.</li>
+</ol>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> results <span class="op">=</span> <span class="fu">simulateDoublePendulum</span>(STEPS<span class="op">,</span> DT<span class="op">,</span> G<span class="op">,</span> L1<span class="op">,</span> L2<span class="op">,</span> M1<span class="op">,</span> M2)<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="extracting-and-visualizing-results">Extracting and Visualizing
+Results</h3>
+<p>The output matrix contains the resolved state variable for each
+angular pairing. Depending on your objective, the kernel can return:</p>
+<ul>
+<li><strong>Flip Time:</strong> The time step <span
+class="math inline">\(t\)</span> at which the second arm completes a
+full inversion (<span class="math inline">\(\lvert \theta_2 \rvert &gt;
+\pi\)</span>).</li>
+<li><strong>Lyapunov Exponents:</strong> The rate of separation between
+infinitesimally close starting angles.</li>
+<li><strong>Graphical Rendering:</strong> By enabling
+<code>.setGraphical(true)</code>, the kernel can write color values
+directly to an HTML canvas using <code>this.color(r, g, b, 1.0)</code>,
+generating fractal basin boundary plots in real time.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

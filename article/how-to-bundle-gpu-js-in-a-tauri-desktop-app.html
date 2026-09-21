@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How to Bundle GPU.js in a Tauri Desktop App - gpu.js</title>
+    <meta name="description" content="This article explains how to bundle and run gpu.js within a cross-platform Tauri application targeting Windows, macOS, and Linux. Because Tauri relies on native OS webviews rather than an embedded Chromium runtime, integrating hardware-accelerated librar">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-to-bundle-gpu-js-in-a-tauri-desktop-app">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How to Bundle GPU.js in a Tauri Desktop App - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-to-bundle-gpu-js-in-a-tauri-desktop-app" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to bundle and run gpu.js within a cross-platform Tauri application targeting Windows, macOS, and Linux. Because Tauri relies on native OS webviews rather than an embedded Chromium runtime, integrating hardware-accelerated librar" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-to-bundle-gpujs-in-a-tauri-desktop-app">How to Bundle GPU.js
+in a Tauri Desktop App</h1>
+<p>This article explains how to bundle and run <code>gpu.js</code>
+within a cross-platform Tauri application targeting Windows, macOS, and
+Linux. Because Tauri relies on native OS webviews rather than an
+embedded Chromium runtime, integrating hardware-accelerated libraries
+requires understanding webview graphic contexts, bundler configurations,
+and platform-specific graphics flags. The following steps guide you
+through setting up, configuring, and deploying <code>gpu.js</code>
+reliably across all major desktop operating systems.</p>
+<h3 id="understanding-tauri-and-gpujs">Understanding Tauri and
+GPU.js</h3>
+<p>Tauri uses the operating system's default webview rather than
+bundling Chromium:</p>
+<ul>
+<li><strong>Windows:</strong> Microsoft Edge WebView2</li>
+<li><strong>macOS:</strong> Apple WebKit (<code>WKWebView</code>)</li>
+<li><strong>Linux:</strong> WebKitGTK</li>
+</ul>
+<p><code>gpu.js</code> compiles JavaScript functions into WebGL shader
+language (GLSL) to execute parallel operations on the graphics card. For
+<code>gpu.js</code> to work within Tauri, the host webview must have
+hardware-accelerated WebGL enabled, and your bundler must package the
+client-side build of <code>gpu.js</code> without attempting to load
+Node.js native dependencies (such as <code>gl</code> or
+headless-gl).</p>
+<hr />
+<h3 id="step-1-project-setup-and-dependency-installation">Step 1:
+Project Setup and Dependency Installation</h3>
+<p>Initialize a new Tauri application if you do not have an existing
+one, and install <code>gpu.js</code>:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> create tauri-app@latest</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> your-tauri-app</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<hr />
+<h3 id="step-2-bundler-configuration-vite-example">Step 2: Bundler
+Configuration (Vite Example)</h3>
+<p>Most modern Tauri templates use Vite. Since <code>gpu.js</code>
+includes code paths for both Node.js server environments and the
+browser, configure your bundler to ignore Node-specific shims so that it
+bundles the browser-oriented WebGL variant.</p>
+<p>In <code>vite.config.ts</code> or <code>vite.config.js</code>:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { defineConfig } <span class="im">from</span> <span class="st">&#39;vite&#39;</span><span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">export</span> <span class="im">default</span> <span class="fu">defineConfig</span>({</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">clearScreen</span><span class="op">:</span> <span class="kw">false</span><span class="op">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">server</span><span class="op">:</span> {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">strictPort</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">envPrefix</span><span class="op">:</span> [<span class="st">&#39;VITE_&#39;</span><span class="op">,</span> <span class="st">&#39;TAURI_&#39;</span>]<span class="op">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">build</span><span class="op">:</span> {</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="dt">target</span><span class="op">:</span> <span class="bu">process</span><span class="op">.</span><span class="at">env</span><span class="op">.</span><span class="at">TAURI_PLATFORM</span> <span class="op">==</span> <span class="st">&#39;windows&#39;</span> <span class="op">?</span> <span class="st">&#39;chrome105&#39;</span> <span class="op">:</span> <span class="st">&#39;safari13&#39;</span><span class="op">,</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="dt">minify</span><span class="op">:</span> <span class="op">!</span><span class="bu">process</span><span class="op">.</span><span class="at">env</span><span class="op">.</span><span class="at">TAURI_DEBUG</span> <span class="op">?</span> <span class="st">&#39;esbuild&#39;</span> <span class="op">:</span> <span class="kw">false</span><span class="op">,</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">sourcemap</span><span class="op">:</span> <span class="op">!!</span><span class="bu">process</span><span class="op">.</span><span class="at">env</span><span class="op">.</span><span class="at">TAURI_DEBUG</span><span class="op">,</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="dt">optimizeDeps</span><span class="op">:</span> {</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="dt">include</span><span class="op">:</span> [<span class="st">&#39;gpu.js&#39;</span>]<span class="op">,</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-3-initializing-gpujs-in-the-frontend">Step 3: Initializing
+GPU.js in the Frontend</h3>
+<p>When creating the <code>GPU</code> instance, instantiate it within
+the browser context and specify fallbacks. This ensures stability if a
+specific webview fails to expose WebGL extensions.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="im">export</span> <span class="kw">function</span> <span class="fu">runKernel</span>() {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Initialize with fallback to CPU if GPU acceleration is unavailable</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;gpu&#39;</span><span class="op">,</span> <span class="co">// Defaults to WebGL2/WebGL, falls back automatically if configured</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  })<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> matSize <span class="op">=</span> <span class="dv">512</span><span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> a <span class="op">=</span> <span class="kw">new</span> <span class="bu">Array</span>(matSize <span class="op">*</span> matSize)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">1</span>)<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> b <span class="op">=</span> <span class="kw">new</span> <span class="bu">Array</span>(matSize <span class="op">*</span> matSize)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">2</span>)<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> multiplyMatrix <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (a<span class="op">,</span> b) {</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">512</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>      sum <span class="op">+=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">*</span> <span class="dv">512</span> <span class="op">+</span> i] <span class="op">*</span> b[i <span class="op">*</span> <span class="dv">512</span> <span class="op">+</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([matSize<span class="op">,</span> matSize])<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> <span class="fu">multiplyMatrix</span>(a<span class="op">,</span> b)<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> result<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<hr />
+<h3
+id="step-4-configuring-native-webviews-for-windows-macos-and-linux">Step
+4: Configuring Native Webviews for Windows, macOS, and Linux</h3>
+<p>Each desktop platform handles WebGL access differently in its native
+webview.</p>
+<h4 id="windows-webview2">Windows (WebView2)</h4>
+<p>Microsoft Edge WebView2 typically supports WebGL out of the box with
+DirectX backing. If hardware acceleration issues arise on low-end
+systems, pass specific arguments through the Tauri builder in Rust
+(<code>src-tauri/src/main.rs</code>):</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">use</span> <span class="pp">tauri::</span>Manager<span class="op">;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> main() <span class="op">{</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="pp">tauri::Builder::</span><span class="kw">default</span>()</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>setup(<span class="op">|</span>app<span class="op">|</span> <span class="op">{</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>            <span class="at">#[</span>cfg<span class="at">(</span>target_os <span class="op">=</span> <span class="st">&quot;windows&quot;</span><span class="at">)]</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>            <span class="op">{</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>                <span class="co">// Ensure WebView2 can use standard GPU rendering</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>            <span class="op">}</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>            <span class="cn">Ok</span>(())</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>        <span class="op">}</span>)</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>run(<span class="pp">tauri::generate_context!</span>())</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>expect(<span class="st">&quot;error while running tauri application&quot;</span>)<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h4 id="macos-wkwebview">macOS (WKWebView)</h4>
+<p>macOS uses Metal to back WebGL. In
+<code>src-tauri/tauri.conf.json</code>, ensure your window does not
+enforce transparent backgrounds if performance is critical, as
+transparency can sometimes disrupt GPU compositing on older macOS
+versions:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode json"><code class="sourceCode json"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">{</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">&quot;tauri&quot;</span><span class="fu">:</span> <span class="fu">{</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">&quot;windows&quot;</span><span class="fu">:</span> <span class="ot">[</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>      <span class="fu">{</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;title&quot;</span><span class="fu">:</span> <span class="st">&quot;Tauri GPU App&quot;</span><span class="fu">,</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;width&quot;</span><span class="fu">:</span> <span class="dv">800</span><span class="fu">,</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;height&quot;</span><span class="fu">:</span> <span class="dv">600</span><span class="fu">,</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        <span class="dt">&quot;transparent&quot;</span><span class="fu">:</span> <span class="kw">false</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>      <span class="fu">}</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    <span class="ot">]</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">}</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="fu">}</span></span></code></pre></div>
+<h4 id="linux-webkitgtk">Linux (WebKitGTK)</h4>
+<p>WebKitGTK frequently disables hardware acceleration on systems with
+proprietary graphics drivers (e.g., NVIDIA) or incomplete Mesa
+installations.</p>
+<p>To ensure <code>gpu.js</code> can utilize the graphics card on
+Linux:</p>
+<ol type="1">
+<li><strong>Set WebKit compositing environment variables</strong> prior
+to running the app, or inject them into the Rust entry point before the
+GTK loop initializes.</li>
+</ol>
+<p>In <code>src-tauri/src/main.rs</code>:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> main() <span class="op">{</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="at">#[</span>cfg<span class="at">(</span>target_os <span class="op">=</span> <span class="st">&quot;linux&quot;</span><span class="at">)]</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="op">{</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Enforce hardware acceleration paths where supported</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>        <span class="pp">std::env::</span>set_var(<span class="st">&quot;WEBKIT_FORCE_COMPOSITING_MODE&quot;</span><span class="op">,</span> <span class="st">&quot;1&quot;</span>)<span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="pp">tauri::Builder::</span><span class="kw">default</span>()</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>run(<span class="pp">tauri::generate_context!</span>())</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>expect(<span class="st">&quot;error while running tauri application&quot;</span>)<span class="op">;</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<ol start="2" type="1">
+<li><strong>System Dependencies:</strong> Ensure users have
+<code>libwebkit2gtk-4.0</code> or <code>libwebkit2gtk-4.1</code>
+installed alongside their distribution's OpenGL and Mesa drivers.</li>
+</ol>
+<hr />
+<h3 id="step-5-verification-and-build">Step 5: Verification and
+Build</h3>
+<ol type="1">
+<li><p>Test the application locally in development mode:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run tauri dev</span></code></pre></div></li>
+<li><p>Open the webview's developer tools:</p>
+<ul>
+<li>Right-click and inspect the console.</li>
+<li>Check <code>gpu.mode</code> to confirm the engine is using
+<code>gpu</code> (WebGL) instead of <code>cpu</code>.</li>
+</ul></li>
+<li><p>Compile the production executables:</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> run tauri build</span></code></pre></div></li>
+</ol>
+<p>The resulting executables (an <code>.msi</code> or <code>.exe</code>
+for Windows, a <code>.dmg</code> or <code>.app</code> for macOS, and a
+<code>.deb</code> or <code>.AppImage</code> for Linux) will have
+<code>gpu.js</code> bundled directly into the compiled frontend assets,
+utilizing the underlying hardware via the platform's native webview.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

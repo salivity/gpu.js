@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL 1 Unpacking vs WebGL 2 Formats in GPU.js - gpu.js</title>
+    <meta name="description" content="This article examines the computational and architectural performance trade-offs between WebGL 1 packing/unpacking shaders and WebGL 2 native floating-point formats within gpu.js. In GPU-accelerated JavaScript environments, data serialization choices dir">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-1-unpacking-vs-web-gl-2-formats-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL 1 Unpacking vs WebGL 2 Formats in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-1-unpacking-vs-web-gl-2-formats-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines the computational and architectural performance trade-offs between WebGL 1 packing/unpacking shaders and WebGL 2 native floating-point formats within gpu.js. In GPU-accelerated JavaScript environments, data serialization choices dir" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl-1-unpacking-vs-webgl-2-formats-in-gpujs">WebGL 1 Unpacking
+vs WebGL 2 Formats in GPU.js</h1>
+<p>This article examines the computational and architectural performance
+trade-offs between WebGL 1 packing/unpacking shaders and WebGL 2 native
+floating-point formats within gpu.js. In GPU-accelerated JavaScript
+environments, data serialization choices directly govern arithmetic
+logic unit (ALU) pressure, memory bandwidth utilization, numerical
+precision, and device compatibility. Understanding these trade-offs
+allows developers to optimize compute-intensive browser tasks by
+balancing legacy browser support against the raw throughput of modern
+graphics APIs.</p>
+<h3 id="the-underlying-architectural-divergence">The Underlying
+Architectural Divergence</h3>
+<p>In standard WebGL 1 environments, rendering directly to 32-bit
+floating-point textures is frequently unsupported or constrained by
+platform-dependent extensions. To overcome this limitation, gpu.js
+utilizes packing and unpacking shaders when running on a WebGL 1
+backend. These shaders decompose a single 32-bit IEEE-754 floating-point
+value into four 8-bit unsigned integer channels across a standard
+<code>RGBA</code> vector, then reconstruct it upon texture sampling.</p>
+<p>Conversely, WebGL 2 introduces core support for sized internal
+formats such as <code>R32F</code> and <code>RGBA32F</code>. Gpu.js
+leverages these native types directly, eliminating the need to emulate
+high-precision data structures over low-precision color channels.</p>
+<h3 id="alu-overhead-and-instruction-inflation">ALU Overhead and
+Instruction Inflation</h3>
+<p>The primary penalty incurred by WebGL 1 emulation is shader
+instruction inflation:</p>
+<ul>
+<li><strong>WebGL 1 Packing/Unpacking:</strong> Every single memory read
+and write requires mathematical transformations. Unpacking involves dot
+products, modular arithmetic, and bit-shift approximations in GLSL.
+Packing requires floor operations, multiplications, and vector
+assignments. In kernel operations characterized by frequent texture
+lookups, these math instructions compete directly with the actual
+application logic for GPU ALU cycles, degrading execution
+throughput.</li>
+<li><strong>WebGL 2 Native Access:</strong> Texture operations read and
+write raw 32-bit floats directly. The ALU remains dedicated entirely to
+the core computational workload, yielding lower cycle counts per thread
+and higher parallel execution efficiency.</li>
+</ul>
+<h3 id="memory-bandwidth-and-texture-bus-utilization">Memory Bandwidth
+and Texture Bus Utilization</h3>
+<p>Memory bandwidth efficiency varies significantly depending on the
+shape of the data:</p>
+<ul>
+<li><strong>Channel Mismatches in WebGL 1:</strong> Storing a single
+scalar float requires an entire 4-channel <code>RGBA8</code> pixel.
+While this amounts to 32 bits (4 bytes) per value—matching the raw byte
+footprint of a 32-bit float—it forces texture fetch units to retrieve
+4-component vectors. This inhibits optimized channel swizzling and
+limits the ability to compact multiple independent scalar values into a
+single texture fetch.</li>
+<li><strong>Format Granularity in WebGL 2:</strong> WebGL 2 allows using
+single-component <code>R32F</code> formats for scalar computations. This
+provides cleaner texture cache lines and enables multi-channel textures
+(<code>RG32F</code>, <code>RGBA32F</code>) to hold multiple true
+floating-point values simultaneously. This drastically improves memory
+bus utilization for vector-heavy workloads, such as matrix
+multiplications and image convolutions.</li>
+</ul>
+<h3 id="numerical-precision-and-edge-cases">Numerical Precision and Edge
+Cases</h3>
+<p>The mathematical encoding and decoding process in WebGL 1 introduces
+numerical stability challenges:</p>
+<ul>
+<li><strong>Quantization Errors:</strong> Because WebGL 1 uses
+software-emulated packing through floating-point division and modular
+arithmetic inside GLSL, values near zero, subnormal numbers, or
+extremely large values can suffer from rounding errors and sign-bit
+corruption across non-standard GPU drivers.</li>
+<li><strong>Hardware-Level IEEE-754 Compliance:</strong> WebGL 2 native
+formats adhere to standard hardware-level floating-point
+representations. Operations avoid quantization artifacts, guaranteeing
+bit-level consistency across iterations in iterative algorithms, such as
+physics simulations or neural network training.</li>
+</ul>
+<h3 id="pipeline-latency-and-initialization">Pipeline Latency and
+Initialization</h3>
+<ul>
+<li><strong>Kernel Compilation Time:</strong> The GLSL code generated by
+gpu.js for WebGL 1 is longer and more complex due to the injected
+packing functions. This increases the just-in-time (JIT) shader
+compilation time on the CPU during kernel initialization. WebGL 2
+generates leaner shaders that compile faster.</li>
+<li><strong>Driver Overheads:</strong> WebGL 1 requires continuous state
+management to toggle extension availability (e.g.,
+<code>OES_texture_float</code>), whereas WebGL 2 provides unified state
+validation, minimizing CPU-bound WebGL state change overhead.</li>
+</ul>
+<h3 id="trade-off-summary">Trade-Off Summary</h3>
+<p>Choosing between these modes in gpu.js hinges on hardware targets:
+WebGL 1 unpacking ensures execution on older mobile chipsets and legacy
+web clients at the expense of heavy ALU overhead, reduced throughput,
+and precision risks. WebGL 2 native formats eliminate intermediate
+arithmetic, lower memory bandwidth contention, and preserve IEEE-754
+precision, providing the superior execution profile for modern compute
+workloads.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

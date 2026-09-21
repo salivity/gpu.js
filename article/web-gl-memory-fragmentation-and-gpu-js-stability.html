@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Memory Fragmentation and gpu.js Stability - gpu.js</title>
+    <meta name="description" content="Long-running computational tasks in gpu.js can suffer from stability degradation caused by VRAM and driver-level memory fragmentation. While WebGL Framebuffer Objects (FBOs) are lightweight state containers rather than direct memory allocations, they bin">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-memory-fragmentation-and-gpu-js-stability">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL Memory Fragmentation and gpu.js Stability - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-memory-fragmentation-and-gpu-js-stability" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Long-running computational tasks in gpu.js can suffer from stability degradation caused by VRAM and driver-level memory fragmentation. While WebGL Framebuffer Objects (FBOs) are lightweight state containers rather than direct memory allocations, they bin" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl-memory-fragmentation-and-gpujs-stability">WebGL Memory
+Fragmentation and gpu.js Stability</h1>
+<p>Long-running computational tasks in gpu.js can suffer from stability
+degradation caused by VRAM and driver-level memory fragmentation. While
+WebGL Framebuffer Objects (FBOs) are lightweight state containers rather
+than direct memory allocations, they bind textures and renderbuffers
+that consume physical video memory. Continuously allocating, resizing,
+or discarding these backing textures during iterative GPGPU tasks
+fragments the underlying graphics memory space, eventually leading to
+performance throttling, erratic execution times, and unrecoverable WebGL
+context loss.</p>
+<h3 id="how-gpujs-uses-framebuffers">How gpu.js Uses Framebuffers</h3>
+<p>To perform calculations on the GPU using WebGL, gpu.js utilizes a
+technique known as GPGPU (General-Purpose computing on Graphics
+Processing Units). Since WebGL does not natively support compute
+shaders, gpu.js converts mathematical logic into GLSL fragment shaders.
+The inputs are encoded into textures, and the computation results are
+rendered into an off-screen Framebuffer Object (FBO) backed by another
+texture.</p>
+<p>When chains of computations or iterative calculations occur, these
+output textures frequently become the input textures for subsequent
+passes. The lifecycle of these textures directly dictates how memory is
+claimed and released on the GPU.</p>
+<h3 id="the-mechanism-of-memory-fragmentation">The Mechanism of Memory
+Fragmentation</h3>
+<p>Framebuffers do not fragment on their own because they are merely
+references. Fragmentation occurs within the underlying driver and VRAM
+management layers due to how backing textures are handled:</p>
+<ol type="1">
+<li><strong>Varying Matrix Dimensions:</strong> If a gpu.js application
+processes dynamic workloads where input array dimensions change
+regularly, gpu.js must instantiate new textures matching those
+dimensions. Constant creation and disposal of non-uniform textures
+produce unevenly sized memory blocks in VRAM.</li>
+<li><strong>Driver Heap Inefficiencies:</strong> Unlike CPU memory,
+which often handles arbitrary fragmentation gracefully via sophisticated
+virtual memory tables, GPU memory management depends heavily on
+contiguous address spaces for high-bandwidth texture sampling. When free
+memory becomes scattered in small blocks, allocating a large contiguous
+texture fails, even if total free VRAM is technically sufficient.</li>
+<li><strong>Garbage Collection Latency:</strong> JavaScript garbage
+collection cannot free GPU-side allocations immediately. Discarding a
+texture in JavaScript leaves the GPU counterpart allocated until the
+browser's internal WebGL resource manager releases it, creating
+artificial memory pressure.</li>
+</ol>
+<h3 id="impact-on-long-term-stability">Impact on Long-Term
+Stability</h3>
+<p>Over hours or days of continuous execution, memory fragmentation
+manifests through several clear symptoms:</p>
+<ul>
+<li><strong>Latency Spikes:</strong> When memory is fragmented, the
+graphics driver must perform memory compaction or swap data between VRAM
+and system RAM. This produces noticeable execution stutter.</li>
+<li><strong>Context Loss (<code>webglcontextlost</code>):</strong> When
+the driver fails to locate a contiguous memory segment for a new texture
+pass, it triggers an out-of-memory error. In browser environments, this
+typically causes the browser to forcefully reset the entire WebGL
+context to prevent system-wide instability.</li>
+<li><strong>Memory Leaks from Retained States:</strong> If old kernels
+or output textures maintain references inside closures, the associated
+FBO attachments cannot be collected, compounding the fragmentation issue
+with active memory bloat.</li>
+</ul>
+<h3 id="mitigating-fragmentation-in-gpujs">Mitigating Fragmentation in
+gpu.js</h3>
+<p>To maintain stability across sustained workloads, resource churn must
+be minimized:</p>
+<ul>
+<li><strong>Pad Array Sizes:</strong> Normalize input array sizes to
+static dimensions. Padding inputs to fixed power-of-two boundaries
+allows textures to be reused without triggering reallocations.</li>
+<li><strong>Texture Recycling:</strong> Avoid recreating kernel
+functions dynamically. Reuse existing kernel instances and keep pipeline
+outputs within pre-allocated textures where possible.</li>
+<li><strong>Explicit Resource Deallocation:</strong> Do not rely
+exclusively on browser garbage collection. Call <code>destroy()</code>
+on gpu.js kernel instances and explicitly release textures when
+workloads complete.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

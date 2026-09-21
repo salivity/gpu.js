@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding optimizeFloatMemory in gpu.js - gpu.js</title>
+    <meta name="description" content="The optimizeFloatMemory setting in gpu.js is a configuration option designed to significantly reduce Video RAM (VRAM) consumption when processing floating-point arrays on the GPU. By altering how floating-point numbers are packed and stored within WebGL">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/understanding-optimize-float-memory-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Understanding optimizeFloatMemory in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/understanding-optimize-float-memory-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The optimizeFloatMemory setting in gpu.js is a configuration option designed to significantly reduce Video RAM (VRAM) consumption when processing floating-point arrays on the GPU. By altering how floating-point numbers are packed and stored within WebGL" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="understanding-optimizefloatmemory-in-gpujs">Understanding
+optimizeFloatMemory in gpu.js</h1>
+<p>The <code>optimizeFloatMemory</code> setting in gpu.js is a
+configuration option designed to significantly reduce Video RAM (VRAM)
+consumption when processing floating-point arrays on the GPU. By
+altering how floating-point numbers are packed and stored within WebGL
+textures, this feature enables applications to process larger datasets
+without exhausting available graphics memory. This article explains how
+<code>optimizeFloatMemory</code> works under the hood, its performance
+implications, and when you should enable it.</p>
+<h3 id="how-webgl-textures-handle-floats">How WebGL Textures Handle
+Floats</h3>
+<p>Under the hood, gpu.js compiles JavaScript functions into WebGL
+shaders and uses WebGL textures to hold input and output data. Standard
+WebGL textures are structured around four color channels per pixel: Red,
+Green, Blue, and Alpha (RGBA).</p>
+<p>When working with floating-point calculations without memory
+optimization, gpu.js often allocates an entire RGBA pixel to represent a
+single floating-point number. In many hardware environments, especially
+those relying on 32-bit floating-point textures
+(<code>OES_texture_float</code>), this results in underutilized channels
+and substantial memory overhead, as three out of the four channels may
+sit empty or consume redundant space.</p>
+<h3 id="what-optimizefloatmemory-does">What optimizeFloatMemory
+Does</h3>
+<p>When you set <code>optimizeFloatMemory: true</code>, gpu.js changes
+its underlying memory allocation strategy by packing multiple float
+values into the individual channels of a single texture pixel:</p>
+<ol type="1">
+<li><strong>4x Memory Reduction:</strong> Instead of mapping one float
+value to one RGBA pixel, gpu.js packs four distinct floating-point
+numbers into the R, G, B, and A channels of a single pixel. This reduces
+the raw texture size required to hold arrays by up to 75%.</li>
+<li><strong>Reduced VRAM Allocation:</strong> By shrinking texture
+dimensions, the GPU requires far less dedicated memory to hold large
+matrices, tensors, and multi-dimensional float arrays.</li>
+<li><strong>Prevention of Out-of-Memory Errors:</strong> Browsers
+enforce strict VRAM and texture dimension limits. Packing floats enables
+you to run substantially larger computational kernels that would
+otherwise exceed maximum texture size limits or crash the WebGL
+context.</li>
+</ol>
+<h3 id="performance-trade-offs">Performance Trade-offs</h3>
+<p>While <code>optimizeFloatMemory</code> dramatically lowers memory
+usage, it introduces trade-offs in execution speed:</p>
+<ul>
+<li><strong>Bandwidth vs. Computation:</strong> Packing four floats per
+pixel reduces memory bandwidth demands because fewer texture lookups are
+required to fetch data. On memory-bandwidth-bound tasks, this can
+actually increase overall throughput.</li>
+<li><strong>Packing and Unpacking Overhead:</strong> Shaders must
+execute additional instructions to decode (unpack) values when reading
+from textures and encode (pack) them when writing output. For
+compute-bound kernels with very light memory footprints, this arithmetic
+overhead can result in a minor performance penalty.</li>
+<li><strong>Pipeline Compatibility:</strong> When chaining multiple
+kernels together (pipelining), keeping data packed in memory prevents
+unnecessary conversions between GPU textures and CPU memory
+buffers.</li>
+</ul>
+<h3 id="how-to-enable-optimizefloatmemory">How to Enable
+optimizeFloatMemory</h3>
+<p>You can enable this setting either globally during the initialization
+of the <code>GPU</code> instance or locally on a per-kernel basis.</p>
+<h4 id="global-configuration">Global Configuration</h4>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">optimizeFloatMemory</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h4 id="kernel-level-configuration">Kernel-Level Configuration</h4>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">output</span><span class="op">:</span> [<span class="dv">1000000</span>]<span class="op">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">optimizeFloatMemory</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="when-to-use-it">When to Use It</h3>
+<p>Enable <code>optimizeFloatMemory</code> if your application:</p>
+<ul>
+<li>Processes large floating-point datasets, such as neural networks,
+image processing pipelines, or massive matrix multiplications.</li>
+<li>Frequently encounters WebGL context losses or maximum texture size
+limit errors.</li>
+<li>Runs on low-end or mobile hardware with strictly constrained GPU
+memory.</li>
+</ul>
+<p>Leave <code>optimizeFloatMemory</code> disabled if your arrays are
+small, your operations are strictly compute-heavy, and you want to avoid
+the minor shader overhead required for packing and unpacking texture
+data.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

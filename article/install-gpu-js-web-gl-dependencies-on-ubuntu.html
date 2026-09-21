@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install gpu.js WebGL Dependencies on Ubuntu - gpu.js</title>
+    <meta name="description" content="This article outlines the essential system libraries and build tools required to compile native WebGL bindings for gpu.js on an Ubuntu system. Because gpu.js relies on headless WebGL implementations in Node.js environments, your system must provide the a">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/install-gpu-js-web-gl-dependencies-on-ubuntu">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Install gpu.js WebGL Dependencies on Ubuntu - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/install-gpu-js-web-gl-dependencies-on-ubuntu" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article outlines the essential system libraries and build tools required to compile native WebGL bindings for gpu.js on an Ubuntu system. Because gpu.js relies on headless WebGL implementations in Node.js environments, your system must provide the a" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="install-gpujs-webgl-dependencies-on-ubuntu">Install gpu.js WebGL
+Dependencies on Ubuntu</h1>
+<p>This article outlines the essential system libraries and build tools
+required to compile native WebGL bindings for gpu.js on an Ubuntu
+system. Because gpu.js relies on headless WebGL implementations in
+Node.js environments, your system must provide the appropriate C++
+compilation tools, X11 libraries, and OpenGL development packages to
+build these native binaries successfully.</p>
+<h3 id="the-underlying-dependency-headless-gl">The Underlying
+Dependency: headless-gl</h3>
+<p>When gpu.js runs in a Node.js server environment instead of a
+browser, it uses <code>headless-gl</code> to emulate WebGL. This library
+contains native C/C++ bindings that are compiled during the
+<code>npm install</code> phase using <code>node-gyp</code>. Without the
+underlying Linux graphics libraries and header files, the installation
+will fail with compilation errors.</p>
+<h3 id="required-packages">Required Packages</h3>
+<p>To compile these native bindings on Ubuntu, install the following
+core packages:</p>
+<ul>
+<li><strong>build-essential</strong>: Provides <code>gcc</code>,
+<code>g++</code>, and <code>make</code> necessary for compiling native
+C/C++ addons.</li>
+<li><strong>python3</strong>: Required by <code>node-gyp</code> to
+configure the build environment.</li>
+<li><strong>libxi-dev</strong>: Provides header files for the X11 Input
+extension.</li>
+<li><strong>libglu1-mesa-dev</strong>: The Mesa OpenGL Utility library
+headers.</li>
+<li><strong>libglew-dev</strong>: The OpenGL Extension Wrangler Library
+headers.</li>
+<li><strong>pkg-config</strong>: Helps the build scripts query the
+correct compiler flags and paths for installed libraries.</li>
+<li><strong>libx11-dev</strong> and <strong>libxext-dev</strong>:
+Essential X Window System client-side library headers.</li>
+</ul>
+<h3 id="installation-steps">Installation Steps</h3>
+<ol type="1">
+<li><p>Update your local package index:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get update</span></code></pre></div></li>
+<li><p>Install the necessary build tools and OpenGL development
+libraries:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get install <span class="at">-y</span> <span class="dt">\</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  build-essential <span class="dt">\</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  python3 <span class="dt">\</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  pkg-config <span class="dt">\</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  libxi-dev <span class="dt">\</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  libglu1-mesa-dev <span class="dt">\</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  libglew-dev <span class="dt">\</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  libx11-dev <span class="dt">\</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  libxext-dev</span></code></pre></div></li>
+<li><p>Install gpu.js in your project:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div></li>
+</ol>
+<h3 id="running-on-headless-servers">Running on Headless Servers</h3>
+<p>If you are running gpu.js on a headless Ubuntu server (such as an AWS
+EC2 instance, Docker container, or CI/CD runner) without a physical
+display or running display server, you may also need a virtual
+framebuffer:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt-get install <span class="at">-y</span> xvfb</span></code></pre></div>
+<p>You can then run your Node.js application utilizing virtual
+rendering:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">xvfb-run</span> <span class="at">-s</span> <span class="st">&quot;-ac -screen 0 1280x1024x24&quot;</span> node your-script.js</span></code></pre></div></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Boost GPU.js Speed by Disabling WebGL Anti-Aliasing - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates JavaScript calculations by compiling code into WebGL shaders that run in parallel on the graphics processor. By default, WebGL contexts often initialize with graphical enhancement features enabled, including anti-aliasing. Disabling an">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/boost-gpu-js-speed-by-disabling-web-gl-anti-aliasing">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Boost GPU.js Speed by Disabling WebGL Anti-Aliasing - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/boost-gpu-js-speed-by-disabling-web-gl-anti-aliasing" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates JavaScript calculations by compiling code into WebGL shaders that run in parallel on the graphics processor. By default, WebGL contexts often initialize with graphical enhancement features enabled, including anti-aliasing. Disabling an" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="boost-gpujs-speed-by-disabling-webgl-anti-aliasing">Boost GPU.js
+Speed by Disabling WebGL Anti-Aliasing</h1>
+<p>GPU.js accelerates JavaScript calculations by compiling code into
+WebGL shaders that run in parallel on the graphics processor. By
+default, WebGL contexts often initialize with graphical enhancement
+features enabled, including anti-aliasing. Disabling anti-aliasing
+directly improves GPU.js execution speed by stripping out redundant
+multisampling operations, freeing graphics memory bandwidth, and
+eliminating frame buffer resolve passes that provide zero utility for
+mathematical computing workloads.</p>
+<h3 id="the-mismatch-between-graphics-and-compute">The Mismatch Between
+Graphics and Compute</h3>
+<p>WebGL was designed to render 2D and 3D graphics in the browser. In
+graphical rendering, anti-aliasing (typically Multisample Anti-Aliasing,
+or MSAA) smooths jagged edges along geometric boundaries by calculating
+and blending color values across multiple subsamples per pixel.</p>
+<p>GPU.js repurposes this graphics pipeline for general-purpose GPU
+(GPGPU) calculations. In GPU.js, each "pixel" is not a visual color, but
+a raw numerical value stored in a texture. When anti-aliasing is
+enabled, the graphics driver assumes the output is a visual scene
+requiring smoothing, which creates substantial computational and
+architectural friction.</p>
+<h3 id="elimination-of-the-multisampling-overhead">Elimination of the
+Multisampling Overhead</h3>
+<p>When anti-aliasing is active, the underlying WebGL context must
+allocate additional memory buffers for subsamples—typically 2x, 4x, or
+8x the actual target dimensions.</p>
+<ol type="1">
+<li><strong>Memory Bandwidth:</strong> For every compute step, the GPU
+must write and read across these multiplied sample locations. Because
+GPGPU tasks are heavily bound by memory bandwidth rather than raw
+compute capability, this extra read/write cycle severely bottlenecks
+execution speed.</li>
+<li><strong>The Resolve Pass:</strong> Before data can be read back from
+the GPU via <code>readPixels</code> or passed to subsequent kernels,
+WebGL must execute a "resolve" pass. This step averages the subsamples
+together into a single pixel. For a computation kernel, this extra pass
+adds mandatory latency to every execution cycle.</li>
+</ol>
+<p>Setting <code>antialias: false</code> forces WebGL to allocate a
+single sample per pixel, entirely eliminating the multisample buffer and
+the subsequent resolve pass.</p>
+<h3 id="prevention-of-data-corruption">Prevention of Data
+Corruption</h3>
+<p>Beyond execution speed, anti-aliasing introduces numerical risks.
+Because anti-aliasing blends neighboring sample values to produce
+smoothed edges, mathematical outputs at coordinate boundaries can be
+interpolated. Disabling anti-aliasing guarantees a strict 1:1 mapping
+between input data, fragment shader execution, and output storage,
+preventing hardware-level rounding or blending errors.</p>
+<h3 id="implementation-in-gpujs">Implementation in GPU.js</h3>
+<p>Anti-aliasing can be disabled when creating a new GPU instance by
+passing custom WebGL context attributes to the constructor:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">webGl</span><span class="op">:</span> {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">antialias</span><span class="op">:</span> <span class="kw">false</span><span class="op">,</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="dt">preserveDrawingBuffer</span><span class="op">:</span> <span class="kw">false</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>By ensuring <code>antialias</code> is set to <code>false</code>,
+GPU.js bypasses all multisample allocations, conserves VRAM, reduces
+context switching overhead, and allows the GPU to focus exclusively on
+raw, high-throughput numerical computation.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

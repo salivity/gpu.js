@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Default WebGL Extensions in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains the specific WebGL extensions automatically initialized and enabled during the bootstrapping phase of GPU.js. When GPU.js prepares a browser context for general-purpose GPU (GPGPU) computation, it queries the underlying graphics har">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/default-web-gl-extensions-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Default WebGL Extensions in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/default-web-gl-extensions-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains the specific WebGL extensions automatically initialized and enabled during the bootstrapping phase of GPU.js. When GPU.js prepares a browser context for general-purpose GPU (GPGPU) computation, it queries the underlying graphics har" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="default-webgl-extensions-in-gpujs">Default WebGL Extensions in
+GPU.js</h1>
+<p>This article explains the specific WebGL extensions automatically
+initialized and enabled during the bootstrapping phase of GPU.js. When
+GPU.js prepares a browser context for general-purpose GPU (GPGPU)
+computation, it queries the underlying graphics hardware and activates
+specific WebGL extensions required to handle floating-point textures,
+expanded index buffers, and multiple render targets. Depending on
+whether a WebGL 1 or WebGL 2 context is created, GPU.js targets distinct
+sets of extensions to ensure seamless numeric computation.</p>
+<h3 id="webgl-1-bootstrapping-extensions">WebGL 1 Bootstrapping
+Extensions</h3>
+<p>When initializing a standard WebGL 1 context
+(<code>WebGLKernel</code>), GPU.js automatically attempts to enable four
+core extensions:</p>
+<ol type="1">
+<li><p><strong><code>OES_texture_float</code></strong><br />
+Enables 32-bit IEEE floating-point textures. Without this extension,
+WebGL 1 contexts are restricted to standard 8-bit integer formats per
+channel, making scientific calculations, continuous numeric algorithms,
+and high-precision outputs impossible.</p></li>
+<li><p><strong><code>OES_texture_float_linear</code></strong><br />
+Provides linear filtering capabilities for floating-point textures.
+While nearest-neighbor interpolation is the standard fallback, this
+extension allows GPU.js to read and sample interpolated float data
+directly within kernels when required.</p></li>
+<li><p><strong><code>OES_element_index_uint</code></strong><br />
+Extends index buffers to support 32-bit unsigned integers
+(<code>gl.UNSIGNED_INT</code>). By default, WebGL 1 limits element
+indices to 16-bit unsigned shorts (up to 65,535 vertices). This
+extension allows GPU.js to index larger data sets directly across
+internal geometries.</p></li>
+<li><p><strong><code>WEBGL_draw_buffers</code></strong><br />
+Provides Multiple Render Targets (MRT) functionality. This allows a
+GPU.js kernel to output values to multiple texture buffers concurrently
+within a single rendering pass, drastically reducing memory bandwidth
+overhead during complex matrix calculations.</p></li>
+</ol>
+<h3 id="webgl-2-bootstrapping-extensions">WebGL 2 Bootstrapping
+Extensions</h3>
+<p>When the environment supports WebGL 2 (<code>WebGL2Kernel</code>),
+many WebGL 1 extensions are already part of the core specification.
+However, GPU.js still automatically activates specific complementary
+extensions during startup:</p>
+<ol type="1">
+<li><p><strong><code>EXT_color_buffer_float</code></strong><br />
+While WebGL 2 supports 32-bit floating-point textures natively for
+reading and sampling, rendering directly into them requires this
+extension. GPU.js enables <code>EXT_color_buffer_float</code> so kernel
+executions can write 32-bit float data directly to
+framebuffers.</p></li>
+<li><p><strong><code>OES_texture_float_linear</code></strong><br />
+Carried over from WebGL 1, this extension remains optional in the
+baseline WebGL 2 specification and is explicitly requested by GPU.js to
+allow linear interpolation on 32-bit float textures.</p></li>
+</ol>
+<h3 id="why-gpujs-enables-these-extensions">Why GPU.js Enables These
+Extensions</h3>
+<p>GPU.js operates by compiling JavaScript mathematical functions into
+GLSL shaders and rendering the results into off-screen framebuffers.
+Standard graphics pipelines prioritize integer-based color
+representation (such as RGBA channels between 0 and 255). By
+automatically requesting these extensions during its context
+initialization stage, GPU.js reconfigures the graphics pipeline into an
+arbitrary 32-bit floating-point numeric processor without requiring
+manual WebGL configuration from the developer.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

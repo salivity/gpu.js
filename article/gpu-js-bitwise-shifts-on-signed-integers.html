@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Bitwise Shifts on Signed Integers - gpu.js</title>
+    <meta name="description" content="This article explores how GPU.js handles bitwise shift-left (<<) and shift-right (>>) operators on signed integers when transpiling JavaScript code into GPU-accelerated shaders. It details how the library maps JavaScript AST operations to GLSL, the role">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-bitwise-shifts-on-signed-integers">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Bitwise Shifts on Signed Integers - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-bitwise-shifts-on-signed-integers" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how GPU.js handles bitwise shift-left (<<) and shift-right (>>) operators on signed integers when transpiling JavaScript code into GPU-accelerated shaders. It details how the library maps JavaScript AST operations to GLSL, the role" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-bitwise-shifts-on-signed-integers">GPU.js Bitwise Shifts
+on Signed Integers</h1>
+<p>This article explores how GPU.js handles bitwise shift-left
+(<code>&lt;&lt;</code>) and shift-right (<code>&gt;&gt;</code>)
+operators on signed integers when transpiling JavaScript code into
+GPU-accelerated shaders. It details how the library maps JavaScript AST
+operations to GLSL, the role of WebGL 2's native integer support, how
+sign extension and bit overflow behave, and key differences to watch out
+for between CPU and GPU execution.</p>
+<h3 id="ast-parsing-and-transpilation-to-glsl">AST Parsing and
+Transpilation to GLSL</h3>
+<p>GPU.js processes JavaScript kernel functions by parsing them into an
+Abstract Syntax Tree (AST) using Acorn. When the parser encounters
+binary expressions using the shift-left (<code>&lt;&lt;</code>) or
+shift-right (<code>&gt;&gt;</code>) operators, it translates these
+expressions into corresponding OpenGL Shading Language (GLSL) code.</p>
+<p>JavaScript inherently treats operands of bitwise operations as 32-bit
+signed integers. To replicate this behavior accurately on the GPU,
+GPU.js targets WebGL 2 (GLSL ES 3.00), which introduced native support
+for 32-bit signed integers (<code>int</code>) and bitwise operators. In
+legacy WebGL 1 environments, where integers are emulated via
+floating-point numbers, bitwise shifts are unsupported or require
+cumbersome mathematical emulation via multiplication and division by
+powers of two. Consequently, native bitwise shifts in GPU.js require a
+WebGL 2 context.</p>
+<h3 id="handling-shift-left-">Handling Shift-Left
+(<code>&lt;&lt;</code>)</h3>
+<p>For signed integers, the shift-left operator behaves identically in
+GLSL ES 3.00 as it does in standard JavaScript:</p>
+<ul>
+<li><strong>Bit Shift:</strong> The bits of the 32-bit signed integer
+are shifted to the left by the specified number of positions.</li>
+<li><strong>Zero Padding:</strong> The vacant bits on the right (least
+significant bits) are filled with zeros.</li>
+<li><strong>Overflow:</strong> Bits shifted beyond the 32nd position are
+discarded. If a bit shifts into the 31st position (the sign bit), the
+sign of the integer changes accordingly, matching two's complement
+signed integer behavior.</li>
+</ul>
+<p>In generated WebGL 2 shaders, <code>a &lt;&lt; b</code> directly
+becomes <code>a &lt;&lt; b</code> where both operands are typed as
+signed <code>int</code>.</p>
+<h3 id="handling-shift-right-">Handling Shift-Right
+(<code>&gt;&gt;</code>)</h3>
+<p>JavaScript differentiates between the arithmetic shift-right
+(<code>&gt;&gt;</code>) and the logical (zero-fill) shift-right
+(<code>&gt;&gt;&gt;</code>). For signed integers, GPU.js maps the
+<code>&gt;&gt;</code> operator directly to GLSL's signed
+shift-right:</p>
+<ul>
+<li><strong>Sign Propagation (Arithmetic Shift):</strong> Because the
+operand is defined as a signed 32-bit <code>int</code>, the hardware
+executes an arithmetic right shift. The most significant bit (the sign
+bit) is copied into the vacant positions on the left.</li>
+<li><strong>Negative Numbers:</strong> If the integer is negative (sign
+bit is 1), shifting right fills the left-hand bits with ones, preserving
+the negative sign. This matches the behavior of JavaScript's
+<code>&gt;&gt;</code>.</li>
+<li><strong>Positive Numbers:</strong> If the integer is positive (sign
+bit is 0), the vacated bits are filled with zeros.</li>
+</ul>
+<h3 id="discrepancies-between-javascript-and-glsl">Discrepancies Between
+JavaScript and GLSL</h3>
+<p>While GPU.js provides a direct translation for these operators,
+differences between JavaScript's specification and GLSL hardware
+execution introduce subtle edge cases:</p>
+<ol type="1">
+<li><strong>Shift Distance Masking:</strong> In JavaScript, the shift
+count is masked to five bits (<code>count &amp; 0x1F</code>), meaning
+shifting by 32 is equivalent to shifting by 0, and shifting by 33 is
+equivalent to shifting by 1. In GLSL ES 3.00, shifting by an amount less
+than zero or greater than or equal to the bit-width (32) results in
+undefined behavior depending on the underlying GPU architecture.</li>
+<li><strong>Type Casting:</strong> GPU.js enforces strict typing in
+GLSL. If non-integer variables (such as floats) are shifted, GPU.js must
+explicitly cast them using <code>int()</code> before the operation can
+execute, truncating any fractional components.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js dynamicArguments Uniform Buffer Overhead - gpu.js</title>
+    <meta name="description" content="The dynamicArguments configuration in gpu.js dictates how the library optimizes, compiles, and binds kernel inputs across consecutive executions. By altering how argument types, array lengths, and memory layouts are handled at runtime, this setting direc">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-dynamic-arguments-uniform-buffer-overhead">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js dynamicArguments Uniform Buffer Overhead - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-dynamic-arguments-uniform-buffer-overhead" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="The dynamicArguments configuration in gpu.js dictates how the library optimizes, compiles, and binds kernel inputs across consecutive executions. By altering how argument types, array lengths, and memory layouts are handled at runtime, this setting direc" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-dynamicarguments-uniform-buffer-overhead">GPU.js
+dynamicArguments Uniform Buffer Overhead</h1>
+<p>The <code>dynamicArguments</code> configuration in gpu.js dictates
+how the library optimizes, compiles, and binds kernel inputs across
+consecutive executions. By altering how argument types, array lengths,
+and memory layouts are handled at runtime, this setting directly
+influences the frequency and performance cost of uniform buffer and
+uniform value bindings in the underlying WebGL context.</p>
+<h3 id="uniform-handling-in-gpujs">Uniform Handling in gpu.js</h3>
+<p>When executing a kernel, gpu.js transfers constants, scalar
+parameters, and structural metadata to the GPU pipeline using uniforms.
+In WebGL 2 contexts, these parameters are often grouped into Uniform
+Buffer Objects (UBOs) to enable batch updates and persistent memory
+mappings. Under default configurations, gpu.js assumes predictable
+argument structures, allowing it to cache uniform locations, keep buffer
+bindings active, and push updates with minimal CPU-side validation.</p>
+<h3 id="how-dynamicarguments-alters-binding-overhead">How
+dynamicArguments Alters Binding Overhead</h3>
+<p>Enabling <code>dynamicArguments: true</code> instructs gpu.js to
+anticipate variability in input shapes, types, or dimensions between
+invocations without triggering a full shader recompilation. This
+flexibility introduces distinct shifts in binding overhead:</p>
+<ul>
+<li><strong>Runtime Type and Shape Checking:</strong> With dynamic
+arguments enabled, gpu.js must inspect input arguments prior to every
+execution. This verification step adds CPU overhead to determine whether
+existing uniform buffer allocations remain valid for the incoming
+data.</li>
+<li><strong>Buffer Re-allocation and Invalidation:</strong> If an
+argument's dimensions change, the existing uniform buffer layout can no
+longer satisfy the memory offset requirements of the compiled shader.
+The runtime must allocate or resize the buffer, invalidating the
+previous binding and forcing a new binding call to
+<code>glBindBufferBase</code> or <code>glBindBufferRange</code>.</li>
+<li><strong>State Mutation vs. State Caching:</strong> In static mode,
+gpu.js can skip redundant WebGL state transitions if the arguments
+occupy the same memory slots across successive draw calls. Dynamic mode
+necessitates explicit state reassignment and re-binding before each
+dispatch to guarantee that altered argument offsets correctly match the
+shader's expectations.</li>
+</ul>
+<h3 id="performance-trade-offs">Performance Trade-Offs</h3>
+<p>While <code>dynamicArguments</code> increases uniform buffer binding
+and CPU-side overhead per dispatch, it serves as an essential
+optimization against a much larger performance penalty: shader
+recompilation.</p>
+<p>Without dynamic arguments, passing an array of a different size or
+altering input structures causes gpu.js to rebuild the kernel program.
+Shader compilation and program linking in WebGL cause significant
+pipeline stalls. By accepting a modest, consistent overhead in uniform
+buffer re-binding and state validation, <code>dynamicArguments</code>
+eliminates the catastrophic latency of regenerating GPU binaries
+mid-execution.</p>
+<h3 id="optimal-configuration-strategy">Optimal Configuration
+Strategy</h3>
+<p>To minimize uniform buffer binding overhead:</p>
+<ul>
+<li><strong>Keep <code>dynamicArguments</code> disabled
+(<code>false</code>)</strong> for high-frequency render loops or
+iterative compute tasks where data shapes and types remain static across
+every call. This maximizes WebGL state caching and minimizes CPU
+overhead.</li>
+<li><strong>Enable <code>dynamicArguments</code>
+(<code>true</code>)</strong> when processing variable-sized datasets or
+streaming workloads where input structures shift dynamically, ensuring
+smooth execution without triggering pipeline-blocking
+recompilations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

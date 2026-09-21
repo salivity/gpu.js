@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Anisotropic Coordinate Spaces in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to handle anisotropic coordinate spaces—environments where spatial dimensions operate at radically different scales—using gpu.js. By translating discrete GPU thread indices into scaled continuous domains, passing dimension-s">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/anisotropic-coordinate-spaces-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Anisotropic Coordinate Spaces in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/anisotropic-coordinate-spaces-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to handle anisotropic coordinate spaces—environments where spatial dimensions operate at radically different scales—using gpu.js. By translating discrete GPU thread indices into scaled continuous domains, passing dimension-s" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="anisotropic-coordinate-spaces-in-gpujs">Anisotropic Coordinate
+Spaces in gpu.js</h1>
+<p>This article explains how to handle anisotropic coordinate
+spaces—environments where spatial dimensions operate at radically
+different scales—using gpu.js. By translating discrete GPU thread
+indices into scaled continuous domains, passing dimension-specific
+transformation vectors, and mitigating single-precision floating-point
+artifacts in WebGL, developers can accurately execute physical
+simulations, financial models, and scientific calculations on highly
+non-uniform grids.</p>
+<h2 id="thread-index-decoupling">Thread Index Decoupling</h2>
+<p>In gpu.js, the execution grid is defined by the
+<code>setOutput([x, y, z])</code> method. This configuration specifies
+the discrete compute dimensions—the total number of threads allocated on
+the GPU. Because hardware threads operate strictly on integer indices
+(<code>this.thread.x</code>, <code>this.thread.y</code>,
+<code>this.thread.z</code>), gpu.js does not inherently impose an
+isotropic (uniform) coordinate system.</p>
+<p>To model an anisotropic domain, the physical coordinate space must be
+decoupled from the compute grid. The discrete thread indices are mapped
+to continuous, anisotropic coordinates using transformation coefficients
+inside the kernel function:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(scaleX<span class="op">,</span> scaleY<span class="op">,</span> originX<span class="op">,</span> originY) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> posX <span class="op">=</span> originX <span class="op">+</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> scaleX)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> posY <span class="op">=</span> originY <span class="op">+</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">*</span> scaleY)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Kernel operations in anisotropic space</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> posX <span class="op">/</span> posY<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1024</span><span class="op">,</span> <span class="dv">1024</span>])<span class="op">;</span></span></code></pre></div>
+<p>In this setup, <code>scaleX</code> and <code>scaleY</code> represent
+the metric step size per thread (<span class="math inline">\(\Delta
+x\)</span> and <span class="math inline">\(\Delta y\)</span>). If
+dimension <span class="math inline">\(X\)</span> covers a span of <span
+class="math inline">\(10^{-6}\)</span> meters while dimension <span
+class="math inline">\(Y\)</span> covers <span
+class="math inline">\(10^{3}\)</span> meters, the threads can remain
+equally balanced in resolution while the algorithmic math reflects the
+actual scale variance.</p>
+<h2 id="handling-radical-scale-discrepancies">Handling Radical Scale
+Discrepancies</h2>
+<p>When working with radically divergent scales, standard 32-bit
+floating-point arithmetic (GLSL <code>highp float</code>) poses
+numerical stability challenges. A direct computation combining extremely
+large and extremely small numbers can lead to catastrophic cancellation
+or underflow/overflow.</p>
+<h3 id="coordinate-normalization">Coordinate Normalization</h3>
+<p>To prevent precision degradation, map all spatial dimensions to a
+normalized reference space <span class="math inline">\([0.0,
+1.0]\)</span> within the kernel before computing metric-dependent
+equations:</p>
+<p><span class="math display">\[\hat{x} =
+\frac{\text{this.thread.x}}{\text{dimX} - 1}\]</span> <span
+class="math display">\[\hat{y} = \frac{\text{this.thread.y}}{\text{dimY}
+- 1}\]</span></p>
+<p>Equations are then evaluated in their dimensionless or normalized
+form, and dimensional constants are aggregated into scalar dimensionless
+parameters (such as aspect ratios or Reynolds numbers) passed as
+uniforms.</p>
+<h3 id="local-reference-frames">Local Reference Frames</h3>
+<p>If the computation involves interactions between distant coordinate
+points (such as calculating Euclidean distance in an anisotropic grid),
+compute distance components independently along each axis using relative
+offsets:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dx <span class="op">=</span> (x2 <span class="op">-</span> x1) <span class="op">*</span> scaleX<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dy <span class="op">=</span> (y2 <span class="op">-</span> y1) <span class="op">*</span> scaleY<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> distanceSquared <span class="op">=</span> (dx <span class="op">*</span> dx) <span class="op">+</span> (dy <span class="op">*</span> dy)<span class="op">;</span></span></code></pre></div>
+<p>This prevents scale divergence from dominating the lower-magnitude
+dimension during matrix manipulations or vector calculations.</p>
+<h2 id="tensor-operations-and-metric-tensors">Tensor Operations and
+Metric Tensors</h2>
+<p>For complex spatial transformations, such as non-Cartesian or warped
+anisotropic domains, gpu.js accommodates metric tensors passed as
+uniform matrices or flattened 1D/2D arrays.</p>
+<p>By defining a metric tensor <span
+class="math inline">\(g_{ij}\)</span> representing the non-uniform
+geometric properties of the space, spatial steps and gradient
+approximations inside the kernel are adjusted based on the direction of
+traversal:</p>
+<p><span class="math display">\[ds^2 = g_{xx}dx^2 + 2g_{xy}dxdy +
+g_{yy}dy^2\]</span></p>
+<p>This mathematical approach allows finite difference methods (FDM) and
+spatial differential operators (such as Laplacian or divergence
+calculations) to correctly weight derivative approximations when grid
+intervals vary drastically across axes:</p>
+<p><span class="math display">\[\frac{\partial^2 u}{\partial x^2}
+\approx \frac{u_{i+1,j} - 2u_{i,j} + u_{i-1,j}}{\Delta x^2}\]</span>
+<span class="math display">\[\frac{\partial^2 u}{\partial y^2} \approx
+\frac{u_{i,j+1} - 2u_{i,j} + u_{i,j-1}}{\Delta y^2}\]</span></p>
+<p>Passing <span class="math inline">\((\Delta x)^{-2}\)</span> and
+<span class="math inline">\((\Delta y)^{-2}\)</span> as precalculated
+uniforms ensures the GPU minimizes runtime division while accurately
+preserving the anisotropic behavior of the system.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

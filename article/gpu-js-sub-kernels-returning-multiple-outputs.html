@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js SubKernels: Returning Multiple Outputs - gpu.js</title>
+    <meta name="description" content="This article explains how the subKernels feature in GPU.js enables a single kernel execution to return multiple distinct outputs simultaneously. It covers the technical mechanics behind this feature, how to implement it using createKernelMap, and why it">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-sub-kernels-returning-multiple-outputs">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js SubKernels: Returning Multiple Outputs - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-sub-kernels-returning-multiple-outputs" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how the subKernels feature in GPU.js enables a single kernel execution to return multiple distinct outputs simultaneously. It covers the technical mechanics behind this feature, how to implement it using createKernelMap, and why it" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-subkernels-returning-multiple-outputs">GPU.js SubKernels:
+Returning Multiple Outputs</h1>
+<p>This article explains how the <code>subKernels</code> feature in
+GPU.js enables a single kernel execution to return multiple distinct
+outputs simultaneously. It covers the technical mechanics behind this
+feature, how to implement it using <code>createKernelMap</code>, and why
+it significantly improves performance over executing multiple individual
+kernels.</p>
+<h3 id="the-single-output-limitation">The Single-Output Limitation</h3>
+<p>Standard GPU.js kernels return only one value per thread, mapping
+directly to a single output matrix or array. In complex simulations,
+physics engines, or image processing pipelines, a single coordinate or
+thread often needs to compute multiple related values—such as position,
+velocity, and force. Executing multiple separate kernels to calculate
+each property introduces redundant memory transfers and repeated
+intermediate calculations.</p>
+<h3 id="how-subkernels-work">How subKernels Work</h3>
+<p>The <code>subKernels</code> feature circumvents this limitation by
+leveraging Multiple Render Targets (MRT) under the hood in WebGL.
+Instead of outputting to a single color attachment in a framebuffer, the
+underlying GLSL fragment shader is configured to write to multiple
+output textures concurrently within the same execution pass.</p>
+<p>To utilize this, GPU.js provides the <code>createKernelMap</code>
+method. You define sub-functions (sub-kernels) that handle each specific
+calculation, and then invoke them from the primary kernel function.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Define subKernels inside createKernelMap</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiOutputKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernelMap</span>({</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">addResult</span><span class="op">:</span> <span class="kw">function</span> <span class="fu">add</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  }<span class="op">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">multiplyResult</span><span class="op">:</span> <span class="kw">function</span> <span class="fu">multiply</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> <span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add</span>(a<span class="op">,</span> b)<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="fu">multiply</span>(a<span class="op">,</span> b)<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">5</span>])<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> a <span class="op">=</span> [<span class="dv">1</span><span class="op">,</span> <span class="dv">2</span><span class="op">,</span> <span class="dv">3</span><span class="op">,</span> <span class="dv">4</span><span class="op">,</span> <span class="dv">5</span>]<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> b <span class="op">=</span> [<span class="dv">10</span><span class="op">,</span> <span class="dv">20</span><span class="op">,</span> <span class="dv">30</span><span class="op">,</span> <span class="dv">40</span><span class="op">,</span> <span class="dv">50</span>]<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> results <span class="op">=</span> <span class="fu">multiOutputKernel</span>(a<span class="op">,</span> b)<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(results<span class="op">.</span><span class="at">addResult</span>)<span class="op">;</span>      <span class="co">// [11, 22, 33, 44, 55]</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(results<span class="op">.</span><span class="at">result</span>)<span class="op">;</span>         <span class="co">// [10, 40, 90, 160, 250] (primary return)</span></span></code></pre></div>
+<h3 id="execution-and-return-structure">Execution and Return
+Structure</h3>
+<p>When <code>createKernelMap</code> executes:</p>
+<ol type="1">
+<li><strong>Mapping to Render Buffers:</strong> GPU.js registers each
+declared sub-kernel as a distinct output target mapped to a dedicated
+GPU texture.</li>
+<li><strong>Synchronized Computation:</strong> As each thread executes,
+any call to a sub-kernel writes that sub-kernel's return value directly
+to its assigned texture at the thread's active index
+(<code>this.thread.x</code>, <code>this.thread.y</code>, etc.).</li>
+<li><strong>Structured Object Return:</strong> Instead of returning a
+flat array or 2D matrix, the kernel returns an object. The properties of
+this object match the keys defined in the kernel map, while the primary
+function return is stored in the <code>result</code> property.</li>
+</ol>
+<h3 id="performance-advantages">Performance Advantages</h3>
+<p>Using <code>subKernels</code> provides two major optimizations:</p>
+<ul>
+<li><strong>Elimination of Redundant Dispatches:</strong> Launching a
+kernel incurs CPU-to-GPU dispatch overhead. Consolidating outputs into
+one pass reduces draw calls.</li>
+<li><strong>Shared Intermediate Values:</strong> Expensive shared
+calculations can be performed once per thread and used across multiple
+sub-kernel outputs, bypassing the need to store and reread intermediate
+data across distinct passes.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

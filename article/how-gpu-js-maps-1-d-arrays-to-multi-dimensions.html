@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Maps 1D Arrays to Multi-Dimensions - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js translates flat 1D TypedArrays into multi-dimensional data structures during GPU-accelerated computing. By leveraging WebGL textures, row-major index mapping, and automated shader transpilation, GPU.js allows developers t">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-maps-1-d-arrays-to-multi-dimensions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Maps 1D Arrays to Multi-Dimensions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-maps-1-d-arrays-to-multi-dimensions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js translates flat 1D TypedArrays into multi-dimensional data structures during GPU-accelerated computing. By leveraging WebGL textures, row-major index mapping, and automated shader transpilation, GPU.js allows developers t" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-maps-1d-arrays-to-multi-dimensions">How GPU.js Maps 1D
+Arrays to Multi-Dimensions</h1>
+<p>This article explains how GPU.js translates flat 1D TypedArrays into
+multi-dimensional data structures during GPU-accelerated computing. By
+leveraging WebGL textures, row-major index mapping, and automated shader
+transpilation, GPU.js allows developers to interact with
+multi-dimensional matrices in JavaScript while preserving the contiguous
+1D memory buffers required for high-performance graphics hardware
+execution.</p>
+<h2 id="the-memory-discrepancy-between-cpu-and-gpu">The Memory
+Discrepancy Between CPU and GPU</h2>
+<p>In JavaScript, high-performance numeric computations typically rely
+on <code>TypedArray</code> views (such as <code>Float32Array</code> or
+<code>Int32Array</code>). These arrays are strictly linear, contiguous
+blocks of binary data allocated in system memory.</p>
+<p>Web browsers expose GPU compute capabilities primarily via WebGL (and
+increasingly WebGPU). WebGL operates using shaders that process 2D
+textures composed of pixels (RGBA channels) rather than native
+n-dimensional arrays. Consequently, GPU.js must bridge two fundamental
+gaps: converting multi-dimensional logical array indices into 1D memory
+offsets, and packing that 1D memory into 2D WebGL textures.</p>
+<h2 id="row-major-index-transformation">Row-Major Index
+Transformation</h2>
+<p>When a user defines an output dimension or passes a multidimensional
+structure into a GPU.js kernel, the library employs a standard
+mathematical layout called <strong>row-major order</strong> to map
+high-dimensional coordinates to a 1D offset.</p>
+<p>In a multi-dimensional context defined by width (<span
+class="math inline">\(W\)</span>), height (<span
+class="math inline">\(H\)</span>), and depth (<span
+class="math inline">\(D\)</span>), the coordinates <span
+class="math inline">\((x, y, z)\)</span> map to a single index (<span
+class="math inline">\(i\)</span>) using the following formulas:</p>
+<ul>
+<li><p><strong>2D Mapping:</strong> <span
+class="math display">\[\text{Index} = y \times W + x\]</span></p></li>
+<li><p><strong>3D Mapping:</strong> <span
+class="math display">\[\text{Index} = z \times (W \times H) + y \times W
++ x\]</span></p></li>
+</ul>
+<p>This calculation guarantees that adjacent elements across the <span
+class="math inline">\(X\)</span>-axis reside next to each other in
+memory, maximizing spatial locality and memory throughput.</p>
+<h2 id="texture-packing-and-memory-encoding">Texture Packing and Memory
+Encoding</h2>
+<p>WebGL cannot directly consume arbitrary CPU-side pointers. GPU.js
+transfers 1D TypedArrays to the GPU by re-encoding them as 2D
+textures:</p>
+<ol type="1">
+<li><strong>Dimension Balancing:</strong> A large 1D TypedArray of
+length <span class="math inline">\(N\)</span> is shaped into a 2D
+texture grid of size <span class="math inline">\(P \times Q\)</span>
+such that <span class="math inline">\(P \times Q \ge N\)</span>.</li>
+<li><strong>Channel Encoding:</strong> Depending on the kernel
+configuration and floating-point precision support
+(<code>precision: 'single'</code> or <code>'unsigned'</code>), values
+are written into the Red (R) channel or split across the Red, Green,
+Blue, and Alpha (RGBA) channels using bit-shift arithmetic to preserve
+32-bit floating-point precision on devices lacking floating-point
+texture support.</li>
+<li><strong>Texture Upload:</strong> The packed array is passed to the
+graphics card via <code>gl.texImage2D()</code>.</li>
+</ol>
+<h2 id="runtime-decoding-via-thisthread-coordinates">Runtime Decoding
+via <code>this.thread</code> Coordinates</h2>
+<p>Inside a GPU.js kernel function, developers access coordinates
+through the <code>this.thread</code> object (<code>this.thread.x</code>,
+<code>this.thread.y</code>, <code>this.thread.z</code>). GPU.js handles
+multi-dimensional access by translating these thread variables into
+native WebGL shader code (GLSL).</p>
+<p>When a kernel references an input array with coordinates—such as
+<code>matrix[y][x]</code>—the GPU.js transpiler converts this JavaScript
+syntax into a customized GLSL lookup function:</p>
+<ol type="1">
+<li>It evaluates the linear index:
+<code>int index = thread.y * width + thread.x;</code></li>
+<li>It converts the linear index into 2D texture coordinates <span
+class="math inline">\((u, v)\)</span> normalized between
+<code>0.0</code> and <code>1.0</code>.</li>
+<li>It queries the texture using
+<code>texture2D(uSampler, vec2(u, v))</code>.</li>
+<li>It decodes the RGBA color vector back into the original scalar
+numeric value.</li>
+</ol>
+<h2 id="output-reconstruction">Output Reconstruction</h2>
+<p>Once the GPU finishes rendering the output frame, the process occurs
+in reverse. The fragment shader writes the computed values to an
+off-screen framebuffer. GPU.js reads this data back into CPU memory
+using <code>gl.readPixels()</code>.</p>
+<p>The returned data is initially a 1D TypedArray. If the kernel's
+declared output dimensions are multi-dimensional (for example,
+<code>output: [width, height]</code>), GPU.js reconstructs nested
+JavaScript arrays wrapping the underlying 1D data buffer, or returns the
+raw 1D TypedArray directly if configured for maximum performance.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

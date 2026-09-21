@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automated Alerts for GPU.js Performance Regressions - gpu.js</title>
+    <meta name="description" content="Monitoring and alerting for performance regressions in complex gpu.js pipelines requires a structured observability pipeline that pairs deterministic benchmarking with automated statistical thresholds. This article covers how to isolate GPU execution met">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/automated-alerts-for-gpu-js-performance-regressions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Automated Alerts for GPU.js Performance Regressions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/automated-alerts-for-gpu-js-performance-regressions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Monitoring and alerting for performance regressions in complex gpu.js pipelines requires a structured observability pipeline that pairs deterministic benchmarking with automated statistical thresholds. This article covers how to isolate GPU execution met" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="automated-alerts-for-gpujs-performance-regressions">Automated
+Alerts for GPU.js Performance Regressions</h1>
+<p>Monitoring and alerting for performance regressions in complex gpu.js
+pipelines requires a structured observability pipeline that pairs
+deterministic benchmarking with automated statistical thresholds. This
+article covers how to isolate GPU execution metrics from JIT overhead,
+enforce hardware consistency across execution environments, record
+telemetry in continuous integration (CI) workflows, and configure
+automated alerting mechanisms to catch regressions before they hit
+production.</p>
+<h3 id="1-build-an-isolated-benchmarking-harness">1. Build an Isolated
+Benchmarking Harness</h3>
+<p>Measuring execution time in gpu.js requires distinguishing kernel
+compilation and data-transfer latency from pure GPU execution time. A
+proper benchmarking harness must implement the following safeguards:</p>
+<ul>
+<li><strong>Warm-up Iterations:</strong> WebGL shaders compile
+just-in-time on their first invocation. Run at least 5 to 10 untracked
+warm-up cycles to ensure kernel compilation, texture allocation, and
+browser runtime JIT optimizations complete before recording
+metrics.</li>
+<li><strong>Decoupled Step Timing:</strong> Measure three distinct
+phases separately using high-resolution timers
+(<code>performance.now()</code>): CPU-to-GPU data serialization, pure
+kernel compute execution, and GPU-to-CPU data readback via
+<code>kernel.toArray()</code> or <code>kernel.getPixels()</code>.</li>
+<li><strong>Deterministic Data Inputs:</strong> Use fixed pseudo-random
+seeds or static arrays so input variances do not distort throughput
+calculations.</li>
+<li><strong>Fallback Detection:</strong> Gpu.js falls back to CPU
+execution if WebGL is unavailable. Explicitly assert that
+<code>kernel.subgraph</code> or <code>gpu.mode</code> evaluates to
+<code>gpu</code> or <code>webgl2</code>; an accidental fallback to CPU
+mode is itself a catastrophic performance regression.</li>
+</ul>
+<h3 id="2-standardize-ci-execution-environments">2. Standardize CI
+Execution Environments</h3>
+<p>GPU benchmarks executed on varied worker nodes yield inconsistent
+results due to driver, hardware, and virtualization differences.
+Automated alerts are only reliable if baseline noise is minimized:</p>
+<ul>
+<li><strong>Use Dedicated Bare-Metal or GPU Runners:</strong> Run
+automated regression suites on self-hosted CI runners equipped with a
+dedicated, invariant GPU (such as an NVIDIA T4 or A10G instance on
+AWS/GCP) rather than arbitrary shared CI virtual machines.</li>
+<li><strong>Fixed Driver and Headless Configuration:</strong> Pin
+specific NVIDIA/AMD display driver versions, and run tests via Headless
+Chrome with the following flags enabled:
+<code>--enable-gpu --use-gl=angle --use-angle=gl --no-sandbox</code></li>
+<li><strong>Lock Clock Frequencies:</strong> If running on dedicated
+self-hosted instances, lock the GPU memory and graphics clocks using
+vendor tools (e.g., <code>nvidia-smi -lgc</code>) to prevent dynamic
+throttling from skewing execution durations.</li>
+</ul>
+<h3 id="3-establish-statistical-thresholds">3. Establish Statistical
+Thresholds</h3>
+<p>Simple absolute thresholds (e.g., "fail if compute time &gt; 15ms")
+trigger false positives due to transient system interruptions. Instead,
+adopt statistical regression detection:</p>
+<ul>
+<li><strong>Multi-run Sampling:</strong> Run the benchmark <span
+class="math inline">\(N\)</span> times (e.g., <span
+class="math inline">\(N = 30\)</span>) to compute mean (<span
+class="math inline">\(\mu\)</span>) and standard deviation (<span
+class="math inline">\(\sigma\)</span>).</li>
+<li><strong>Statistical Outlier Detection:</strong> Evaluate whether the
+execution time distribution of the incoming commit significantly
+deviates from the established baseline using Student's t-test or the
+Mann-Whitney U test.</li>
+<li><strong>Sliding Windows and Thresholds:</strong> Flag an alert if
+the moving median of kernel execution time degrades by more than a
+specified percentage (e.g., 5–10%) or exceeds <span
+class="math inline">\(\mu + 3\sigma\)</span> against the main branch
+baseline across consecutive runs.</li>
+</ul>
+<h3 id="4-continuous-ingestion-and-metric-export">4. Continuous
+Ingestion and Metric Export</h3>
+<p>Store benchmark results in a centralized time-series database or
+observability tool to track pipeline performance over time:</p>
+<ol type="1">
+<li><strong>Serialize Results:</strong> At the end of the test suite,
+output a JSON payload containing commit SHA, branch name, GPU device
+metadata, and phase-specific execution metrics (kernel execution, data
+transfer, memory usage).</li>
+<li><strong>Send to Metric Backends:</strong> Push the metrics via an
+API client to an observability platform such as Datadog, Prometheus (via
+Pushgateway), or InfluxDB.</li>
+<li><strong>Attach Artifacts to CI:</strong> Store benchmark JSON
+summaries as artifacts in GitHub Actions, GitLab CI, or your platform of
+choice for immediate diffing directly on pull requests.</li>
+</ol>
+<h3 id="5-configure-automated-alert-channels">5. Configure Automated
+Alert Channels</h3>
+<p>Alerting rules should separate blocking development failures from
+advisory notifications:</p>
+<ul>
+<li><strong>Pull Request Check Failures (Blocking):</strong> If a pull
+request introduces a regression exceeding the strict threshold (<span
+class="math inline">\(&gt;15\%\)</span> degradation or switch to CPU
+mode), automatically fail the CI check and post a markdown comment
+directly on the pull request detailing the baseline versus current
+execution times.</li>
+<li><strong>ChatOps Notifications (Advisory):</strong> Send automated
+webhook notifications to Slack, Discord, or Microsoft Teams for moderate
+degradation (5% to 15%) to notify code owners without breaking the
+deployment pipeline.</li>
+<li><strong>On-Call Dispatch (Production Pipelines):</strong> For
+performance monitors tracking real-world gpu.js client telemetry in
+production, aggregate percentiles (<span
+class="math inline">\(p95\)</span>, <span
+class="math inline">\(p99\)</span>) over 1-hour windows. If the <span
+class="math inline">\(p95\)</span> compute time increases beyond SLA
+thresholds across multiple client devices, trigger PagerDuty or Opsgenie
+alerts to notify the on-call engineering team.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

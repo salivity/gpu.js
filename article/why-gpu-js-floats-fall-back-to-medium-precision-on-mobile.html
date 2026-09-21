@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why GPU.js Floats Fall Back to Medium Precision on Mobile - gpu.js</title>
+    <meta name="description" content="When executing compute kernels on mobile devices using GPU.js, developers frequently observe high-precision 32-bit floats (highp) degrading to 16-bit medium precision (mediump). This article explains the technical reasons behind this fallback, focusing o">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-floats-fall-back-to-medium-precision-on-mobile">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why GPU.js Floats Fall Back to Medium Precision on Mobile - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-floats-fall-back-to-medium-precision-on-mobile" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When executing compute kernels on mobile devices using GPU.js, developers frequently observe high-precision 32-bit floats (highp) degrading to 16-bit medium precision (mediump). This article explains the technical reasons behind this fallback, focusing o" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-floats-fall-back-to-medium-precision-on-mobile">Why
+GPU.js Floats Fall Back to Medium Precision on Mobile</h1>
+<p>When executing compute kernels on mobile devices using GPU.js,
+developers frequently observe high-precision 32-bit floats
+(<code>highp</code>) degrading to 16-bit medium precision
+(<code>mediump</code>). This article explains the technical reasons
+behind this fallback, focusing on the underlying WebGL specifications,
+mobile System-on-Chip (SoC) architecture, driver implementations, and
+how GPU.js handles these constraints to prevent kernel crashes.</p>
+<h2 id="webgl-and-opengl-es-specification-relaxations">WebGL and OpenGL
+ES Specification Relaxations</h2>
+<p>GPU.js relies on WebGL to translate JavaScript functions into GLSL
+shaders. Because WebGL is based on OpenGL ES (the embedded systems
+specification), it is subject to the hardware-oriented trade-offs of
+mobile devices:</p>
+<ul>
+<li><strong>Optional <code>highp</code> in Fragment Shaders:</strong> In
+the WebGL 1.0 (OpenGL ES 2.0) specification, support for
+<code>highp</code> precision in the fragment shader is optional. While
+modern mobile devices generally implement WebGL 2.0 (OpenGL ES 3.0), the
+legacy behavior persists across certain low-end or older chipsets.</li>
+<li><strong>Format Querying:</strong> WebGL allows runtimes to query
+shader precision ranges using
+<code>gl.getShaderPrecisionFormat()</code>. If a chipset reports that
+<code>highp</code> has the same range and precision as
+<code>mediump</code>, the browser environment treats them
+identically.</li>
+</ul>
+<h2 id="mobile-gpu-architectural-limitations">Mobile GPU Architectural
+Limitations</h2>
+<p>Mobile chipsets—such as certain ARM Mali, Imagination PowerVR, and
+entry-level Qualcomm Adreno GPUs—are designed under strict thermal and
+power envelopes. Precision choices reflect these hardware realities:</p>
+<h3 id="native-16-bit-alus">Native 16-Bit ALUs</h3>
+<p>Unlike desktop GPUs that process 32-bit floating-point data (FP32)
+natively with minimal overhead, many mobile GPU architectures rely
+heavily on 16-bit floating-point units (FP16). FP16 operations require
+roughly half the register space, significantly less memory bandwidth,
+and substantially lower power consumption.</p>
+<h3 id="thermal-throttling-and-register-pressure">Thermal Throttling and
+Register Pressure</h3>
+<p>When a shader strictly demands FP32, it increases register pressure
+inside the mobile execution units. To avoid register spilling to
+off-chip memory—which drains battery life and induces severe thermal
+throttling—mobile architectures either limit high-precision registers or
+internally downcast precision.</p>
+<h2 id="driver-aliasing-and-emulation">Driver Aliasing and
+Emulation</h2>
+<p>Even when GLSL source code specifies
+<code>precision highp float;</code>, the underlying mobile graphics
+driver has the authority to alias precision qualifiers:</p>
+<ol type="1">
+<li><strong>Driver-Level Precision Lowering:</strong> Some mobile
+drivers silently map <code>highp</code> tokens directly to
+<code>mediump</code> internally to guarantee stable framerates and meet
+manufacturer power targets.</li>
+<li><strong>Lack of Float Texture Render Targets:</strong>
+High-precision computation in GPU.js requires writing FP32 values into
+floating-point textures (<code>OES_texture_float</code> or WebGL 2
+equivalents). If the mobile driver lacks native hardware support for
+rendering to FP32 textures, WebGL fails to attach these buffers.</li>
+</ol>
+<h2 id="how-gpujs-handles-mobile-fallbacks">How GPU.js Handles Mobile
+Fallbacks</h2>
+<p>GPU.js detects device capabilities during initialization before
+compiling kernels. When executed on an affected mobile chipset, the
+library takes specific mitigation steps:</p>
+<ul>
+<li><strong>Precision Probing:</strong> GPU.js queries the browser's
+WebGL context for supported extensions and shader precision
+capabilities.</li>
+<li><strong>Graceful Degradation:</strong> If native FP32 texturing or
+fragment precision is missing or unreliable, GPU.js automatically
+switches precision to <code>mediump</code> or invokes float-packing
+routines (encoding 32-bit floats across four 8-bit RGBA channels).</li>
+<li><strong>Crash Prevention:</strong> Without this fallback mechanism,
+compiling a GLSL kernel that explicitly mandates unsupported 32-bit
+operations would result in shader compilation errors, context loss, or
+completely black/empty output buffers.</li>
+</ul>
+<h2 id="impact-on-computations">Impact on Computations</h2>
+<p>The transition from FP32 to FP16 reduces the mantissa from 23 bits to
+10 bits. In GPU.js applications, this manifests as:</p>
+<ul>
+<li>Rapid accumulation of rounding errors in iterative algorithms (e.g.,
+neural network training or matrix multiplication).</li>
+<li>Severe dynamic range constraints, where values greater than 65,504
+overflow to infinity, and values smaller than <span
+class="math inline">\(2^{-14}\)</span> underflow to zero.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

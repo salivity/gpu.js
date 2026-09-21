@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Thread Coordinates to Fragment Coordinates - gpu.js</title>
+    <meta name="description" content="In gpu.js, computations are executed by compiling JavaScript functions into WebGL fragment shaders that run across parallel GPU cores. Because WebGL operates natively on a two-dimensional screen space using fragment coordinates (glFragCoord), gpu.js math">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-thread-coordinates-to-fragment-coordinates">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Thread Coordinates to Fragment Coordinates - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-thread-coordinates-to-fragment-coordinates" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In gpu.js, computations are executed by compiling JavaScript functions into WebGL fragment shaders that run across parallel GPU cores. Because WebGL operates natively on a two-dimensional screen space using fragment coordinates (glFragCoord), gpu.js math" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-thread-coordinates-to-fragment-coordinates">GPU.js Thread
+Coordinates to Fragment Coordinates</h1>
+<p>In gpu.js, computations are executed by compiling JavaScript
+functions into WebGL fragment shaders that run across parallel GPU
+cores. Because WebGL operates natively on a two-dimensional screen space
+using fragment coordinates (<code>gl_FragCoord</code>), gpu.js
+mathematically maps its logical one-, two-, or three-dimensional thread
+coordinates (<code>this.thread</code>) to these continuous 2D fragment
+positions. This article breaks down the mathematical relationships and
+transformations that bridge gpu.js thread indexing with WebGL fragment
+coordinates.</p>
+<h2 id="continuous-fragments-to-discrete-pixels">Continuous Fragments to
+Discrete Pixels</h2>
+<p>WebGL calculates fragment positions using the built-in variable
+<code>gl_FragCoord</code>. Unlike array indices in JavaScript, fragment
+coordinates are continuous floating-point values located at the center
+of each pixel.</p>
+<p>For an integer pixel index <span class="math inline">\((X,
+Y)\)</span>:</p>
+<p><span class="math display">\[\text{gl\_FragCoord.x} = X +
+0.5\]</span> <span class="math display">\[\text{gl\_FragCoord.y} = Y +
+0.5\]</span></p>
+<p>To extract discrete pixel indices from fragment coordinates, gpu.js
+applies a floor operation:</p>
+<p><span class="math display">\[X = \lfloor \text{gl\_FragCoord.x}
+\rfloor\]</span> <span class="math display">\[Y = \lfloor
+\text{gl\_FragCoord.y} \rfloor\]</span></p>
+<h2 id="2d-thread-mapping">2D Thread Mapping</h2>
+<p>When a kernel is declared with two dimensions
+<code>[width, height]</code>, the thread coordinates map directly to the
+2D WebGL render target dimensions.</p>
+<p>The mathematical relationship is:</p>
+<p><span class="math display">\[\text{this.thread.x} = \lfloor
+\text{gl\_FragCoord.x} \rfloor\]</span> <span
+class="math display">\[\text{this.thread.y} = \lfloor
+\text{gl\_FragCoord.y} \rfloor\]</span></p>
+<p>In the underlying GLSL code generated by gpu.js:</p>
+<ul>
+<li><code>this.thread.x</code> runs from <span
+class="math inline">\(0\)</span> to <span
+class="math inline">\(\text{width} - 1\)</span>.</li>
+<li><code>this.thread.y</code> runs from <span
+class="math inline">\(0\)</span> to <span
+class="math inline">\(\text{height} - 1\)</span>.</li>
+</ul>
+<p>Because standard WebGL texture coordinates have their origin <span
+class="math inline">\((0,0)\)</span> at the bottom-left corner,
+<code>this.thread.y = 0</code> corresponds to the bottom row of the
+output canvas unless vertically inverted.</p>
+<h2 id="1d-thread-mapping">1D Thread Mapping</h2>
+<p>When an output is defined as a 1D array of size
+<code>[length]</code>, WebGL still executes the computation over a 2D
+texture grid if the length exceeds the GPU's maximum single-dimension
+texture limit.</p>
+<h3 id="flat-1d-mapping">Flat 1D Mapping</h3>
+<p>If the array fits within a single row:</p>
+<p><span class="math display">\[\text{gl\_FragCoord.x} =
+\text{this.thread.x} + 0.5\]</span> <span
+class="math display">\[\text{gl\_FragCoord.y} = 0.5\]</span></p>
+<p><span class="math display">\[\text{this.thread.x} = \lfloor
+\text{gl\_FragCoord.x} \rfloor\]</span></p>
+<h3 id="wrapped-1d-mapping">Wrapped 1D Mapping</h3>
+<p>When mapped across a 2D texture of width <span
+class="math inline">\(W\)</span>:</p>
+<p><span class="math display">\[\text{this.thread.x} = \lfloor
+\text{gl\_FragCoord.y} \rfloor \times W + \lfloor \text{gl\_FragCoord.x}
+\rfloor\]</span></p>
+<p><span class="math display">\[\lfloor \text{gl\_FragCoord.x} \rfloor =
+\text{this.thread.x} \pmod W\]</span> <span
+class="math display">\[\lfloor \text{gl\_FragCoord.y} \rfloor =
+\left\lfloor \frac{\text{this.thread.x}}{W} \right\rfloor\]</span></p>
+<h2 id="3d-thread-mapping">3D Thread Mapping</h2>
+<p>WebGL 1.0 and 2.0 fragment shaders output to 2D textures. To support
+3D kernels with dimensions <code>[depth_x, depth_y, depth_z]</code>,
+gpu.js tiles the 3D volume into a 2D layout on the canvas.</p>
+<p>Typically, gpu.js packs the <span class="math inline">\(Z\)</span>
+dimension along the <span class="math inline">\(Y\)</span> (or <span
+class="math inline">\(X\)</span>) axis. Assuming vertical tiling where
+the 2D render target has dimensions:</p>
+<p><span class="math display">\[\text{Target Width} =
+\text{depth\_x}\]</span> <span class="math display">\[\text{Target
+Height} = \text{depth\_y} \times \text{depth\_z}\]</span></p>
+<p>The fragment coordinates relate to 3D thread coordinates through the
+following transformations:</p>
+<h3 id="from-fragment-coordinates-to-3d-thread-coordinates">From
+Fragment Coordinates to 3D Thread Coordinates</h3>
+<p><span class="math display">\[\text{this.thread.x} = \lfloor
+\text{gl\_FragCoord.x} \rfloor\]</span> <span
+class="math display">\[\text{this.thread.y} = \lfloor
+\text{gl\_FragCoord.y} \rfloor \pmod{\text{depth\_y}}\]</span> <span
+class="math display">\[\text{this.thread.z} = \left\lfloor \frac{\lfloor
+\text{gl\_FragCoord.y} \rfloor}{\text{depth\_y}}
+\right\rfloor\]</span></p>
+<h3 id="from-3d-thread-coordinates-to-fragment-coordinates">From 3D
+Thread Coordinates to Fragment Coordinates</h3>
+<p><span class="math display">\[\text{gl\_FragCoord.x} =
+\text{this.thread.x} + 0.5\]</span> <span
+class="math display">\[\text{gl\_FragCoord.y} = (\text{this.thread.z}
+\times \text{depth\_y} + \text{this.thread.y}) + 0.5\]</span></p>
+<h2 id="normalized-coordinates-uv-space">Normalized Coordinates (UV
+Space)</h2>
+<p>When sampling inputs or reading framebuffers, fragment coordinates
+are normalized into UV coordinates ranging from <span
+class="math inline">\([0.0, 1.0]\)</span>. For an output target with
+dimensions <span class="math inline">\((W, H)\)</span>:</p>
+<p><span class="math display">\[u = \frac{\text{gl\_FragCoord.x}}{W} =
+\frac{\text{this.thread.x} + 0.5}{W}\]</span> <span
+class="math display">\[v = \frac{\text{gl\_FragCoord.y}}{H} =
+\frac{\text{this.thread.y} + 0.5}{H}\]</span></p>
+<p>This half-pixel offset (<span class="math inline">\(+ 0.5\)</span>)
+ensures that texture lookups sample precisely from the center of the
+intended texel, preventing interpolation artifacts during GPU
+calculations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Langevin Dynamics Simulation with GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to model Brownian motion and Langevin dynamics for colloidal suspensions using GPU.js to achieve hardware-accelerated performance in JavaScript. You will learn the theoretical equations governing colloidal motion, how to impleme">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/langevin-dynamics-simulation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Langevin Dynamics Simulation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/langevin-dynamics-simulation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to model Brownian motion and Langevin dynamics for colloidal suspensions using GPU.js to achieve hardware-accelerated performance in JavaScript. You will learn the theoretical equations governing colloidal motion, how to impleme" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="langevin-dynamics-simulation-with-gpujs">Langevin Dynamics
+Simulation with GPU.js</h1>
+<p>This article explains how to model Brownian motion and Langevin
+dynamics for colloidal suspensions using GPU.js to achieve
+hardware-accelerated performance in JavaScript. You will learn the
+theoretical equations governing colloidal motion, how to implement
+parallelized force and stochastic integration kernels using WebGL, and
+how to handle pseudo-random noise generation natively on the graphics
+processor.</p>
+<h2 id="the-physical-model-langevin-dynamics">The Physical Model:
+Langevin Dynamics</h2>
+<p>Colloidal particles suspended in a solvent experience three primary
+forces: interparticle interactions (such as electrostatic repulsion or
+Lennard-Jones potentials), solvent drag, and random thermal collisions
+from solvent molecules.</p>
+<p>The translational motion of a particle <span
+class="math inline">\(i\)</span> with mass <span
+class="math inline">\(m\)</span> is governed by the Langevin
+equation:</p>
+<p><span class="math display">\[m \frac{d\mathbf{v}_i}{dt} =
+\mathbf{F}_i^{\text{inter}}(\mathbf{r}) - \gamma \mathbf{v}_i +
+\mathbf{F}_i^{\text{random}}(t)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span
+class="math inline">\(\mathbf{F}_i^{\text{inter}}(\mathbf{r})\)</span>
+is the net deterministic conservative force exerted by neighboring
+particles.</li>
+<li><span class="math inline">\(-\gamma \mathbf{v}_i\)</span> is the
+Stokes friction coefficient (<span class="math inline">\(\gamma =
+6\pi\eta a\)</span> for a spherical particle of radius <span
+class="math inline">\(a\)</span> in viscosity <span
+class="math inline">\(\eta\)</span>).</li>
+<li><span class="math inline">\(\mathbf{F}_i^{\text{random}}(t)\)</span>
+is Gaussian white noise satisfying the fluctuation-dissipation theorem:
+<span class="math inline">\(\langle \mathbf{F}_i(t) \cdot
+\mathbf{F}_j(t&#39;) \rangle = 6 k_B T \gamma \delta_{ij} \delta(t -
+t&#39;)\)</span>.</li>
+</ul>
+<p>In the overdamped regime (Brownian dynamics), inertia is negligible
+(<span class="math inline">\(m \frac{d\mathbf{v}}{dt} \approx
+0\)</span>), simplifying the equation to an integration of displacements
+directly from forces and thermal diffusion.</p>
+<h2 id="why-gpujs-for-colloidal-simulations">Why GPU.js for Colloidal
+Simulations</h2>
+<p>Simulating <span class="math inline">\(N\)</span> colloidal particles
+requires calculating up to <span class="math inline">\(O(N^2)\)</span>
+pairwise interactions per time step. Running this sequentially in
+JavaScript limits real-time rendering to a few hundred particles. GPU.js
+compiles JavaScript functions into WebGL fragment shaders, executing
+particle calculations concurrently across thousands of GPU threads
+without writing raw GLSL.</p>
+<h2 id="step-by-step-gpujs-implementation">Step-by-Step GPU.js
+Implementation</h2>
+<h3 id="1-generating-on-gpu-random-numbers">1. Generating On-GPU Random
+Numbers</h3>
+<p>Standard WebGL shaders lack a native random number generator. To
+simulate thermal fluctuations, implement a hash-based pseudo-random
+number generator (PRNG) inside a GPU kernel:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">hashPRNG</span>(seed1<span class="op">,</span> seed2) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> s <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(seed1 <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> seed2 <span class="op">*</span> <span class="fl">78.233</span>) <span class="op">*</span> <span class="fl">43758.5453</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> s <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(s)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Using the Box-Muller transform, map two uniform random variables into
+normally distributed random numbers required for the stochastic Langevin
+force.</p>
+<h3 id="2-setting-up-the-simulation-kernels">2. Setting Up the
+Simulation Kernels</h3>
+<p>Represent particle coordinates and velocities as flattened 1D arrays
+or matrices (e.g., <code>positions[N][2]</code> for 2D space) and update
+them using GPU.js kernels.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to compute pairwise forces and update positions</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateLangevin <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(positions<span class="op">,</span> velocities<span class="op">,</span> N<span class="op">,</span> dt<span class="op">,</span> gamma<span class="op">,</span> kBT<span class="op">,</span> seed) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> px <span class="op">=</span> positions[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> py <span class="op">=</span> positions[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> vx <span class="op">=</span> velocities[i][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> vy <span class="op">=</span> velocities[i][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> fx <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> fy <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compute pairwise Weeks-Chandler-Andersen (WCA) repulsion</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> j <span class="op">&lt;</span> N<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">!==</span> j) {</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> dx <span class="op">=</span> px <span class="op">-</span> positions[j][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> dy <span class="op">=</span> py <span class="op">-</span> positions[j][<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> distSq <span class="op">=</span> dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy <span class="op">+</span> <span class="fl">0.0001</span><span class="op">;</span> <span class="co">// Avoid division by zero</span></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>      </span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>      <span class="co">// Repulsive threshold (sigma^2)</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>      <span class="kw">let</span> cutoff <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span> </span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (distSq <span class="op">&lt;</span> cutoff) {</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> invDist2 <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> distSq<span class="op">;</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> invDist6 <span class="op">=</span> invDist2 <span class="op">*</span> invDist2 <span class="op">*</span> invDist2<span class="op">;</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> forceMag <span class="op">=</span> <span class="fl">48.0</span> <span class="op">*</span> invDist6 <span class="op">*</span> (invDist6 <span class="op">-</span> <span class="fl">0.5</span>) <span class="op">*</span> invDist2<span class="op">;</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        fx <span class="op">+=</span> forceMag <span class="op">*</span> dx<span class="op">;</span></span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>        fy <span class="op">+=</span> forceMag <span class="op">*</span> dy<span class="op">;</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Random noise calculation (Box-Muller transform)</span></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> u1 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(i <span class="op">*</span> <span class="fl">12.9898</span> <span class="op">+</span> seed <span class="op">*</span> <span class="fl">78.233</span>) <span class="op">*</span> <span class="fl">43758.5453</span><span class="op">;</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>  u1 <span class="op">=</span> u1 <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(u1)<span class="op">;</span></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> u2 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(i <span class="op">*</span> <span class="fl">39.346</span> <span class="op">+</span> seed <span class="op">*</span> <span class="fl">11.135</span>) <span class="op">*</span> <span class="fl">43758.5453</span><span class="op">;</span></span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>  u2 <span class="op">=</span> u2 <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(u2)<span class="op">;</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> r <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(<span class="op">-</span><span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">log</span>(u1 <span class="op">+</span> <span class="fl">0.000001</span>))<span class="op">;</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> theta <span class="op">=</span> <span class="fl">2.0</span> <span class="op">*</span> <span class="fl">3.1415926535</span> <span class="op">*</span> u2<span class="op">;</span></span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> noiseX <span class="op">=</span> r <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(theta)<span class="op">;</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> noiseY <span class="op">=</span> r <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(theta)<span class="op">;</span></span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> stdDev <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(<span class="fl">2.0</span> <span class="op">*</span> gamma <span class="op">*</span> kBT <span class="op">/</span> dt)<span class="op">;</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Velocity update using Euler-Maruyama</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>  vx <span class="op">+=</span> ((fx <span class="op">-</span> gamma <span class="op">*</span> vx <span class="op">+</span> stdDev <span class="op">*</span> noiseX) <span class="op">*</span> dt)<span class="op">;</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>  vy <span class="op">+=</span> ((fy <span class="op">-</span> gamma <span class="op">*</span> vy <span class="op">+</span> stdDev <span class="op">*</span> noiseY) <span class="op">*</span> dt)<span class="op">;</span></span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Position update</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> newX <span class="op">=</span> px <span class="op">+</span> vx <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> newY <span class="op">=</span> py <span class="op">+</span> vy <span class="op">*</span> dt<span class="op">;</span></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> [newX<span class="op">,</span> newY<span class="op">,</span> vx<span class="op">,</span> vy]<span class="op">;</span></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="3-executing-the-simulation-loop">3. Executing the Simulation
+Loop</h3>
+<p>Keep particle data on the GPU between frames by enabling pipeline
+mode (<code>setPipeline(true)</code>). This avoids CPU-GPU memory
+bandwidth bottlenecks.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> N <span class="op">=</span> <span class="dv">10000</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> positions <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> velocities <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Initialize particle positions and zero velocities</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> N<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  positions<span class="op">.</span><span class="fu">push</span>([<span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">100</span><span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">random</span>() <span class="op">*</span> <span class="dv">100</span>])<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  velocities<span class="op">.</span><span class="fu">push</span>([<span class="fl">0.0</span><span class="op">,</span> <span class="fl">0.0</span>])<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dt <span class="op">=</span> <span class="fl">0.001</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gamma <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kBT <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">step</span>(time) {</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Pass current time as seed to vary stochastic noise</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> <span class="fu">updateLangevin</span>(positions<span class="op">,</span> velocities<span class="op">,</span> N<span class="op">,</span> dt<span class="op">,</span> gamma<span class="op">,</span> kBT<span class="op">,</span> time)<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Update state for next step</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="fu">requestAnimationFrame</span>(step)<span class="op">;</span></span></code></pre></div>
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ol type="1">
+<li><strong>Memory Bandwidth</strong>: Use
+<code>setPipeline(true)</code> so output arrays remain as GPU textures
+between iterations. Pull data back to the CPU using
+<code>.toArray()</code> only when rendering to an HTML canvas or logging
+data.</li>
+<li><strong>Spatial Partitioning</strong>: For very large <span
+class="math inline">\(N\)</span> (<span class="math inline">\(N &gt;
+20,000\)</span>), calculate forces using neighbor lists or cell lists
+stored in 2D textures instead of an <span
+class="math inline">\(O(N^2)\)</span> global loop.</li>
+<li><strong>Precision</strong>: Standard GPU.js operates on 32-bit
+single-precision floats (<code>float32</code>). Ensure that <span
+class="math inline">\(dt\)</span> and scale parameters are normalized to
+avoid floating-point underflow in force evaluations.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

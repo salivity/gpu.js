@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Concurrency in Express.js Explained - gpu.js</title>
+    <meta name="description" content="This article explores how GPU.js handles concurrency when processing multiple simultaneous HTTP requests in an Express.js backend. It details the operational mechanics between the single-threaded Node.js event loop and the GPU, the limitations imposed by">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-concurrency-in-express-js-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Concurrency in Express.js Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-concurrency-in-express-js-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how GPU.js handles concurrency when processing multiple simultaneous HTTP requests in an Express.js backend. It details the operational mechanics between the single-threaded Node.js event loop and the GPU, the limitations imposed by" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-concurrency-in-expressjs-explained">GPU.js Concurrency in
+Express.js Explained</h1>
+<p>This article explores how GPU.js handles concurrency when processing
+multiple simultaneous HTTP requests in an Express.js backend. It details
+the operational mechanics between the single-threaded Node.js event loop
+and the GPU, the limitations imposed by headless graphics contexts, and
+the architecture necessary to handle parallel computation without
+degrading server performance.</p>
+<h3 id="the-single-threaded-nodejs-foundation">The Single-Threaded
+Node.js Foundation</h3>
+<p>Express.js operates on the Node.js event loop, which uses a single
+thread to manage non-blocking I/O operations. When an incoming HTTP
+request triggers an operation using GPU.js, that request transitions
+from standard asynchronous I/O to compute-heavy operations.</p>
+<p>In a server environment, GPU.js relies on headless WebGL (via
+packages like <code>headless-gl</code>) or native bindings to compile
+JavaScript functions into shaders that run on the physical GPU. While
+the GPU itself excels at massive data parallelism (processing thousands
+of data points at once via hardware threads), the bridge connecting
+Node.js to the GPU runtime introduces specific concurrency
+challenges.</p>
+<h3 id="how-gpujs-handles-simultaneous-requests">How GPU.js Handles
+Simultaneous Requests</h3>
+<p>When multiple users hit an Express.js endpoint utilizing GPU.js
+simultaneously, the system behaves according to three distinct
+constraints:</p>
+<ol type="1">
+<li><p><strong>Synchronous Execution and Event Loop
+Blocking</strong><br />
+Most standard GPU.js operations in Node.js are synchronous from the
+perspective of the event loop. Compiling kernels, passing data across
+the PCI-e bus to GPU memory, and reading the output buffer back into the
+CPU thread generally block Node's main thread. If five requests arrive
+at once, they do not execute concurrently by default; instead, they
+queue up, each blocking the event loop until its computation completes,
+causing latency spikes for unrelated incoming routes.</p></li>
+<li><p><strong>Hardware and Context Limits</strong><br />
+Under the hood, GPU.js initializes a WebGL context to compile and
+execute kernels. WebGL implementations have strict limits on the number
+of active contexts permitted per process (often between 8 and 16).
+Creating a new GPU instance or kernel per request quickly exhausts
+context limits, causing crashes or context-loss events.</p></li>
+<li><p><strong>Driver-Level Queuing</strong><br />
+At the hardware level, graphics cards process compute shaders
+sequentially or via hardware-scheduled compute streams. Even if requests
+are dispatched simultaneously, the GPU driver queues instructions. True
+parallelism on the GPU is achieved within a single kernel running across
+massive datasets, not typically by executing hundreds of separate,
+isolated kernel calls at the exact same microsecond.</p></li>
+</ol>
+<h3 id="recommended-architectural-patterns">Recommended Architectural
+Patterns</h3>
+<p>To safely handle high-concurrency workloads using GPU.js inside
+Express.js, implementations should adopt the following strategies:</p>
+<h4 id="1-compile-once-reuse-always">1. Compile Once, Reuse Always</h4>
+<p>Never initialize <code>new GPU()</code> or define kernels inside the
+Express route handler. Kernels should be declared, configured, and
+compiled once at application startup. Subsequent requests should only
+pass new inputs into the existing compiled kernel function.</p>
+<h4 id="2-offload-to-worker-threads">2. Offload to Worker Threads</h4>
+<p>To prevent CPU-bound and synchronous GPU readbacks from stalling the
+Express event loop, delegate GPU.js computations to Node.js Worker
+Threads (<code>worker_threads</code>) or a specialized worker pool (such
+as <code>piscina</code>). This ensures that the primary thread remains
+free to accept new incoming HTTP traffic while worker threads manage
+context execution.</p>
+<h4 id="3-implement-an-in-memory-queue">3. Implement an In-Memory
+Queue</h4>
+<p>Because a GPU has finite memory (VRAM) and context limits,
+simultaneous requests should be metered. Use an asynchronous job queue
+(such as BullMQ or async/await queues) to control the concurrency level.
+Limiting the execution to a fixed number of concurrent jobs (e.g., 1 to
+4 depending on available GPU hardware) prevents out-of-memory errors and
+context thrashing.</p>
+<h4 id="4-batch-incoming-requests">4. Batch Incoming Requests</h4>
+<p>Rather than running one small kernel per user request, aggregate
+inputs across concurrent requests into single, larger data arrays.
+Executing one large kernel run that processes data for multiple requests
+maximizes GPU core saturation and drastically reduces the overhead of
+CPU-to-GPU data transfers.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

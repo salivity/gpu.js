@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js Texture Readback Latency: Discrete vs Integrated GPUs - gpu.js</title>
+    <meta name="description" content="Texture readback latency in gpu.js refers to the performance bottleneck encountered when transferring computed data from the GPU's memory back to the CPU's JavaScript runtime. Because gpu.js relies on WebGL underneath, converting GPU-resident textures ba">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-texture-readback-latency-discrete-vs-integrated-gp-us">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js Texture Readback Latency: Discrete vs Integrated GPUs - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-texture-readback-latency-discrete-vs-integrated-gp-us" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Texture readback latency in gpu.js refers to the performance bottleneck encountered when transferring computed data from the GPU's memory back to the CPU's JavaScript runtime. Because gpu.js relies on WebGL underneath, converting GPU-resident textures ba" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="gpujs-texture-readback-latency-discrete-vs-integrated-gpus">gpu.js
+Texture Readback Latency: Discrete vs Integrated GPUs</h1>
+<p>Texture readback latency in gpu.js refers to the performance
+bottleneck encountered when transferring computed data from the GPU's
+memory back to the CPU's JavaScript runtime. Because gpu.js relies on
+WebGL underneath, converting GPU-resident textures back into JavaScript
+arrays requires a readback operation that stalls the CPU-GPU pipeline.
+The latency of this operation differs fundamentally between discrete
+GPUs (dGPUs) and integrated GPUs (iGPUs) due to their contrasting
+physical memory architectures, bus interfaces, and synchronization
+overheads.</p>
+<h2 id="the-nature-of-gpujs-texture-readback">The Nature of gpu.js
+Texture Readback</h2>
+<p>When executing a kernel in gpu.js, computations output results into
+an off-screen WebGL framebuffer texture. If your application requires
+access to this data in JavaScript (for instance, via standard kernel
+return values rather than leaving the output as a texture), gpu.js
+invokes <code>gl.readPixels</code> or its WebGPU equivalent.</p>
+<p>This invocation forces a synchronous stall: the CPU must halt and
+wait for the GPU to finish all scheduled commands and flush its
+rendering pipeline before the pixel data can be serialized and copied
+back to host memory.</p>
+<h2 id="latency-on-integrated-gpus-igpus">Latency on Integrated GPUs
+(iGPUs)</h2>
+<p>Integrated GPUs, such as Intel Iris Xe or AMD Radeon 600M/700M
+series, share physical system RAM (DDR4, DDR5, or LPDDR5) with the CPU
+via a Unified Memory Architecture (UMA).</p>
+<ul>
+<li><strong>Zero PCIe Overhead:</strong> Because the CPU and iGPU share
+physical memory channels, data does not need to cross an external bus
+like PCIe. The transfer is primarily an internal memory copy or a
+pointer remapping.</li>
+<li><strong>Lower Readback Penalty for Small to Medium
+Payloads:</strong> For smaller data arrays, iGPUs frequently exhibit
+lower raw readback latency than dGPUs because they avoid the
+communication serialization overhead inherent to an external expansion
+bus.</li>
+<li><strong>Bandwidth Limitations:</strong> While the physical transfer
+path is short, standard system RAM has significantly lower bandwidth
+(typically 40–100 GB/s) compared to dedicated video memory.
+Consequently, extremely large texture readbacks can suffer from memory
+contention between the CPU and the integrated graphic cores.</li>
+</ul>
+<h2 id="latency-on-discrete-gpus-dgpus">Latency on Discrete GPUs
+(dGPUs)</h2>
+<p>Discrete GPUs (such as NVIDIA GeForce/RTX or AMD Radeon RX series)
+feature dedicated high-bandwidth memory (GDDR6, GDDR6X, or HBM) and
+communicate with the host system over the PCIe interface.</p>
+<ul>
+<li><strong>PCIe Bus Latency:</strong> Every readback operation requires
+traversing the PCIe bus. Even across modern PCIe 4.0 or 5.0 lanes,
+initiating a host transfer introduces fixed latency overheads related to
+driver commands, bus arbitration, and host-memory mapping.</li>
+<li><strong>Pipeline Synchronization Stalls:</strong> Because dGPUs
+process instructions asynchronously with high degrees of queueing,
+issuing a readback command causes a severe pipeline flush. The CPU must
+idle while the dGPU clears its command queues and serializes the GDDR
+payload across the PCIe lanes.</li>
+<li><strong>Throughput vs. Latency Trade-off:</strong> While dGPUs
+possess massive internal memory bandwidth (ranging from 300 GB/s to well
+over 1000 GB/s) that executes compute kernels significantly faster than
+an iGPU, the <em>readback latency</em> specifically remains higher for
+small datasets due to the fixed round-trip time over PCIe.</li>
+</ul>
+<h2 id="performance-comparison-summary">Performance Comparison
+Summary</h2>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Factor</th>
+<th style="text-align: left;">Integrated GPUs (iGPU)</th>
+<th style="text-align: left;">Discrete GPUs (dGPU)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Physical Location</strong></td>
+<td style="text-align: left;">Same silicon/die as CPU</td>
+<td style="text-align: left;">Separate card across PCIe</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Memory Architecture</strong></td>
+<td style="text-align: left;">Shared System RAM (UMA)</td>
+<td style="text-align: left;">Dedicated VRAM (GDDR/HBM)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Small Payload
+Latency</strong></td>
+<td style="text-align: left;">Low to Moderate</td>
+<td style="text-align: left;">High (dominated by bus overhead)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Large Payload
+Latency</strong></td>
+<td style="text-align: left;">Moderate (limited by RAM bandwidth)</td>
+<td style="text-align: left;">Low-to-Moderate transfer time, high fixed
+start latency</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Pipeline Flush Cost</strong></td>
+<td style="text-align: left;">Lower absolute delay</td>
+<td style="text-align: left;">Higher absolute delay</td>
+</tr>
+</tbody>
+</table>
+<h2 id="mitigating-readback-bottlenecks-in-gpujs">Mitigating Readback
+Bottlenecks in gpu.js</h2>
+<p>Regardless of hardware type, readback is almost always the slowest
+stage of a WebGL-based compute pipeline. To minimize the performance
+impact:</p>
+<ol type="1">
+<li><strong>Keep Output on the GPU:</strong> Use
+<code>{ output: 'texture' }</code> in kernel configurations. Chaining
+kernels together without reading values back into JavaScript avoids the
+synchronization stall entirely until the final step.</li>
+<li><strong>Batch Transfers:</strong> Instead of reading back small
+results frequently, aggregate calculations into a single texture
+readback. This amortizes the fixed PCIe or pipeline flush latency across
+a larger volume of data.</li>
+<li><strong>Select Execution Hardware Appropriately:</strong> For
+lightweight, latency-sensitive compute tasks where frequent reads are
+unavoidable, iGPUs may outperform dGPUs in wall-clock execution time
+simply by avoiding PCIe round-trip penalties. Conversely, for heavy
+compute tasks where execution time dwarfs readback costs, dGPUs remain
+superior.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

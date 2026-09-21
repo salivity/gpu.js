@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evaluating Lennard-Jones Potential with GPU.js - gpu.js</title>
+    <meta name="description" content="Lennard-Jones intermolecular potential calculations between protein atoms can be successfully evaluated using gpu.js. Because molecular mechanics calculations rely on repetitive, pairwise arithmetic operations across thousands of atoms, they map exceptio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/evaluating-lennard-jones-potential-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Evaluating Lennard-Jones Potential with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/evaluating-lennard-jones-potential-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Lennard-Jones intermolecular potential calculations between protein atoms can be successfully evaluated using gpu.js. Because molecular mechanics calculations rely on repetitive, pairwise arithmetic operations across thousands of atoms, they map exceptio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="evaluating-lennard-jones-potential-with-gpujs">Evaluating
+Lennard-Jones Potential with GPU.js</h1>
+<p>Lennard-Jones intermolecular potential calculations between protein
+atoms can be successfully evaluated using gpu.js. Because molecular
+mechanics calculations rely on repetitive, pairwise arithmetic
+operations across thousands of atoms, they map exceptionally well to the
+parallel processing architecture of graphics processing units (GPUs).
+This article examines how gpu.js facilitates these calculations in
+JavaScript, details the structural implementation, and outlines the
+technical constraints and performance trade-offs involved in web-based
+computational biophysics.</p>
+<h3 id="understanding-the-computational-fit">Understanding the
+Computational Fit</h3>
+<p>The 12-6 Lennard-Jones (LJ) potential models the soft repulsion and
+attractive van der Waals interactions between non-bonded pairs of
+atoms:</p>
+<p><span class="math display">\[V_{LJ}(r_{ij}) = 4\varepsilon_{ij}
+\left[ \left(\frac{\sigma_{ij}}{r_{ij}}\right)^{12} -
+\left(\frac{\sigma_{ij}}{r_{ij}}\right)^6 \right]\]</span></p>
+<p>In a system of <span class="math inline">\(N\)</span> protein atoms,
+evaluating the total non-bonded energy naively requires an <span
+class="math inline">\(O(N^2)\)</span> pairwise comparison. On a single
+CPU thread in standard JavaScript, this becomes a major bottleneck for
+proteins containing thousands of atoms.</p>
+<p>gpu.js solves this by compiling an annotated subset of JavaScript
+into WebGL or WebGPU shader code. By dispatching calculations across GPU
+threads, each thread can compute the potential between one atom and all
+other atoms simultaneously, converting a serial loop into massive
+parallel evaluations.</p>
+<h3 id="implementation-architecture">Implementation Architecture</h3>
+<p>To compute the LJ potential with gpu.js, protein data must be
+structured to conform to the GPU's memory model:</p>
+<ol type="1">
+<li><strong>Data Serialization</strong>: Atomic coordinates (<span
+class="math inline">\(x, y, z\)</span>) and force-field parameters
+(well-depth <span class="math inline">\(\varepsilon\)</span> and
+collision diameter <span class="math inline">\(\sigma\)</span>) are
+packed into flat, one-dimensional typed arrays (such as
+<code>Float32Array</code>).</li>
+<li><strong>Combining Rules</strong>: Cross-parameter values for
+heterogeneous atom pairs are either precomputed into lookup textures
+using Lorentz-Berthelot combining rules (<span
+class="math inline">\(\sigma_{ij} = (\sigma_i + \sigma_j)/2\)</span> and
+<span class="math inline">\(\varepsilon_{ij} = \sqrt{\varepsilon_i
+\varepsilon_j}\)</span>) or calculated dynamically inside the
+kernel.</li>
+<li><strong>Kernel Execution</strong>: A 1D or 2D gpu.js kernel is
+dispatched where thread index <code>this.thread.x</code> corresponds to
+atom <span class="math inline">\(i\)</span>, iterating through atom
+<span class="math inline">\(j\)</span> to compute Euclidean distance,
+calculate the <span class="math inline">\(r^{-6}\)</span> and <span
+class="math inline">\(r^{-12}\)</span> terms, and accumulate the atomic
+interaction energy.</li>
+</ol>
+<h3 id="practical-limitations-and-considerations">Practical Limitations
+and Considerations</h3>
+<p>While gpu.js makes GPU computing accessible in JavaScript, several
+constraints must be managed:</p>
+<ul>
+<li><strong>Floating-Point Precision</strong>: Standard WebGL shaders
+generally default to 32-bit single-precision floating-point numbers
+(<code>float</code>). High-precision molecular dynamics trajectories
+often require 64-bit double precision (<code>float64</code>) to prevent
+energy drift over long integration periods. For static scoring, energy
+minimization, or web-based visualizations, 32-bit precision is typically
+adequate.</li>
+<li><strong>Cutoff Radii and Branching</strong>: In production molecular
+mechanics, a cutoff distance (often 10–12 Å) is applied to limit
+calculations to nearby atoms. In gpu.js, heavy conditional branching
+(<code>if</code> statements inside the inner loop) can cause thread
+divergence, reducing GPU efficiency. Structuring data using spatial grid
+cell lists or continuous arithmetic masks mitigates this penalty.</li>
+<li><strong>Memory Transfer Overhead</strong>: Transferring coordinate
+arrays from the CPU to the GPU texture pipeline introduces latency. To
+achieve maximum throughput, coordinates should remain on the GPU across
+calculation steps rather than round-tripping to JavaScript after every
+evaluation.</li>
+</ul>
+<p>gpu.js provides a viable, high-performance platform for evaluating
+Lennard-Jones potentials in browser-based molecular modeling, scoring
+docking poses, or interactive structural biology tools without requiring
+native C++/CUDA dependencies.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

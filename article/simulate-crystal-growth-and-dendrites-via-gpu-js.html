@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulate Crystal Growth and Dendrites via GPU.js - gpu.js</title>
+    <meta name="description" content="This article explores whether crystal growth and dendritic solidification patterns can be simulated using gpu.js, an open-source JavaScript library for GPU-accelerated computing. It details the underlying mathematical frameworks—specifically Phase-Fiel">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulate-crystal-growth-and-dendrites-via-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulate Crystal Growth and Dendrites via GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulate-crystal-growth-and-dendrites-via-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores whether crystal growth and dendritic solidification patterns can be simulated using gpu.js, an open-source JavaScript library for GPU-accelerated computing. It details the underlying mathematical frameworks—specifically Phase-Fiel" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulate-crystal-growth-and-dendrites-via-gpujs">Simulate
+Crystal Growth and Dendrites via GPU.js</h1>
+<p>This article explores whether crystal growth and dendritic
+solidification patterns can be simulated using gpu.js, an open-source
+JavaScript library for GPU-accelerated computing. It details the
+underlying mathematical frameworks—specifically Phase-Field models and
+Cellular Automata—and demonstrates how gpu.js translates these
+stencil-based physical simulations into high-performance WebGL shaders.
+By leveraging hardware acceleration directly in the browser or Node.js
+environment, developers and researchers can achieve real-time,
+interactive visualizations of complex metallurgical and physical
+phenomena.</p>
+<h3 id="feasibility-and-underlying-physics">Feasibility and Underlying
+Physics</h3>
+<p>Simulating dendritic solidification via gpu.js is entirely feasible.
+Dendrite formation in supercooled melts is governed by coupled partial
+differential equations that describe heat diffusion, phase transitions,
+and surface tension anisotropy.</p>
+<p>The two most common approaches to modeling this behavior are:</p>
+<ol type="1">
+<li><strong>Phase-Field Models (e.g., the Kobayashi Model):</strong>
+These models use continuous order parameters to track the boundary
+between liquid and solid phases alongside the local temperature field.
+Calculating the evolution requires solving the Allen-Cahn equation
+coupled with thermal diffusion.</li>
+<li><strong>Cellular Automata (CA):</strong> A discrete model where
+space is partitioned into a uniform lattice. State transitions occur
+based on local neighbor states, temperature, and stochastic rules that
+dictate crystallographic orientation.</li>
+</ol>
+<p>Both methodologies rely on local, spatial neighbor updates (stencil
+operations), making them ideal for the Single Instruction, Multiple Data
+(SIMD) execution model that GPUs provide.</p>
+<h3 id="how-gpujs-executes-solidification-simulations">How GPU.js
+Executes Solidification Simulations</h3>
+<p>GPU.js works by transpiling JavaScript functions into WebGL shaders
+(GLSL). When computing a simulation grid, each pixel or cell is mapped
+to an independent GPU execution thread.</p>
+<p>In a solidification model, every cell must calculate its next state
+based on its current state and the states of its adjacent neighbors
+(Moore or von Neumann neighborhoods):</p>
+<ul>
+<li><strong>Laplacian Computation:</strong> Heat dissipation and
+phase-order diffusion require calculating spatial derivatives using
+finite difference approximations (e.g., a 5-point or 9-point Laplacian
+stencil). In gpu.js, this is achieved by sampling adjacent coordinates
+(<code>this.thread.x ± 1</code>, <code>this.thread.y ± 1</code>) within
+the kernel.</li>
+<li><strong>Anisotropy Functions:</strong> Dendritic branching requires
+preferential growth along specific crystallographic axes (such as
+four-fold or six-fold symmetry). GPU.js evaluates trigonometric
+formulations of gradient angles inside the kernel per thread at full
+hardware speed.</li>
+<li><strong>Ping-Pong Texturing:</strong> Time-stepping requires reading
+from an input state at time <span class="math inline">\(t\)</span> and
+writing to an output buffer at time <span class="math inline">\(t +
+\Delta t\)</span>. GPU.js handles this by rendering directly to textures
+and cycling the inputs and outputs across successive animation
+frames.</li>
+</ul>
+<h3 id="practical-considerations-and-performance">Practical
+Considerations and Performance</h3>
+<p>Simulating these dynamics via gpu.js offers distinct advantages
+alongside certain technical constraints:</p>
+<ul>
+<li><strong>Real-Time Visual Feedback:</strong> By compiling to WebGL,
+gpu.js avoids the overhead of passing large matrix arrays from CPU
+memory to the graphics card on every step. The simulation data remains
+in GPU memory and can be rendered directly to a canvas in real
+time.</li>
+<li><strong>Precision Constraints:</strong> Phase-field models can
+suffer from numerical instability if gradient steps are too large or
+floating-point precision is insufficient. WebGL 1.0 environments
+sometimes struggle with 32-bit floating-point precision textures;
+ensuring WebGL 2.0 support is essential for stable numerical
+integration.</li>
+<li><strong>Dimensionality:</strong> 2D simulations run seamlessly at
+high frame rates on standard consumer-grade hardware. While 3D
+simulations are possible in gpu.js by mapping volumetric coordinates to
+2D texture atlases, memory bandwidth and WebGL texture size limits will
+constrain the resolution of large 3D domains.</li>
+</ul>
+<p>GPU.js is a capable and accessible tool for simulating crystal
+growth. It provides researchers and developers with a simple JavaScript
+API that harnesses raw graphics hardware to model complex,
+computationally intensive dendritic patterns without needing native C++
+or CUDA implementations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

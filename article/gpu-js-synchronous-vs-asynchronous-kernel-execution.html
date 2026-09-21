@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Synchronous vs Asynchronous Kernel Execution - gpu.js</title>
+    <meta name="description" content="GPU.js enables developers to accelerate complex computations by compiling JavaScript functions into WebGL shaders that run on the graphics processing unit. When running these functions—known as kernels—developers must choose between synchronous and a">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-synchronous-vs-asynchronous-kernel-execution">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Synchronous vs Asynchronous Kernel Execution - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-synchronous-vs-asynchronous-kernel-execution" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js enables developers to accelerate complex computations by compiling JavaScript functions into WebGL shaders that run on the graphics processing unit. When running these functions—known as kernels—developers must choose between synchronous and a" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-synchronous-vs-asynchronous-kernel-execution">GPU.js
+Synchronous vs Asynchronous Kernel Execution</h1>
+<p>GPU.js enables developers to accelerate complex computations by
+compiling JavaScript functions into WebGL shaders that run on the
+graphics processing unit. When running these functions—known as
+kernels—developers must choose between synchronous and asynchronous
+execution modes. This article examines the architectural and practical
+differences between synchronous and asynchronous kernel execution in
+GPU.js, detailing how each affects thread blocking, data transfer
+latency, and overall application performance.</p>
+<h3 id="synchronous-kernel-execution">Synchronous Kernel Execution</h3>
+<p>By default, GPU.js executes kernels synchronously. In this mode, the
+JavaScript runtime calls the compiled WebGL shader, triggers the GPU
+computation, and immediately blocks the main thread until the
+computation finishes and the data is read back from the GPU memory into
+standard JavaScript arrays.</p>
+<ul>
+<li><strong>Blocking Nature:</strong> The JavaScript execution thread
+pauses completely while waiting for the GPU to finish rendering the
+output and downloading the pixel buffer data.</li>
+<li><strong>Return Value:</strong> Synchronous kernels immediately
+return the final computed value (an array, nested array, or flattened
+typed array).</li>
+<li><strong>Syntax:</strong>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> myKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000</span>])<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">myKernel</span>()<span class="op">;</span> <span class="co">// Blocks until complete</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(result)<span class="op">;</span></span></code></pre></div></li>
+</ul>
+<h3 id="asynchronous-kernel-execution">Asynchronous Kernel
+Execution</h3>
+<p>Asynchronous kernel execution allows the GPU operation to run without
+halting the JavaScript main thread. Instead of holding execution until
+the GPU transfers the results back via synchronous read operations, an
+asynchronous kernel dispatches the work and returns a JavaScript
+<code>Promise</code>.</p>
+<ul>
+<li><strong>Non-Blocking Nature:</strong> The event loop remains active
+during computation, enabling the browser to handle user input, render
+animations, and manage other asynchronous tasks without interface
+stutter.</li>
+<li><strong>Return Value:</strong> An asynchronous kernel returns a
+<code>Promise</code> that resolves with the computed data once the GPU
+finishes processing and the result is transferred back to CPU
+memory.</li>
+<li><strong>Syntax:</strong>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> myKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000</span>])</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setPromise</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Or configured for async resolution</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="fu">myKernel</span>()<span class="op">.</span><span class="fu">then</span>(result <span class="kw">=&gt;</span> {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(result)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div></li>
+</ul>
+<h3 id="key-differences">Key Differences</h3>
+<h4 id="1-main-thread-responsiveness">1. Main Thread Responsiveness</h4>
+<ul>
+<li><strong>Synchronous:</strong> Heavy workloads monopolize the main
+thread. In browser environments, this leads to dropped frames, frozen UI
+elements, and potential "Page Unresponsive" warnings.</li>
+<li><strong>Asynchronous:</strong> Frees the main thread to handle user
+interaction and rendering tasks while the GPU performs heavy
+number-crunching in the background.</li>
+</ul>
+<h4 id="2-gpu-to-cpu-data-transfer-stalls">2. GPU-to-CPU Data Transfer
+Stalls</h4>
+<ul>
+<li><strong>Synchronous:</strong> Reading pixels from the WebGL context
+synchronously forces the graphics pipeline to flush and synchronize
+immediately. This creates a pipeline stall, preventing the GPU from
+overlapping processing tasks.</li>
+<li><strong>Asynchronous:</strong> Allows the GPU pipeline to queue draw
+calls and read back buffers more efficiently, avoiding immediate forced
+synchronization between CPU and GPU clocks.</li>
+</ul>
+<h4 id="3-integration-with-modern-javascript">3. Integration with Modern
+JavaScript</h4>
+<ul>
+<li><strong>Synchronous:</strong> Fits naturally into procedural,
+sequential code, but complicates integration into asynchronous workflows
+such as web workers or asynchronous event pipelines.</li>
+<li><strong>Asynchronous:</strong> Naturally integrates with modern
+<code>async/await</code> syntax, allowing developers to manage
+dependencies cleanly across multiple chained computations without
+blocking.</li>
+</ul>
+<h3 id="when-to-use-each-mode">When to Use Each Mode</h3>
+<ul>
+<li><strong>Use Synchronous Execution</strong> when running rapid,
+lightweight calculations where the overhead of resolving a Promise
+exceeds the computation time, or in simple Node.js CLI scripts where UI
+responsiveness is not a factor.</li>
+<li><strong>Use Asynchronous Execution</strong> when running complex
+computations with large outputs, real-time simulations, interactive web
+applications, or scenarios where maintaining a consistent 60 FPS frame
+rate is required.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

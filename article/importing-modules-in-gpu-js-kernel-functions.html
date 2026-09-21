@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Importing Modules in GPU.js Kernel Functions - gpu.js</title>
+    <meta name="description" content="You cannot directly import ES modules or CommonJS packages inside a GPU.js kernel function. This article explains why the GPU.js architecture prevents direct module imports within kernels and outlines the standard alternatives, such as CPU-side pre-proce">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/importing-modules-in-gpu-js-kernel-functions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Importing Modules in GPU.js Kernel Functions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/importing-modules-in-gpu-js-kernel-functions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="You cannot directly import ES modules or CommonJS packages inside a GPU.js kernel function. This article explains why the GPU.js architecture prevents direct module imports within kernels and outlines the standard alternatives, such as CPU-side pre-proce" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="importing-modules-in-gpujs-kernel-functions">Importing Modules
+in GPU.js Kernel Functions</h1>
+<p>You cannot directly import ES modules or CommonJS packages inside a
+GPU.js kernel function. This article explains why the GPU.js
+architecture prevents direct module imports within kernels and outlines
+the standard alternatives, such as CPU-side pre-processing and using the
+native <code>addFunction</code> feature to run custom logic on the
+GPU.</p>
+<h3 id="why-module-imports-do-not-work-in-gpujs-kernels">Why Module
+Imports Do Not Work in GPU.js Kernels</h3>
+<p>GPU.js works by parsing standard JavaScript functions, analyzing
+their Abstract Syntax Tree (AST), and transpiling the operations into
+WebGL shader code (GLSL). Because the compiled code runs directly on the
+graphics card rather than within a standard JavaScript runtime like
+Node.js or the browser's V8 engine, the kernel does not have access to
+typical JavaScript runtime features.</p>
+<p>Statements such as <code>import</code>, <code>export</code>, or
+<code>require()</code> cannot be transpiled into GLSL. Attempting to use
+them inside a kernel function will result in compilation errors.
+Furthermore, any external library code that relies on standard
+JavaScript objects, DOM APIs, heap allocations, or dynamic memory
+management is incompatible with the GPU execution model.</p>
+<h3 id="workarounds-and-alternatives">Workarounds and Alternatives</h3>
+<p>To integrate external package logic with GPU.js, you must separate
+CPU-bound logic from GPU-accelerated numeric operations.</p>
+<h4 id="1-pre-process-data-on-the-cpu">1. Pre-process Data on the
+CPU</h4>
+<p>The most common solution is to run the module's logic on the CPU
+prior to kernel execution. Once the data is transformed into simple flat
+arrays or matrices, pass the resulting numeric values directly into the
+GPU.js kernel as arguments:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Step 1: Use CommonJS or ES modules on the CPU</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> externalPackage <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;external-package&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> processedInput <span class="op">=</span> externalPackage<span class="op">.</span><span class="fu">compute</span>(rawData)<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Step 2: Pass the processed arrays into the kernel</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([processedInput<span class="op">.</span><span class="at">length</span>])<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>(processedInput)<span class="op">;</span></span></code></pre></div>
+<h4 id="2-use-gpuaddfunction-for-modular-code">2. Use
+<code>gpu.addFunction()</code> for Modular Code</h4>
+<p>If you need reusable helper functions inside your kernel, you cannot
+import them from standard external packages, but you can define custom
+functions using <code>gpu.addFunction()</code>. Any function added this
+way must contain purely mathematical, GLSL-transpilable JavaScript:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">customFormula</span>(a<span class="op">,</span> b) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a <span class="op">*</span> b <span class="op">+</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(customFormula)<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(values) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="fu">customFormula</span>(values[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">,</span> <span class="fl">2.0</span>)<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span></code></pre></div>
+<h4 id="3-re-implement-algorithms-in-pure-glsl-compatible-javascript">3.
+Re-implement Algorithms in Pure GLSL-Compatible JavaScript</h4>
+<p>If an external package contains a mathematical algorithm you must run
+on the GPU, you must extract and rewrite the core algorithm to avoid
+dynamic objects, closures, strings, or native JS array methods like
+<code>.map()</code> or <code>.reduce()</code>. Once reduced to basic
+arithmetic and typed array indexing, the logic can be included directly
+inside the kernel body or registered as a helper function.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

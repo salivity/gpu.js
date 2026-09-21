@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handling Constant Matrices and LUTs in GPU.js - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates JavaScript calculations by transpiling code into WebGL shaders, utilizing GPU memory to store and sample static data structures such as constant matrices and lookup tables (LUTs). Because WebGL shaders lack the native unified constant">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/handling-constant-matrices-and-lu-ts-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Handling Constant Matrices and LUTs in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/handling-constant-matrices-and-lu-ts-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates JavaScript calculations by transpiling code into WebGL shaders, utilizing GPU memory to store and sample static data structures such as constant matrices and lookup tables (LUTs). Because WebGL shaders lack the native unified constant" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="handling-constant-matrices-and-luts-in-gpujs">Handling Constant
+Matrices and LUTs in GPU.js</h1>
+<p>GPU.js accelerates JavaScript calculations by transpiling code into
+WebGL shaders, utilizing GPU memory to store and sample static data
+structures such as constant matrices and lookup tables (LUTs). Because
+WebGL shaders lack the native unified constant memory found in dedicated
+compute frameworks like CUDA, GPU.js primarily abstracts constant
+matrices and LUTs by converting them into immutable WebGL textures or
+GLSL uniform declarations. This architecture ensures high-throughput,
+low-latency parallel access while respecting the memory limitations of
+browser-based graphic pipelines.</p>
+<h3 id="the-constants-configuration">The <code>constants</code>
+Configuration</h3>
+<p>GPU.js allows developers to supply fixed data using the
+<code>constants</code> property when creating a kernel via
+<code>gpu.createKernel()</code>. When a matrix or lookup table is
+defined in the <code>constants</code> object, GPU.js evaluates its
+dimensionality, data type, and size to determine the most efficient
+method for binding that data into the kernel’s execution context.</p>
+<p>Once bound, these constants remain read-only throughout the kernel's
+execution, allowing thousands of concurrent GPU threads to read from
+identical offsets without race conditions or memory locking
+overhead.</p>
+<h3 id="webgl-texture-based-storage">WebGL Texture-Based Storage</h3>
+<p>For large constant matrices or lookup tables, GPU.js avoids native
+shader array limits by encoding the data into 2D floating-point WebGL
+textures:</p>
+<ol type="1">
+<li><strong>Texture Packing:</strong> The multi-dimensional array or
+lookup table is flattened and written to an internal WebGL texture
+buffer on the GPU.</li>
+<li><strong>Sampler Binding:</strong> The generated GLSL shader binds
+the texture to a 2D sampler uniform (<code>sampler2D</code>).</li>
+<li><strong>Sampling Logic:</strong> Whenever your kernel code accesses
+<code>this.constants.myLUT[y][x]</code>, the GPU.js compiler replaces
+the array subscript syntax with an internal texture lookup function
+(such as <code>texture2D</code> in WebGL 1 or <code>texelFetch</code> in
+WebGL 2).</li>
+</ol>
+<p>This approach delegates memory caching to the GPU's hardware texture
+cache. Because texture caches are heavily optimized for spatial
+locality, kernels performing nearby lookups benefit from fast cache hits
+and high memory bandwidth.</p>
+<h3 id="inline-glsl-constant-arrays">Inline GLSL Constant Arrays</h3>
+<p>When a lookup table or matrix is very small and statically declared
+directly inside the kernel function body, GPU.js transpiles the array
+into a native GLSL constant array (e.g.,
+<code>const float lut[4] = float[4](...);</code>).</p>
+<p>In WebGL 2 contexts, these arrays reside directly in the shader’s
+register or uniform memory space, providing direct indexing with minimal
+overhead. However, WebGL 1 imposes strict limitations on dynamic
+indexing into native GLSL arrays; if dynamic index access is required
+under WebGL 1, GPU.js defaults back to texture emulation to preserve
+cross-platform compatibility.</p>
+<h3 id="performance-and-memory-optimization">Performance and Memory
+Optimization</h3>
+<p>To maximize throughput when using constant matrices and LUTs in
+GPU.js, consider the following behaviors:</p>
+<ul>
+<li><strong>Zero Per-Run Overhead:</strong> Defining lookup tables
+within the <code>constants</code> mapping uploads the data to GPU memory
+during kernel compilation. Subsequent calls to the kernel execute
+without re-uploading the table, eliminating CPU-to-GPU data transfer
+bottlenecks during repeated computations.</li>
+<li><strong>Dimension Alignment:</strong> Textures perform best when
+dimensions match hardware texture size limits (often 2048x2048,
+4096x4096, or higher depending on the hardware). GPU.js automatically
+maps 1D LUTs into 2D texture dimensions if the 1D length exceeds the
+maximum allowed 1D texture width.</li>
+<li><strong>Precision Modes:</strong> Setting the kernel mode to
+<code>precision: 'single'</code> ensures that constant floating-point
+matrices retain high precision without unexpected rounding issues during
+texture sampling.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

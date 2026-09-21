@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Can Additive Synthesizers Run in GPU.js? - gpu.js</title>
+    <meta name="description" content="Additive synthesis with thousands of dynamic partials requires massive parallel floating-point computation, making GPU acceleration an appealing solution. While the library gpu.js allows developers to execute parallel calculations in the browser through">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/can-additive-synthesizers-run-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Can Additive Synthesizers Run in GPU.js? - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/can-additive-synthesizers-run-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Additive synthesis with thousands of dynamic partials requires massive parallel floating-point computation, making GPU acceleration an appealing solution. While the library gpu.js allows developers to execute parallel calculations in the browser through" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="can-additive-synthesizers-run-in-gpujs">Can Additive
+Synthesizers Run in GPU.js?</h1>
+<p>Additive synthesis with thousands of dynamic partials requires
+massive parallel floating-point computation, making GPU acceleration an
+appealing solution. While the library gpu.js allows developers to
+execute parallel calculations in the browser through WebGL shaders,
+implementing a real-time sound engine this way faces severe
+architectural challenges. This article examines the computational
+feasibility, structural bottlenecks, and practical limitations of
+running dense additive synthesis in gpu.js.</p>
+<h3 id="the-computational-alignment">The Computational Alignment</h3>
+<p>Additive synthesis generates complex timbres by summing hundreds or
+thousands of individual sine waves, each with independent frequency,
+amplitude, and phase trajectories. Calculating millions of sample points
+per second creates heavy CPU load on traditional architectures.</p>
+<p>Because each partial operates largely independently of the others
+during a single audio frame, the workload is embarrassingly parallel. In
+terms of raw processing power, gpu.js excels at this model. By compiling
+JavaScript into GLSL shaders, gpu.js can evaluate trigonometric
+functions and sum partial amplitudes across massive matrices
+significantly faster than pure JavaScript running on a single CPU
+thread.</p>
+<h3 id="the-real-time-audio-bottleneck">The Real-Time Audio
+Bottleneck</h3>
+<p>Despite superior calculation throughput, running a real-time audio
+engine via gpu.js encounters severe data-transfer bottlenecks. Real-time
+digital audio operates under strict latency constraints, typically
+requiring buffers of 128 to 512 samples delivered every 2.9 to 11.6
+milliseconds at standard sample rates (44.1 kHz or 48 kHz).</p>
+<ol type="1">
+<li><strong>Memory Transfer Overhead:</strong> Dynamic additive
+synthesis requires sending updated parameters—such as pitch envelopes
+and amplitude changes—from the CPU to the GPU every frame. The overhead
+of packing and uploading dynamic partial data to WebGL textures
+diminishes the computational gains.</li>
+<li><strong>Buffer Readback Latency:</strong> To output sound, the
+computed audio samples must travel back from the GPU to the CPU audio
+stack. WebGL traditionally relies on methods like
+<code>readPixels</code> to retrieve data, which either stalls the main
+JavaScript thread synchronously or incurs multi-frame latency
+asynchronously. This delay inevitably causes audio dropouts, clicks, or
+noticeable input lag.</li>
+</ol>
+<h3 id="audioworklet-and-threading-isolation">AudioWorklet and Threading
+Isolation</h3>
+<p>Modern Web Audio architectures rely on the
+<code>AudioWorkletNode</code>, which runs inside a dedicated,
+high-priority audio rendering thread to prevent interface lag from
+interrupting sound processing.</p>
+<p>gpu.js runs on WebGL, which is tied to the main thread or requires an
+<code>OffscreenCanvas</code> inside a dedicated Web Worker. Because
+WebGL contexts cannot run natively inside an AudioWorklet thread, audio
+data generated by gpu.js must be passed across thread boundaries using
+messaging channels. The serialization, deserialization, and thread
+synchronization steps introduce variable jitter that breaks real-time
+guarantees.</p>
+<h3 id="practical-verdict">Practical Verdict</h3>
+<p>An additive synthesizer sound engine with thousands of dynamic
+partials can mathematically run in gpu.js, but it cannot reliably
+function as a low-latency, real-time instrument.</p>
+<p>gpu.js is well-suited for non-real-time audio tasks, such as offline
+rendering, pre-baking complex wavetables, or scientific audio analysis.
+For interactive, real-time performance with thousands of dynamic
+partials, developers must bypass WebGL-based wrappers like gpu.js in
+favor of native AudioWorklets optimized with WebAssembly (Wasm) and
+SIMD, or explore modern WebGPU compute pipelines that support shared
+memory and asynchronous buffer mapping.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js ECMAScript Support in Kernel Functions - gpu.js</title>
+    <meta name="description" content="GPU.js enables developers to run accelerated JavaScript directly on the GPU by transpiling kernel functions into WebGL shader language (GLSL). While GPU.js uses an Abstract Syntax Tree (AST) parser capable of reading standard ECMAScript 6 (ES6 / ES2015)">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-ecma-script-support-in-kernel-functions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js ECMAScript Support in Kernel Functions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-ecma-script-support-in-kernel-functions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js enables developers to run accelerated JavaScript directly on the GPU by transpiling kernel functions into WebGL shader language (GLSL). While GPU.js uses an Abstract Syntax Tree (AST) parser capable of reading standard ECMAScript 6 (ES6 / ES2015)" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-ecmascript-support-in-kernel-functions">GPU.js ECMAScript
+Support in Kernel Functions</h1>
+<p>GPU.js enables developers to run accelerated JavaScript directly on
+the GPU by transpiling kernel functions into WebGL shader language
+(GLSL). While GPU.js uses an Abstract Syntax Tree (AST) parser capable
+of reading standard ECMAScript 6 (ES6 / ES2015) syntax, the execution
+environment inside a kernel does not support the full ECMAScript
+specification. Instead, GPU.js only supports a strict, mathematically
+focused subset of ES5 and ES6 features that can be directly converted
+into static shader instructions.</p>
+<h3 id="the-parsing-vs-compilation-boundary">The Parsing vs. Compilation
+Boundary</h3>
+<p>When writing a GPU.js kernel, the library parses the JavaScript
+function using modern ECMAScript standards, allowing developers to write
+syntax introduced in ES6, such as <code>let</code>, <code>const</code>,
+and basic arrow functions. However, during the compilation step to
+WebGL/GLSL, only primitive operations can be translated. Consequently,
+while the code <em>looks</em> like standard modern JavaScript, the
+runtime behavior inside the kernel function is constrained by the strict
+limitations of shader architectures.</p>
+<h3 id="supported-ecmascript-features-inside-kernels">Supported
+ECMAScript Features Inside Kernels</h3>
+<p>Within the kernel body, you can safely use:</p>
+<ul>
+<li><strong>Variable Declarations:</strong> Standard ES5
+<code>var</code> and ES6 <code>let</code> and <code>const</code>.</li>
+<li><strong>Basic Control Flow:</strong> Standard ES5 loops (primarily
+fixed-range <code>for</code> loops) and conditional statements
+(<code>if</code>, <code>else if</code>, <code>else</code>).</li>
+<li><strong>Arithmetic and Logical Operators:</strong> Standard
+operators including <code>+</code>, <code>-</code>, <code>*</code>,
+<code>/</code>, <code>%</code>, <code>++</code>, <code>--</code>,
+<code>&amp;&amp;</code>, <code>||</code>, and <code>!</code>.</li>
+<li><strong>Built-in Math Methods:</strong> Select static methods from
+the JavaScript <code>Math</code> object, such as
+<code>Math.sin()</code>, <code>Math.cos()</code>,
+<code>Math.floor()</code>, <code>Math.sqrt()</code>, and
+<code>Math.pow()</code>.</li>
+<li><strong>Basic Functions:</strong> ES5 named functions or ES6 arrow
+functions, provided they are declared cleanly without closures or
+external references.</li>
+</ul>
+<h3 id="unsupported-ecmascript-features">Unsupported ECMAScript
+Features</h3>
+<p>Because GPU shaders require predictable memory layouts and parallel
+execution, the majority of the ECMAScript standard library cannot be
+executed inside a kernel:</p>
+<ul>
+<li><strong>Complex Data Types:</strong> JavaScript Objects
+(<code>{}</code>), dynamic Arrays, Strings, Sets, and Maps cannot be
+instantiated or manipulated inside kernels.</li>
+<li><strong>Modern ES6+ Syntax:</strong> Features like template
+literals, destructuring, the spread operator (<code>...</code>), rest
+parameters, and default parameters are either unsupported or can cause
+transpile failures.</li>
+<li><strong>Asynchronous Features:</strong> Promises,
+<code>async</code>/<code>await</code>, and generators (ES2017+) are
+strictly prohibited.</li>
+<li><strong>Higher-Order Functions:</strong> Array prototype methods
+such as <code>.map()</code>, <code>.filter()</code>,
+<code>.reduce()</code>, or <code>.forEach()</code> do not translate to
+GLSL and will fail.</li>
+<li><strong>Dynamic Memory &amp; Recursion:</strong> Functions cannot be
+recursive, dynamically allocate memory, or use closures to capture
+dynamic outside variables.</li>
+</ul>
+<p>To achieve maximum compatibility, GPU.js kernels should be treated as
+C-like computational loops rather than standard ECMAScript environments,
+limiting code to primitive numeric values and flat computational
+operations.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

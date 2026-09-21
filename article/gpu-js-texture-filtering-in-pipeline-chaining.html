@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Texture Filtering in Pipeline Chaining - gpu.js</title>
+    <meta name="description" content="This article provides an overview of how gpu.js handles texture minification and magnification filters when executing chained kernel pipelines. In pipeline mode, intermediate calculation results are retained on the graphics hardware as WebGL textures rat">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-texture-filtering-in-pipeline-chaining">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Texture Filtering in Pipeline Chaining - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-texture-filtering-in-pipeline-chaining" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides an overview of how gpu.js handles texture minification and magnification filters when executing chained kernel pipelines. In pipeline mode, intermediate calculation results are retained on the graphics hardware as WebGL textures rat" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-texture-filtering-in-pipeline-chaining">GPU.js Texture
+Filtering in Pipeline Chaining</h1>
+<p>This article provides an overview of how gpu.js handles texture
+minification and magnification filters when executing chained kernel
+pipelines. In pipeline mode, intermediate calculation results are
+retained on the graphics hardware as WebGL textures rather than being
+read back to CPU memory. To preserve numerical precision and prevent
+interpolation artifacts across successive computations, gpu.js strictly
+configures both minification and magnification filters to
+nearest-neighbor sampling, ensuring exact discrete data transfer between
+chained kernels.</p>
+<h3 id="the-role-of-textures-in-pipeline-chaining">The Role of Textures
+in Pipeline Chaining</h3>
+<p>When running kernels in gpu.js with the
+<code>{ pipeline: true }</code> option enabled, the output of a kernel
+is not serialized back into a standard JavaScript array via
+<code>gl.readPixels</code>. Instead, the output remains inside a WebGL
+framebuffer object bound to an off-screen 2D texture. When a subsequent
+kernel accepts this output as an argument, it binds that intermediate
+texture as a sampler input for its fragment shader.</p>
+<h3 id="texture-filter-configuration">Texture Filter Configuration</h3>
+<p>WebGL requires explicit filtering behavior for cases where a texture
+is rendered at dimensions smaller (minification) or larger
+(magnification) than its native resolution. In compute workflows, any
+mathematical interpolation between texels alters the underlying numeric
+values.</p>
+<p>To prevent data corruption, gpu.js configures the WebGL texture
+parameters using nearest-neighbor filtering:</p>
+<ul>
+<li><strong>Magnification (<code>gl.TEXTURE_MAG_FILTER</code>):</strong>
+Set to <code>gl.NEAREST</code>.</li>
+<li><strong>Minification (<code>gl.TEXTURE_MIN_FILTER</code>):</strong>
+Set to <code>gl.NEAREST</code>.</li>
+</ul>
+<p>By binding <code>gl.NEAREST</code> to both parameters via
+<code>gl.texParameteri()</code>, gpu.js instructs the GPU to return the
+color or float value of the single nearest texel coordinate rather than
+calculating a weighted average of surrounding texels. This guarantees
+that matrix values, floating-point vectors, or packed integer data
+passed from one kernel to the next remain identical to their output
+state.</p>
+<h3 id="mipmapping-and-texture-dimensions">Mipmapping and Texture
+Dimensions</h3>
+<p>gpu.js explicitly avoids generating or using mipmaps for intermediate
+pipeline textures. Typical WebGL texture minification options such as
+<code>gl.NEAREST_MIPMAP_NEAREST</code> or
+<code>gl.LINEAR_MIPMAP_LINEAR</code> require downsampled levels of
+detail, which are unnecessary and counterproductive for general-purpose
+computing on GPUs (GPGPU).</p>
+<p>Because mipmaps are disabled and the minification filter is strictly
+<code>gl.NEAREST</code>, gpu.js also satisfies WebGL specifications for
+handling Non-Power-of-Two (NPOT) texture dimensions. Coupled with
+texture wrapping set to <code>gl.CLAMP_TO_EDGE</code>, this filtering
+configuration allows chained pipelines to process arbitrarily sized
+arrays and matrices without requiring dimensions to be padded to powers
+of two.</p>
+<h3 id="internal-abstraction">Internal Abstraction</h3>
+<p>These filtering properties are managed automatically within the
+underlying WebGL kernel classes (such as <code>WebGLKernel</code> or
+<code>WebGL2Kernel</code>). Developers do not need to configure sampler
+states or texture parameters manually. When a kernel returns a
+<code>Texture</code> object, gpu.js ensures the internal metadata and
+WebGL handles retain their discrete filtering rules, preserving data
+integrity until the pipeline ends with an explicit
+<code>.toArray()</code> call.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

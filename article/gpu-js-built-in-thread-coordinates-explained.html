@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Built-In Thread Coordinates Explained - gpu.js</title>
+    <meta name="description" content="GPU.js abstracts WebGL and compute shaders into JavaScript, providing built-in context variables that serve the same purpose as GLSL identifiers like glFragCoord and glGlobalInvocationID. This article details how GPU.js exposes thread coordinates via the">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-built-in-thread-coordinates-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Built-In Thread Coordinates Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-built-in-thread-coordinates-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js abstracts WebGL and compute shaders into JavaScript, providing built-in context variables that serve the same purpose as GLSL identifiers like glFragCoord and glGlobalInvocationID. This article details how GPU.js exposes thread coordinates via the" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-built-in-thread-coordinates-explained">GPU.js Built-In
+Thread Coordinates Explained</h1>
+<p>GPU.js abstracts WebGL and compute shaders into JavaScript, providing
+built-in context variables that serve the same purpose as GLSL
+identifiers like <code>gl_FragCoord</code> and
+<code>gl_GlobalInvocationID</code>. This article details how GPU.js
+exposes thread coordinates via the <code>this.thread</code> object, how
+these variables map to native shader execution indices, and how to
+utilize them within kernel functions.</p>
+<h3 id="the-equivalent-thisthread">The Equivalent:
+<code>this.thread</code></h3>
+<p>In GPU.js, the execution index is accessed through the execution
+context using <code>this.thread</code>. Depending on whether your kernel
+output is 1D, 2D, or 3D, GPU.js populates the following integer
+properties:</p>
+<ul>
+<li><code>this.thread.x</code>: The index along the horizontal
+dimension.</li>
+<li><code>this.thread.y</code>: The index along the vertical dimension
+(for 2D and 3D outputs).</li>
+<li><code>this.thread.z</code>: The index along the depth dimension (for
+3D outputs).</li>
+</ul>
+<p>These properties serve as the functional equivalent to
+<code>gl_GlobalInvocationID</code> in compute shaders and
+<code>gl_FragCoord</code> in fragment-shader-based GPGPU
+implementations.</p>
+<h3 id="comparison-to-gl_globalinvocationid">Comparison to
+<code>gl_GlobalInvocationID</code></h3>
+<p>In WebGPU or OpenGL compute shaders,
+<code>gl_GlobalInvocationID</code> represents the unique global
+work-item ID within the dispatch grid (<code>uvec3</code>). GPU.js was
+designed with this model in mind:</p>
+<ul>
+<li><code>gl_GlobalInvocationID.x</code> directly corresponds to
+<code>this.thread.x</code>.</li>
+<li><code>gl_GlobalInvocationID.y</code> directly corresponds to
+<code>this.thread.y</code>.</li>
+<li><code>gl_GlobalInvocationID.z</code> directly corresponds to
+<code>this.thread.z</code>.</li>
+</ul>
+<p>Like <code>gl_GlobalInvocationID</code>, <code>this.thread</code>
+values are 0-indexed integers representing the discrete work item
+currently being processed.</p>
+<h3 id="comparison-to-gl_fragcoord">Comparison to
+<code>gl_FragCoord</code></h3>
+<p>When using WebGL 1 or 2 fragment shaders for compute, developers
+traditionally use <code>gl_FragCoord.xy</code> to locate the current
+pixel. However, <code>gl_FragCoord</code> introduces minor
+differences:</p>
+<ol type="1">
+<li><strong>Floating-point offsets</strong>: <code>gl_FragCoord</code>
+provides window-relative coordinates centered at pixel halves (e.g.,
+<code>0.5</code>, <code>1.5</code>, <code>2.5</code>), requiring
+explicit <code>floor()</code> operations to convert to integer
+indices.</li>
+<li><strong>Y-axis orientation</strong>: In raw WebGL,
+<code>gl_FragCoord</code> starts at the bottom-left corner.</li>
+</ol>
+<p>GPU.js handles this mapping automatically. Under the hood, when
+GPU.js compiles a kernel to a WebGL fragment shader, it calculates
+discrete zero-based indices from internal texture coordinates, exposing
+clean integers via <code>this.thread</code> rather than raw fragment
+floats.</p>
+<h3 id="companion-variable-thisoutput">Companion Variable:
+<code>this.output</code></h3>
+<p>In addition to the thread coordinate, GPU.js provides the grid
+dimensions via <code>this.output</code>:</p>
+<ul>
+<li><code>this.output.x</code>: Total width of the output array.</li>
+<li><code>this.output.y</code>: Total height of the output array.</li>
+<li><code>this.output.z</code>: Total depth of the output array.</li>
+</ul>
+<p>This is analogous to obtaining texture dimensions via
+<code>textureSize()</code> or calculating the total invocation bounds
+(<code>gl_NumWorkGroups * gl_WorkGroupSize</code>) in GLSL.</p>
+<h3 id="example-usage">Example Usage</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// this.thread.x and this.thread.y identify the invocation</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// this.output.x provides the maximum width</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span>)<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>()<span class="op">;</span></span></code></pre></div>
+<p>Through <code>this.thread</code> and <code>this.output</code>, GPU.js
+provides a clean, native JavaScript interface for spatial thread mapping
+without requiring manual GLSL built-in parsing.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

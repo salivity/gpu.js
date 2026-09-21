@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mock WebGL Contexts to Test gpu.js in CI - gpu.js</title>
+    <meta name="description" content="Testing gpu.js kernels in Continuous Integration (CI) environments is a common hurdle due to the lack of native hardware acceleration and physical displays on remote build servers. While lightweight custom mocks or libraries like gl-matrix cannot be used">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/mock-web-gl-contexts-to-test-gpu-js-in-ci">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Mock WebGL Contexts to Test gpu.js in CI - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/mock-web-gl-contexts-to-test-gpu-js-in-ci" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Testing gpu.js kernels in Continuous Integration (CI) environments is a common hurdle due to the lack of native hardware acceleration and physical displays on remote build servers. While lightweight custom mocks or libraries like gl-matrix cannot be used" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="mock-webgl-contexts-to-test-gpujs-in-ci">Mock WebGL Contexts to
+Test gpu.js in CI</h1>
+<p>Testing gpu.js kernels in Continuous Integration (CI) environments is
+a common hurdle due to the lack of native hardware acceleration and
+physical displays on remote build servers. While lightweight custom
+mocks or libraries like <code>gl-matrix</code> cannot be used as
+substitute WebGL rendering contexts, you can achieve reliable automated
+testing using the official <code>headless-gl</code> package or by
+utilizing gpu.js’s built-in CPU fallback mode. This guide breaks down
+why standard JavaScript mocks fail for WebGL kernels and details the
+working methods for running your test suites in CI pipelines.</p>
+<h3 id="why-custom-mocks-and-gl-matrix-cannot-mock-webgl">Why Custom
+Mocks and gl-matrix Cannot Mock WebGL</h3>
+<p>A custom mock object or a library like <code>gl-matrix</code> is
+insufficient for running gpu.js WebGL kernels:</p>
+<ul>
+<li><strong>gl-matrix is a Math Library:</strong> <code>gl-matrix</code>
+provides high-performance matrix and vector operations. It does not
+provide or simulate a <code>WebGLRenderingContext</code>.</li>
+<li><strong>Shader Compilation Requirement:</strong> gpu.js does not
+merely call context methods like a standard 2D canvas; it transpiles
+your JavaScript functions into GLSL (OpenGL Shading Language), compiles
+shaders, links programs, and binds framebuffers to extract calculations
+via texture data. A JavaScript mock would need to re-implement an entire
+OpenGL pipeline and GLSL compiler to evaluate the kernel, which is
+impractically complex.</li>
+</ul>
+<p>Supplying a custom, shallow JavaScript object mimicking
+<code>WebGLRenderingContext</code> will cause gpu.js to fail during the
+shader initialization and verification stages.</p>
+<h3 id="solution-1-use-the-cpu-fallback-mode-for-logic-testing">Solution
+1: Use the CPU Fallback Mode for Logic Testing</h3>
+<p>For standard unit testing in CI, the simplest and fastest solution is
+to test using gpu.js's native CPU fallback. In CPU mode, gpu.js compiles
+the kernel into pure JavaScript rather than GLSL, allowing it to run in
+standard Node.js environments without any WebGL context or binary
+dependencies.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Force CPU mode in CI environments</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">mode</span><span class="op">:</span> <span class="bu">process</span><span class="op">.</span><span class="at">env</span><span class="op">.</span><span class="at">CI</span> <span class="op">?</span> <span class="st">&#39;cpu&#39;</span> <span class="op">:</span> <span class="st">&#39;gpu&#39;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">5</span>])<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>([<span class="dv">1</span><span class="op">,</span> <span class="dv">2</span><span class="op">,</span> <span class="dv">3</span><span class="op">,</span> <span class="dv">4</span><span class="op">,</span> <span class="dv">5</span>]<span class="op">,</span> [<span class="dv">5</span><span class="op">,</span> <span class="dv">4</span><span class="op">,</span> <span class="dv">3</span><span class="op">,</span> <span class="dv">2</span><span class="op">,</span> <span class="dv">1</span>])<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(result)<span class="op">;</span> <span class="co">// Runs purely in Node.js</span></span></code></pre></div>
+<p>This approach tests the mathematical correctness of your kernel
+logic, argument passing, and integration flow without requiring GPU
+hardware or headless display configurations.</p>
+<h3
+id="solution-2-use-headless-gl-node-gles-for-real-kernel-testing">Solution
+2: Use headless-gl (node-gles) for Real Kernel Testing</h3>
+<p>If you must verify GLSL compilation, precision quirks, or
+WebGL-specific output in CI, use the <code>headless-gl</code> (published
+as <code>gl</code> on npm) package. <code>headless-gl</code> creates a
+true headless OpenGL context on top of software renderers like
+SwiftShader or OSMesa.</p>
+<h4 id="1-supplying-the-context-to-gpujs">1. Supplying the Context to
+gpu.js</h4>
+<p>Initialize the headless context and pass it explicitly to the
+<code>GPU</code> constructor:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gl&#39;</span>)(<span class="dv">1</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span> <span class="co">// Width and height</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">webGl</span><span class="op">:</span> gl</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">4</span>])<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> output <span class="op">=</span> <span class="fu">kernel</span>()<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(output)<span class="op">;</span></span></code></pre></div>
+<h4 id="2-ci-runner-dependencies">2. CI Runner Dependencies</h4>
+<p>Because <code>headless-gl</code> relies on native binaries and OpenGL
+drivers, you must install system dependencies on your CI container. For
+example, in a GitHub Actions Ubuntu runner, add the necessary rendering
+libraries:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode yaml"><code class="sourceCode yaml"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">-</span><span class="at"> </span><span class="fu">name</span><span class="kw">:</span><span class="at"> Install Headless OpenGL Dependencies</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">  run</span><span class="kw">: </span><span class="ch">|</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    sudo apt-get update</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    sudo apt-get install -y libgl1-mesa-dev libxi-dev libxext-dev</span></code></pre></div>
+<h3 id="summary-of-best-practices">Summary of Best Practices</h3>
+<ul>
+<li><strong>Do not use shallow JS mocks:</strong> They cannot evaluate
+GLSL shader pipelines.</li>
+<li><strong>Avoid gl-matrix as a context:</strong> It handles matrix
+math, not graphics execution.</li>
+<li><strong>Use CPU mode for standard CI testing:</strong> It is fast,
+deterministic, and requires no system-level dependencies.</li>
+<li><strong>Use <code>headless-gl</code> for compilation
+testing:</strong> If shader-level execution must be tested, supply an
+instance of <code>require('gl')</code> directly to the
+<code>webGl</code> option of the <code>GPU</code> constructor.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

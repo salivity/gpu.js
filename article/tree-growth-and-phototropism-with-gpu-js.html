@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tree Growth and Phototropism with GPU.js - gpu.js</title>
+    <meta name="description" content="Simulating tree branch growth and phototropism across thousands of individual nodes is entirely feasible in GPU.js, provided the hierarchical structure of a tree is adapted to a data-parallel architecture. While tree growth naturally relies on recursive,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/tree-growth-and-phototropism-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Tree Growth and Phototropism with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/tree-growth-and-phototropism-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating tree branch growth and phototropism across thousands of individual nodes is entirely feasible in GPU.js, provided the hierarchical structure of a tree is adapted to a data-parallel architecture. While tree growth naturally relies on recursive," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="tree-growth-and-phototropism-with-gpujs">Tree Growth and
+Phototropism with GPU.js</h1>
+<p>Simulating tree branch growth and phototropism across thousands of
+individual nodes is entirely feasible in GPU.js, provided the
+hierarchical structure of a tree is adapted to a data-parallel
+architecture. While tree growth naturally relies on recursive, branching
+data structures that conflict with traditional GPU pipelines, flattening
+tree representations into parallel arrays allows GPU.js to execute both
+phototropic vector calculations and node updates across tens of
+thousands of elements concurrently.</p>
+<h3 id="the-architectural-challenge-dynamic-hierarchies-on-the-gpu">The
+Architectural Challenge: Dynamic Hierarchies on the GPU</h3>
+<p>Tree growth algorithms, such as the space colonization algorithm or
+discrete bud-development models, depend on parent-child relationships
+and dynamic node allocation. Traditional JavaScript implementations use
+pointer-based object graphs where branches continuously subdivide and
+push new nodes to dynamic lists.</p>
+<p>GPU.js compiles standard JavaScript functions into WebGL shaders,
+which cannot allocate dynamic memory or traverse unbounded pointer
+chains efficiently. To parallelize thousands of nodes:</p>
+<ol type="1">
+<li><strong>Pre-allocated Buffers:</strong> Memory must be reserved
+upfront as fixed-size 1D or 2D textures representing the maximum node
+capacity (e.g., 65,536 nodes).</li>
+<li><strong>Flattened Node Structs:</strong> Properties must be split
+into parallel data arrays (or multi-channel textures):
+<ul>
+<li><code>positions</code>: <span class="math inline">\([X, Y,
+Z]\)</span></li>
+<li><code>directions</code>: <span class="math inline">\([dX, dY,
+dZ]\)</span></li>
+<li><code>attributes</code>: <span class="math inline">\([ParentIndex,
+Age, ActiveStatus, BranchThickness]\)</span></li>
+</ul></li>
+</ol>
+<h3 id="parallelizing-phototropism">Parallelizing Phototropism</h3>
+<p>Phototropism—the directional growth of plant organs in response to
+light—requires two computations per node: evaluating ambient light
+occlusion and calculating the directional growth vector.</p>
+<h4 id="1-light-field-sampling">1. Light Field Sampling</h4>
+<p>A purely local node computation does not account for self-shadowing
+(canopy occlusion). To parallelize this step, a voxelized light grid or
+an altitude/density map must be maintained. Each active node computes
+its local light availability by sampling the light direction against the
+density field. In GPU.js, this is structured as a kernel where each
+thread corresponds to a single node index, reading its own position,
+checking occlusion values, and returning an exposure scalar.</p>
+<h4 id="2-vector-steering">2. Vector Steering</h4>
+<p>Once light exposure is determined, calculating the phototropic
+response vector is completely decoupled and embarrassingly parallel:</p>
+<p><span class="math display">\[\vec{V}_{\text{new}} =
+\text{normalize}\left((1 - w)\vec{V}_{\text{current}} +
+w\vec{V}_{\text{light}}\right)\]</span></p>
+<p>Where <span class="math inline">\(w\)</span> is the phototropic
+sensitivity weighted by light intensity and node age. GPU.js executes
+this vector transformation across all active nodes in a single draw
+pass.</p>
+<h3 id="overcoming-node-spawning-bottlenecks">Overcoming Node Spawning
+Bottlenecks</h3>
+<p>While calculating phototropism and extending existing nodes is
+straightforward in GPU.js, spawning <em>new</em> nodes poses a
+concurrency challenge. Shaders cannot directly invoke an
+<code>append()</code> operation without race conditions, as WebGL lacks
+atomic counter support in standard compute pipelines.</p>
+<p>There are two primary patterns to manage branch creation in
+GPU.js:</p>
+<ul>
+<li><strong>Hybrid GPU-CPU Loop:</strong> Node positions, light
+sampling, and elongation vectors are computed on the GPU. The resulting
+array is read back to the CPU to evaluate branching logic, trigger new
+bud creation in the CPU-side registry, and write the updated state back
+to GPU buffers. While introduces read-back overhead, it easily handles
+complex structural rules.</li>
+<li><strong>Pure GPU Fixed-Stride Allocation:</strong> Each existing
+node reserves a fixed number of child slots in the buffer (e.g., binary
+branching allows index <span class="math inline">\(2i+1\)</span> and
+<span class="math inline">\(2i+2\)</span>). The GPU kernel activates
+these slots when specific biochemical or light thresholds are met,
+avoiding dynamic allocation entirely at the cost of memory density.</li>
+</ul>
+<h3 id="performance-considerations-in-gpujs">Performance Considerations
+in GPU.js</h3>
+<p>Simulating 10,000 to 100,000 branch segments in real-time requires
+minimizing texture-to-CPU readbacks. When GPU.js is configured to output
+directly to WebGL textures, chained kernels can compute:</p>
+<ol type="1">
+<li>Light sampling kernel <span
+class="math inline">\(\rightarrow\)</span></li>
+<li>Tropism vector update kernel <span
+class="math inline">\(\rightarrow\)</span></li>
+<li>Position displacement kernel</li>
+</ol>
+<p>By keeping the entire state cycle inside GPU memory, the simulation
+scales efficiently, allowing thousands of vegetative nodes to respond to
+dynamic light sources at interactive framerates.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

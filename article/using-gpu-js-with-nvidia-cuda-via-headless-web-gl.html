@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Using GPU.js with NVIDIA CUDA via Headless WebGL - gpu.js</title>
+    <meta name="description" content="GPU.js can indirectly leverage NVIDIA CUDA cores in a headless Node.js environment by routing computations through native graphics drivers. Because GPU.js translates JavaScript into WebGL shader code, running it on the server requires a headless WebGL co">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/using-gpu-js-with-nvidia-cuda-via-headless-web-gl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Using GPU.js with NVIDIA CUDA via Headless WebGL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/using-gpu-js-with-nvidia-cuda-via-headless-web-gl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can indirectly leverage NVIDIA CUDA cores in a headless Node.js environment by routing computations through native graphics drivers. Because GPU.js translates JavaScript into WebGL shader code, running it on the server requires a headless WebGL co" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="using-gpujs-with-nvidia-cuda-via-headless-webgl">Using GPU.js
+with NVIDIA CUDA via Headless WebGL</h1>
+<p>GPU.js can indirectly leverage NVIDIA CUDA cores in a headless
+Node.js environment by routing computations through native graphics
+drivers. Because GPU.js translates JavaScript into WebGL shader code,
+running it on the server requires a headless WebGL context such as
+<code>headless-gl</code>. When properly configured with native NVIDIA
+drivers, the underlying OpenGL implementation maps these shading tasks
+directly onto the GPU’s Streaming Multiprocessors, meaning the physical
+CUDA cores perform the parallel mathematical computations.</p>
+<h3 id="the-execution-pipeline">The Execution Pipeline</h3>
+<p>The connection between GPU.js and physical CUDA cores relies on
+several layers of abstraction:</p>
+<ol type="1">
+<li><strong>Kernel Compilation:</strong> GPU.js compiles written
+JavaScript functions into GLSL (OpenGL Shading Language) fragment
+shaders.</li>
+<li><strong>Headless Context Creation:</strong> In a server-side Node.js
+environment, standard browser WebGL APIs do not exist. GPU.js relies on
+packages like <code>headless-gl</code> (the <code>gl</code> library) to
+create an off-screen rendering context.</li>
+<li><strong>Driver Interface:</strong> The headless context interfaces
+with the host operating system's native graphics subsystem—typically EGL
+or desktop OpenGL on Linux, or DirectX via ANGLE on Windows.</li>
+<li><strong>Hardware Execution:</strong> The proprietary NVIDIA driver
+interprets the OpenGL draw calls and compiles the GLSL shaders into
+machine code designed for NVIDIA's hardware. At this layer, the hardware
+schedules the shader tasks across its array of CUDA cores to compute the
+output.</li>
+<li><strong>Data Extraction:</strong> The computed values are rendered
+to an off-screen texture, read back to system memory as a typed array,
+and returned to the Node.js process.</li>
+</ol>
+<h3 id="configuration-requirements">Configuration Requirements</h3>
+<p>For headless WebGL to access NVIDIA hardware in Node.js, the host
+environment must meet specific criteria:</p>
+<ul>
+<li><strong>Proprietary Drivers:</strong> The host machine must run
+official NVIDIA drivers. Open-source alternatives (such as Nouveau on
+Linux) often lack full hardware acceleration or performance parity.</li>
+<li><strong>Native Build Tools:</strong> Packages like <code>gl</code>
+compile native C++ bindings during installation via
+<code>node-gyp</code>. Build essentials, Python, and system graphics
+development libraries (such as <code>libxi-dev</code>,
+<code>libglu1-mesa-dev</code>, and <code>libglew-dev</code> on
+Debian/Ubuntu systems) are required.</li>
+<li><strong>Headless Display Access:</strong> On Linux servers, the
+graphics driver must be accessible without an active X11 display server.
+This is typically achieved using EGL support provided by modern NVIDIA
+drivers.</li>
+</ul>
+<h3 id="webgl-compute-vs-native-cuda">WebGL Compute vs. Native CUDA</h3>
+<p>While CUDA cores perform the physical calculations, this pipeline
+differs fundamentally from native CUDA development:</p>
+<ul>
+<li><strong>Shading vs. Compute:</strong> GPU.js operates via the
+graphics pipeline by treating data as pixels and rendering them onto a
+2D surface. Native CUDA operates directly with compute kernels,
+providing deeper control over memory spaces (shared memory, constant
+memory, and registers).</li>
+<li><strong>Data Overhead:</strong> Transferring data between Node.js
+buffers and headless WebGL textures introduces serialization and
+deserialization overhead that does not exist in bare-metal CUDA C/C++
+runtimes.</li>
+<li><strong>Precision Constraints:</strong> WebGL 1.0 (the standard
+target for most headless implementations) often lacks native 64-bit
+float support, limiting arithmetic precision to 32-bit floats or packed
+formats.</li>
+</ul>
+<p>GPU.js effectively provides a portable, zero-configuration method to
+utilize parallel NVIDIA hardware from Node.js, functioning as an
+accessible alternative to writing native CUDA C++ add-ons.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

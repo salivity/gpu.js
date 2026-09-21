@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js Color Buffer Clearing in Kernel Passes - gpu.js</title>
+    <meta name="description" content="This article explores how gpu.js handles color buffer clearing and memory state resets between consecutive kernel runs. When executing chained or pipelined calculations, the library relies on the underlying WebGL context, alternating Framebuffer Objects">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-color-buffer-clearing-in-kernel-passes">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js Color Buffer Clearing in Kernel Passes - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-color-buffer-clearing-in-kernel-passes" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how gpu.js handles color buffer clearing and memory state resets between consecutive kernel runs. When executing chained or pipelined calculations, the library relies on the underlying WebGL context, alternating Framebuffer Objects" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-color-buffer-clearing-in-kernel-passes">gpu.js Color
+Buffer Clearing in Kernel Passes</h1>
+<p>This article explores how gpu.js handles color buffer clearing and
+memory state resets between consecutive kernel runs. When executing
+chained or pipelined calculations, the library relies on the underlying
+WebGL context, alternating Framebuffer Objects (FBOs), explicit API
+clearing calls, and full-viewport draw passes to isolate data and
+prevent residual fragment artifacts between compute iterations.</p>
+<h3 id="framebuffer-objects-and-ping-pong-buffering">Framebuffer Objects
+and Ping-Pong Buffering</h3>
+<p>In pipelined workflows where the output of one kernel serves as the
+input to the next, gpu.js utilizes a technique known as ping-pong
+buffering. The library binds alternating Framebuffer Objects (FBOs)
+backed by WebGL textures. Instead of repeatedly allocating and
+deallocating GPU memory, gpu.js toggles the roles of two or more
+textures: one acts as the active render target (color attachment) while
+the other acts as an input texture sampler. Isolating consecutive passes
+to separate textures inherently prevents the destination buffer from
+polluting the source data before computation finishes.</p>
+<h3 id="explicit-clearing-via-webgl-api">Explicit Clearing via WebGL
+API</h3>
+<p>When preparing an FBO for a new execution pass, gpu.js interacts
+directly with the WebGL rendering context state machine. Before
+rendering into a target texture, the framework can invoke:</p>
+<ul>
+<li><code>gl.clearColor(0.0, 0.0, 0.0, 0.0)</code> to define the reset
+values for each color channel (RGBA).</li>
+<li><code>gl.clear(gl.COLOR_BUFFER_BIT)</code> to explicitly instruct
+the GPU rasterizer to flush the currently bound color attachment and
+reset all fragment values to the defined clear color.</li>
+</ul>
+<p>This explicit clear guarantees that unmapped or out-of-bounds
+fragments do not preserve residual numerical values from previous
+computational cycles.</p>
+<h3 id="implicit-full-viewport-fragment-overwriting">Implicit
+Full-Viewport Fragment Overwriting</h3>
+<p>In standard GPGPU operations through WebGL, computations are executed
+by rendering a screen-aligned quad—composed of two triangles covering
+the entire viewport—via orthographic projection. Because the output
+texture matches the exact dimensions of the thread grid, the fragment
+shader executes and evaluates every single pixel location corresponding
+to the output dimensions.</p>
+<p>Because every pixel in the target color buffer is systematically
+overwritten during the draw call (<code>gl.drawArrays</code> or
+<code>gl.drawElements</code>), the fragment shader writes fresh values
+across the entire buffer surface. In scenarios where a full overwrite is
+mathematically guaranteed, explicit clearing can be bypassed to reduce
+overhead, as the shader execution natively replaces prior buffer
+contents.</p>
+<h3 id="viewport-and-scissor-state-adjustments">Viewport and Scissor
+State Adjustments</h3>
+<p>Before clearing or drawing, gpu.js synchronizes the execution
+dimensions using <code>gl.viewport(0, 0, width, height)</code>. If
+scissor testing is active (<code>gl.SCISSOR_TEST</code>), WebGL
+restricts buffer clears to a sub-rectangle of the render target. gpu.js
+disables or reconfigures the scissor box to encompass the entire
+dimension of the compute grid, ensuring that
+<code>gl.clear(gl.COLOR_BUFFER_BIT)</code> uniformly resets the entire
+designated color buffer rather than leaving uncleared borders.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup Xvfb for Headless GPU.js on Ubuntu Server - gpu.js</title>
+    <meta name="description" content="Running GPU-accelerated JavaScript through gpu.js on a headless Ubuntu server requires an active display environment to initialize WebGL or OpenGL contexts. Cloud servers lack physical monitors and desktop display managers, which causes Node.js GPU bindi">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/setup-xvfb-for-headless-gpu-js-on-ubuntu-server">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Setup Xvfb for Headless GPU.js on Ubuntu Server - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/setup-xvfb-for-headless-gpu-js-on-ubuntu-server" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running GPU-accelerated JavaScript through gpu.js on a headless Ubuntu server requires an active display environment to initialize WebGL or OpenGL contexts. Cloud servers lack physical monitors and desktop display managers, which causes Node.js GPU bindi" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="setup-xvfb-for-headless-gpujs-on-ubuntu-server">Setup Xvfb for
+Headless GPU.js on Ubuntu Server</h1>
+<p>Running GPU-accelerated JavaScript through gpu.js on a headless
+Ubuntu server requires an active display environment to initialize WebGL
+or OpenGL contexts. Cloud servers lack physical monitors and desktop
+display managers, which causes Node.js GPU bindings to fail immediately.
+This guide provides a straightforward method for installing and
+configuring Xvfb (X Virtual Framebuffer) to emulate a display server,
+enabling gpu.js to execute parallel computing tasks seamlessly on
+headless cloud infrastructure.</p>
+<h3 id="1-update-the-system-and-install-dependencies">1. Update the
+System and Install Dependencies</h3>
+<p>Cloud instances need Xvfb, the Mesa OpenGL utility libraries, and
+standard build tools required for native Node.js addons:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt update</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt install <span class="at">-y</span> xvfb libgl1-mesa-dri libgl1-mesa-glx libxi-dev libxext-dev build-essential</span></code></pre></div>
+<p>If you are using an instance with a dedicated physical GPU (such as
+NVIDIA on AWS, GCP, or Azure), ensure your proprietary GPU drivers and
+CUDA/OpenGL libraries are properly installed. If no physical GPU is
+present, Mesa will handle the rendering via software emulation.</p>
+<h3 id="2-initialize-the-nodejs-project">2. Initialize the Node.js
+Project</h3>
+<p>Create a directory for your application, initialize the project, and
+install <code>gpu.js</code>:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> headless-gpu-runner</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">cd</span> headless-gpu-runner</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> init <span class="at">-y</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<h3 id="3-create-a-test-script">3. Create a Test Script</h3>
+<p>Create a basic file named <code>index.js</code> to verify that gpu.js
+initializes and executes on the virtual framebuffer:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Define a simple matrix multiplication kernel</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiplyMatrix <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="dv">512</span><span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> b[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a><span class="co">// Generate dummy data</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixA <span class="op">=</span> <span class="bu">Array</span>(<span class="dv">512</span>)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">0</span>)<span class="op">.</span><span class="fu">map</span>(() <span class="kw">=&gt;</span> <span class="bu">Array</span>(<span class="dv">512</span>)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">1</span>))<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matrixB <span class="op">=</span> <span class="bu">Array</span>(<span class="dv">512</span>)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">0</span>)<span class="op">.</span><span class="fu">map</span>(() <span class="kw">=&gt;</span> <span class="bu">Array</span>(<span class="dv">512</span>)<span class="op">.</span><span class="fu">fill</span>(<span class="dv">2</span>))<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&quot;Running calculation...&quot;</span>)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">multiplyMatrix</span>(matrixA<span class="op">,</span> matrixB)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&quot;Calculation complete. Sample output:&quot;</span><span class="op">,</span> result[<span class="dv">0</span>][<span class="dv">0</span>])<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="4-run-the-script-using-xvfb-run">4. Run the Script Using
+<code>xvfb-run</code></h3>
+<p>The cleanest way to execute a Node.js process inside a temporary
+virtual framebuffer is using the <code>xvfb-run</code> utility wrapper.
+It automatically handles launching the X server on an unused display
+port, running your command, and shutting the server down when
+finished.</p>
+<p>Run your application with the following command:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">xvfb-run</span> <span class="at">--auto-servernum</span> <span class="at">--server-args</span><span class="op">=</span><span class="st">&quot;-screen 0 1024x768x24 -ac +extension GLX +render -noreset&quot;</span> node index.js</span></code></pre></div>
+<ul>
+<li><code>--auto-servernum</code>: Prevents collisions by picking an
+available display number automatically.</li>
+<li><code>-screen 0 1024x768x24</code>: Configures screen dimensions and
+a 24-bit color depth required for modern OpenGL buffers.</li>
+<li><code>+extension GLX</code>: Explicitly enables the GLX extension
+required for OpenGL rendering.</li>
+</ul>
+<h3 id="5-running-a-persistent-xvfb-display-alternative-method">5.
+Running a Persistent Xvfb Display (Alternative Method)</h3>
+<p>If you have continuous background jobs, WebSockets, or a long-running
+web service utilizing gpu.js, you can run Xvfb as a background daemon
+instead of invoking <code>xvfb-run</code> repeatedly.</p>
+<p>Start the virtual display manually on port <code>:99</code>:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="ex">Xvfb</span> :99 <span class="at">-screen</span> 0 1024x768x24 <span class="at">-ac</span> +extension GLX +render <span class="at">-noreset</span> <span class="kw">&amp;</span></span></code></pre></div>
+<p>Export the <code>DISPLAY</code> environment variable so all
+subsequent commands target this display:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">DISPLAY</span><span class="op">=</span>:99</span></code></pre></div>
+<p>Run your application normally:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="ex">node</span> index.js</span></code></pre></div>
+<p>To persist this configuration across sessions, append
+<code>export DISPLAY=:99</code> to your <code>~/.bashrc</code> file or
+configure your systemd service file to include the
+<code>Environment="DISPLAY=:99"</code> parameter.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

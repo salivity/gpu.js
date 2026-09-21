@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRISPR-Cas9 Off-Target Scoring Using GPU.js - gpu.js</title>
+    <meta name="description" content="CRISPR-Cas9 off-target guide RNA (gRNA) mismatch scores can be computed concurrently using gpu.js by transforming pairwise sequence evaluations into parallelized GPU shader operations. Off-target prediction algorithms—such as the Hsu-Zhang and Cutting">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/crispr-cas-9-off-target-scoring-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="CRISPR-Cas9 Off-Target Scoring Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/crispr-cas-9-off-target-scoring-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="CRISPR-Cas9 off-target guide RNA (gRNA) mismatch scores can be computed concurrently using gpu.js by transforming pairwise sequence evaluations into parallelized GPU shader operations. Off-target prediction algorithms—such as the Hsu-Zhang and Cutting" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="crispr-cas9-off-target-scoring-using-gpujs">CRISPR-Cas9
+Off-Target Scoring Using GPU.js</h1>
+<p>CRISPR-Cas9 off-target guide RNA (gRNA) mismatch scores can be
+computed concurrently using gpu.js by transforming pairwise sequence
+evaluations into parallelized GPU shader operations. Off-target
+prediction algorithms—such as the Hsu-Zhang and Cutting Frequency
+Determination (CFD) matrices—rely on independent, repetitive
+mathematical operations across millions of genomic loci. By encoding DNA
+sequences into numeric buffers and executing the scoring matrices inside
+WebGL/WebGPU-based kernels via gpu.js, developers can achieve massive
+parallel speedups directly in JavaScript runtimes like Node.js or modern
+web browsers.</p>
+<h2 id="the-computational-nature-of-off-target-scoring">The
+Computational Nature of Off-Target Scoring</h2>
+<p>When designing single guide RNAs (sgRNAs) for CRISPR-Cas9,
+identifying potential unintended cleavage sites across an entire genome
+requires comparing a 20-nucleotide spacer sequence against millions of
+candidate genomic sequences containing compatible Protospacer Adjacent
+Motifs (PAMs, such as NGG).</p>
+<p>Standard algorithms evaluate off-target potential through empirical
+mismatch penalty models:</p>
+<ul>
+<li><strong>Hsu-Zhang Metric:</strong> Computes an off-target score
+based on the specific position of mismatches relative to the PAM, the
+count of mismatches, and the mean pairwise distance between them.</li>
+<li><strong>CFD Score:</strong> Uses an empirically derived lookup table
+that assigns a probability (from 0 to 1) for specific RNA:DNA base
+mismatches at each specific nucleotide position, multiplied
+cumulatively.</li>
+</ul>
+<p>Both methods treat each candidate genomic target independently.
+Because there is no data dependency between the score calculation of
+genomic locus <span class="math inline">\(A\)</span> and genomic locus
+<span class="math inline">\(B\)</span>, the problem is embarrassingly
+parallel.</p>
+<h2 id="how-gpujs-enables-accelerated-scoring">How GPU.js Enables
+Accelerated Scoring</h2>
+<p><code>gpu.js</code> is a JavaScript acceleration library that
+compiles simple JavaScript functions into GLSL shader language and runs
+them on the GPU using WebGL or WebGPU.</p>
+<p>Off-target scoring maps directly to the GPU execution model:</p>
+<ol type="1">
+<li><strong>Thread Allocation:</strong> Each thread in the GPU grid is
+assigned to score exactly one candidate off-target site against the
+designed gRNA.</li>
+<li><strong>Numeric Sequence Encoding:</strong> Since shaders operate
+primarily on floating-point or integer vectors, DNA bases (A, C, G, T)
+are pre-encoded as integers (e.g., <span class="math inline">\(A=0, C=1,
+G=2, T=3\)</span>). Candidate sites are packed into flat 1D or 2D typed
+arrays (<code>Int32Array</code> or <code>Float32Array</code>).</li>
+<li><strong>Lookup Matrix Flattening:</strong> CFD matrices or
+position-weight vectors are passed as uniform textures or arrays into
+the kernel.</li>
+<li><strong>Independent Reductions:</strong> Inside the kernel, a
+fixed-length loop of 20 to 23 iterations compares the query spacer to
+the target locus at that thread's index, multiplies or subtracts the
+corresponding mismatch weights, and writes the scalar score into an
+output buffer.</li>
+</ol>
+<h2 id="practical-implementation-architecture">Practical Implementation
+Architecture</h2>
+<p>An optimized gpu.js pipeline for off-target scoring involves three
+distinct phases:</p>
+<h3 id="1-data-preprocessing">1. Data Preprocessing</h3>
+<p>Genomic targets identified by regular expression or k-mer indexing
+(such as suffix arrays or Burrows-Wheeler transforms) are filtered and
+converted into continuous memory buffers. CPU-side preprocessing
+flattens both the target strings and mismatch penalty tables into
+numeric format to avoid string operations inside the kernel.</p>
+<h3 id="2-kernel-execution">2. Kernel Execution</h3>
+<p>The <code>gpu.js</code> kernel is defined with a fixed dimension
+corresponding to the number of candidate sequences:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel calculating positional mismatch scores</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeOffTargetScores <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(guide<span class="op">,</span> targets<span class="op">,</span> weights<span class="op">,</span> targetLength) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> score <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> targetIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> targetLength<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> guideBase <span class="op">=</span> guide[i]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> targetBase <span class="op">=</span> targets[targetIdx <span class="op">*</span> targetLength <span class="op">+</span> i]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (guideBase <span class="op">!==</span> targetBase) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Apply mismatch penalty based on position and base identity</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>            score <span class="op">*=</span> weights[i]<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> score<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([totalCandidateSites])<span class="op">;</span></span></code></pre></div>
+<h3 id="3-pipeline-throughput">3. Pipeline Throughput</h3>
+<p>When evaluating millions of off-target candidates, running the
+calculations in batches balances GPU memory allocation and overhead. The
+output array can be transferred back to the CPU thread as a typed array
+or preserved on the GPU for further statistical filtering (such as
+aggregating total off-target risk scores).</p>
+<h2 id="technical-trade-offs-and-limitations">Technical Trade-Offs and
+Limitations</h2>
+<p>While gpu.js provides significant concurrency benefits, specific
+design constraints must be considered:</p>
+<ul>
+<li><strong>PCIe Bus Transfer Overhead:</strong> Transferring gigabytes
+of candidate genomic sequences from system RAM to GPU VRAM introduces
+latency. Maximum performance is achieved when candidate sequences remain
+resident in GPU memory across multiple gRNA evaluations.</li>
+<li><strong>Conditional Branching:</strong> Modern GPUs suffer pipeline
+stalls from divergent branches. Algorithms relying on dynamic control
+flows (such as variable-length bulge scoring) should be rewritten using
+branchless arithmetic (e.g., step functions or pre-indexed lookup
+textures) rather than deeply nested <code>if/else</code>
+statements.</li>
+<li><strong>Precision Considerations:</strong> WebGL-based
+implementations in gpu.js often default to 32-bit single-precision
+floating-point numbers. Cumulative multiplication over 20 positions can
+cause small precision drift compared to 64-bit double-precision CPU
+implementations, though this variance rarely changes the biological
+interpretation of the score.</li>
+</ul>
+<p>Using gpu.js for CRISPR-Cas9 off-target scoring eliminates the need
+for native C++/CUDA build toolchains, enabling near-native GPU compute
+speeds within standard Node.js pipelines and client-side web
+applications.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

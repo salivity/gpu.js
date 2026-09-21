@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Pipeline Texture Memory in Animation Loops - gpu.js</title>
+    <meta name="description" content="Enabling pipeline mode in GPU.js dramatically boosts performance in continuous animation loops by keeping computation results on the GPU as WebGL textures instead of converting them back to CPU arrays. However, persisting these pipeline textures across a">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-pipeline-texture-memory-in-animation-loops">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Pipeline Texture Memory in Animation Loops - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-pipeline-texture-memory-in-animation-loops" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Enabling pipeline mode in GPU.js dramatically boosts performance in continuous animation loops by keeping computation results on the GPU as WebGL textures instead of converting them back to CPU arrays. However, persisting these pipeline textures across a" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-pipeline-texture-memory-in-animation-loops">GPU.js
+Pipeline Texture Memory in Animation Loops</h1>
+<p>Enabling pipeline mode in GPU.js dramatically boosts performance in
+continuous animation loops by keeping computation results on the GPU as
+WebGL textures instead of converting them back to CPU arrays. However,
+persisting these pipeline textures across animation frames introduces
+significant memory management challenges, including unmanaged Video RAM
+(VRAM) consumption, deferred JavaScript garbage collection issues, and
+the risk of WebGL context crashes if textures are retained
+improperly.</p>
+<h3 id="how-gpujs-pipeline-mode-interacts-with-vram">How GPU.js Pipeline
+Mode Interacts with VRAM</h3>
+<p>When you execute a kernel with <code>pipeline: true</code>, GPU.js
+outputs an instance of <code>Texture</code> instead of an array. Under
+the hood, this allocates a dedicated WebGL texture object in the
+graphics card’s VRAM. In an animation loop powered by
+<code>requestAnimationFrame</code>, kernels run 60 or more times per
+second.</p>
+<p>If a new texture reference is created on each frame without properly
+recycling or destroying previous textures, VRAM consumption increases
+monotonically. Unlike standard JavaScript objects that live in system
+RAM, WebGL textures occupy specialized GPU memory buffers that the host
+operating system manages strictly.</p>
+<h3 id="the-javascript-garbage-collector-disconnect">The JavaScript
+Garbage Collector Disconnect</h3>
+<p>A critical point of failure in WebGL-based libraries like GPU.js is
+the disparity between the JavaScript Garbage Collector (GC) and WebGL
+resource deallocation.</p>
+<ol type="1">
+<li><strong>Small JS Footprint, Huge GPU Footprint</strong>: The
+JavaScript <code>Texture</code> wrapper object uses a negligible amount
+of system RAM, containing mostly numeric identifiers and dimensions.
+Because the JS engine perceives this as low memory pressure, it does not
+trigger automatic garbage collection frequently.</li>
+<li><strong>Orphaned Textures</strong>: The actual image data resides in
+GPU memory. When you reassign a texture variable inside an animation
+loop, the old GPU texture remains intact in VRAM until JavaScript
+garbage collection runs and triggers the internal finalizer, which may
+take seconds or minutes.</li>
+<li><strong>Stutter and Frame Drops</strong>: When the browser engine
+eventually forces garbage collection to reclaim VRAM, it triggers major
+GC pauses, causing perceptible frame drops, micro-stutters, and visual
+lag in animations.</li>
+</ol>
+<h3 id="ping-pong-buffering-and-double-allocation">Ping-Pong Buffering
+and Double Allocation</h3>
+<p>Simulations and complex animations (such as fluid dynamics, cellular
+automata, or particle positions) require reading the output of the
+previous frame as the input for the next. This requires a "ping-pong"
+buffering architecture.</p>
+<p>Keeping these textures alive requires holding at least two complete
+texture buffers in VRAM simultaneously per compute step:</p>
+<ul>
+<li><strong>Read Buffer</strong>: The texture containing the state from
+frame <span class="math inline">\(N-1\)</span>.</li>
+<li><strong>Write Buffer</strong>: The newly generated texture
+containing the state for frame <span
+class="math inline">\(N\)</span>.</li>
+</ul>
+<p>If an animation pipeline consists of chained kernels (Kernel A <span
+class="math inline">\(\to\)</span> Kernel B <span
+class="math inline">\(\to\)</span> Kernel C), holding all intermediate
+textures alive across frames multiplies the memory footprint by the
+number of steps and the resolution of the data grid (e.g., <span
+class="math inline">\(1024 \times 1024 \times 4\)</span> bytes per float
+texture).</p>
+<h3 id="webgl-context-loss">WebGL Context Loss</h3>
+<p>Browsers impose hard caps on how much VRAM a single WebGL context can
+allocate, which varies depending on client hardware and mobile vs.
+desktop environments.</p>
+<p>If pipeline textures accumulate faster than they are deleted, the
+system hits this threshold, prompting the browser to trigger a
+<code>webglcontextlost</code> event. This terminates execution, renders
+the canvas blank, and destroys all existing GPU state, requiring the
+entire GPU.js instance and all compiled kernels to be reconstructed from
+scratch.</p>
+<h3 id="mitigating-memory-overhead">Mitigating Memory Overhead</h3>
+<p>To keep pipeline textures alive safely across animation loops:</p>
+<ul>
+<li><strong>Explicit Deletion</strong>: Call
+<code>texture.delete()</code> explicitly on stale textures rather than
+letting variables fall out of scope.</li>
+<li><strong>Texture Swapping</strong>: Swap between two pre-allocated
+texture variables rather than instantiating new pipelines on every frame
+tick.</li>
+<li><strong>Kernel Cloning and Reuse</strong>: Do not recompile kernels
+inside the loop; reuse existing kernel instances with bound texture
+arguments.</li>
+<li><strong>Sub-sampling</strong>: Keep texture dimensions strictly
+within powers of two where possible and downsample simulation grids to
+the minimum resolution required for visual fidelity.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

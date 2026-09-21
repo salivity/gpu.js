@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Cosine Annealing Schedule Orchestration - gpu.js</title>
+    <meta name="description" content="This article explores how to compute Cosine Annealing learning rate schedules within distributed orchestration frameworks using GPU.js. You will learn the mathematical foundation of cosine annealing, how to express the algorithm as a GPU-accelerated Java">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-cosine-annealing-schedule-orchestration">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Cosine Annealing Schedule Orchestration - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-cosine-annealing-schedule-orchestration" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how to compute Cosine Annealing learning rate schedules within distributed orchestration frameworks using GPU.js. You will learn the mathematical foundation of cosine annealing, how to express the algorithm as a GPU-accelerated Java" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-cosine-annealing-schedule-orchestration">GPU.js Cosine
+Annealing Schedule Orchestration</h1>
+<p>This article explores how to compute Cosine Annealing learning rate
+schedules within distributed orchestration frameworks using GPU.js. You
+will learn the mathematical foundation of cosine annealing, how to
+express the algorithm as a GPU-accelerated JavaScript kernel, and how to
+embed this computation into worker orchestrators to synchronize dynamic
+hyperparameters across concurrent machine learning tasks.</p>
+<h3 id="the-cosine-annealing-formulation">The Cosine Annealing
+Formulation</h3>
+<p>Cosine Annealing decreases the learning rate following a cosine
+curve, allowing models to take large optimization steps early in
+training and fine-grained adjustments near convergence. The standard
+formula for the learning rate <span
+class="math inline">\(\eta_t\)</span> at step <span
+class="math inline">\(T_{cur}\)</span> is:</p>
+<p><span class="math display">\[\eta_t = \eta_{min} +
+\frac{1}{2}(\eta_{max} - \eta_{min})\left(1 +
+\cos\left(\frac{T_{cur}}{T_{max}}\pi\right)\right)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(\eta_{max}\)</span>: Initial maximum
+learning rate.</li>
+<li><span class="math inline">\(\eta_{min}\)</span>: Target minimum
+learning rate.</li>
+<li><span class="math inline">\(T_{cur}\)</span>: Current epoch or
+iteration.</li>
+<li><span class="math inline">\(T_{max}\)</span>: Total number of epochs
+or iterations per cycle.</li>
+</ul>
+<h3 id="implementing-the-kernel-with-gpujs">Implementing the Kernel with
+GPU.js</h3>
+<p>GPU.js compiles standard JavaScript functions into WebGL or WebGPU
+shaders. While calculating a single scalar learning rate on a CPU is
+trivial, orchestration engines handling hundreds of concurrent
+hyperparameter trials, distributed parameter servers, or multi-tenant
+training shards benefit from vectorized batch calculations performed in
+parallel on the GPU.</p>
+<p>First, install GPU.js in your environment:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>Define the kernel to compute learning rates for an array of scheduled
+steps or across multiple coordinated tasks:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Kernel to compute cosine annealing across an array of current step states</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeCosineSchedule <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(currentSteps<span class="op">,</span> maxSteps<span class="op">,</span> etaMax<span class="op">,</span> etaMin<span class="op">,</span> pi) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> tCur <span class="op">=</span> currentSteps[i]<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> tMax <span class="op">=</span> maxSteps[i]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> eMax <span class="op">=</span> etaMax[i]<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> eMin <span class="op">=</span> etaMin[i]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Evaluate cosine annealing equation</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> fraction <span class="op">=</span> (tCur <span class="op">/</span> tMax) <span class="op">*</span> pi<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cosVal <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(fraction)<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> eMin <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> (eMax <span class="op">-</span> eMin) <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">+</span> cosVal)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1000</span>])<span class="op">;</span> <span class="co">// Capacity for 1000 concurrent tasks/steps</span></span></code></pre></div>
+<p>To enable GPU.js to execute mathematical trigonometric operations,
+pass standard constants such as <span class="math inline">\(\pi\)</span>
+directly or rely on <code>Math.PI</code> within the kernel
+environment.</p>
+<h3 id="integrating-with-an-orchestration-framework">Integrating with an
+Orchestration Framework</h3>
+<p>In an orchestration architecture (such as BullMQ, Temporal,
+Kubernetes worker pools, or custom Node.js cluster schedulers), the
+orchestrator coordinates epoch states and delegates numerical
+computation.</p>
+<ol type="1">
+<li><strong>State Aggregation</strong>: The orchestrator collects
+current iteration counters (<span
+class="math inline">\(T_{cur}\)</span>), ceilings (<span
+class="math inline">\(T_{max}\)</span>), and boundaries (<span
+class="math inline">\(\eta_{min}\)</span>, <span
+class="math inline">\(\eta_{max}\)</span>) from active worker nodes or
+training tasks into typed arrays (<code>Float32Array</code>).</li>
+<li><strong>GPU Kernel Execution</strong>: The kernel computes the new
+learning rate schedule in parallel on the host node.</li>
+<li><strong>Dispatch</strong>: The computed values are broadcast to the
+training workers via message queues, gRPC, or shared memory.</li>
+</ol>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> ScheduleOrchestrator {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="fu">constructor</span>(maxWorkers <span class="op">=</span> <span class="dv">1024</span>) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="at">gpu</span> <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;gpu&#39;</span> })<span class="op">;</span> <span class="co">// Fallback to &#39;cpu&#39; automatically if headless</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="at">maxWorkers</span> <span class="op">=</span> maxWorkers<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>        <span class="kw">this</span><span class="op">.</span><span class="at">kernel</span> <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">gpu</span><span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(tCur<span class="op">,</span> tMax<span class="op">,</span> etaMax<span class="op">,</span> etaMin) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> idx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> pi <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> cosFactor <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>((tCur[idx] <span class="op">/</span> tMax[idx]) <span class="op">*</span> pi)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> etaMin[idx] <span class="op">+</span> <span class="fl">0.5</span> <span class="op">*</span> (etaMax[idx] <span class="op">-</span> etaMin[idx]) <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">+</span> cosFactor)<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>        })<span class="op">.</span><span class="fu">setOutput</span>([<span class="kw">this</span><span class="op">.</span><span class="at">maxWorkers</span>])<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">updateWorkerSchedules</span>(workerStates) {</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> count <span class="op">=</span> workerStates<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> tCur <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="kw">this</span><span class="op">.</span><span class="at">maxWorkers</span>)<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> tMax <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="kw">this</span><span class="op">.</span><span class="at">maxWorkers</span>)<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> etaMax <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="kw">this</span><span class="op">.</span><span class="at">maxWorkers</span>)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> etaMin <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(<span class="kw">this</span><span class="op">.</span><span class="at">maxWorkers</span>)<span class="op">;</span></span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> count<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>            tCur[i] <span class="op">=</span> workerStates[i]<span class="op">.</span><span class="at">currentEpoch</span><span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>            tMax[i] <span class="op">=</span> workerStates[i]<span class="op">.</span><span class="at">totalEpochs</span><span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>            etaMax[i] <span class="op">=</span> workerStates[i]<span class="op">.</span><span class="at">maxLr</span><span class="op">;</span></span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>            etaMin[i] <span class="op">=</span> workerStates[i]<span class="op">.</span><span class="at">minLr</span><span class="op">;</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Execute parallel calculation</span></span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> updatedRates <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="fu">kernel</span>(tCur<span class="op">,</span> tMax<span class="op">,</span> etaMax<span class="op">,</span> etaMin)<span class="op">;</span></span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Return updated rates mapped to worker identifiers</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> workerStates<span class="op">.</span><span class="fu">map</span>((worker<span class="op">,</span> index) <span class="kw">=&gt;</span> ({</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>            <span class="dt">workerId</span><span class="op">:</span> worker<span class="op">.</span><span class="at">id</span><span class="op">,</span></span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>            <span class="dt">learningRate</span><span class="op">:</span> updatedRates[index]</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>        }))<span class="op">;</span></span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="warm-restarts-extension">Warm Restarts Extension</h3>
+<p>To implement Cosine Annealing with Warm Restarts (<span
+class="math inline">\(SGDR\)</span>), track the cycle index and reset
+<span class="math inline">\(T_{cur}\)</span> when it reaches <span
+class="math inline">\(T_{max}\)</span>. Expand the orchestrator's state
+to recalculate <span class="math inline">\(T_{max}\)</span> dynamically
+using an epoch multiplication factor (<span
+class="math inline">\(T_{mult}\)</span>):</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (currentEpoch <span class="op">&gt;=</span> cycleEpochs) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    currentEpoch <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    cycleEpochs <span class="op">=</span> cycleEpochs <span class="op">*</span> epochMultiplier<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Offloading array-based hyperparameter computations to GPU.js removes
+math bottlenecks from the orchestration thread, ensuring consistent
+throughput across extensive training fleets.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Translates Constants into GLSL - gpu.js</title>
+    <meta name="description" content="When compiling JavaScript kernels to run on the GPU, gpu.js analyzes provided constant values and converts them into either GLSL preprocessor defines (#define) or uniform declarations (uniform). This translation depends on the data type of the constant,">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-translates-constants-into-glsl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Translates Constants into GLSL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-translates-constants-into-glsl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When compiling JavaScript kernels to run on the GPU, gpu.js analyzes provided constant values and converts them into either GLSL preprocessor defines (#define) or uniform declarations (uniform). This translation depends on the data type of the constant," />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-translates-constants-into-glsl">How gpu.js Translates
+Constants into GLSL</h1>
+<p>When compiling JavaScript kernels to run on the GPU, gpu.js analyzes
+provided constant values and converts them into either GLSL preprocessor
+defines (<code>#define</code>) or uniform declarations
+(<code>uniform</code>). This translation depends on the data type of the
+constant, kernel optimization strategies, and whether the value must
+remain immutable at compile time. By distinguishing between static
+primitives and complex structures, gpu.js ensures both optimal hardware
+execution and efficient WebGL shader compilation.</p>
+<h3 id="ast-analysis-and-kernel-initialization">AST Analysis and Kernel
+Initialization</h3>
+<p>During the initialization of a kernel, gpu.js parses the JavaScript
+function into an Abstract Syntax Tree (AST) using an internal JavaScript
+parser. When a developer provides a <code>constants</code> object in the
+kernel settings:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">factor</span> <span class="op">*</span> <span class="fl">2.0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">constants</span><span class="op">:</span> { <span class="dt">factor</span><span class="op">:</span> <span class="fl">5.5</span> }</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>The compiler inspects both the AST to locate references to
+<code>this.constants</code> and the runtime types of the supplied
+constant values. The transpiler maps identifier nodes associated with
+the <code>constants</code> namespace directly to designated GLSL names,
+prepending them or tracking them within a symbol table.</p>
+<h3 id="static-primitives-as-preprocessor-defines">Static Primitives as
+Preprocessor Defines</h3>
+<p>For primitive types such as integers, floats, and booleans that are
+fixed when the kernel is built, gpu.js typically generates preprocessor
+<code>#define</code> directives directly into the GLSL shader
+header:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#define factor 5.5</span></span></code></pre></div>
+<p>This strategy offers two primary performance advantages:</p>
+<ol type="1">
+<li><strong>Loop Unrolling and Constant Folding:</strong> Compilers
+inside graphics drivers can evaluate constant arithmetic at compile time
+and unroll static loops that rely on fixed upper bounds.</li>
+<li><strong>Reduced Register Pressure:</strong> Hardcoding numbers via
+<code>#define</code> eliminates the need to allocate dedicated WebGL
+uniform locations or use hardware uniform registers.</li>
+</ol>
+<p>If a constant is an integer used as an array size or iteration
+boundary, injecting it as a macro ensures strict GLSL compliance, as
+array sizes in older WebGL specifications (WebGL 1.0 / GLSL ES 1.00)
+require compile-time constant expressions.</p>
+<h3 id="complex-types-as-glsl-uniforms">Complex Types as GLSL
+Uniforms</h3>
+<p>When constants represent non-primitive or larger datasets, such as
+arrays, vectors, or textures, generating <code>#define</code> directives
+is not syntactically viable in GLSL. In these scenarios, gpu.js
+registers the values as GLSL <code>uniform</code> variables.</p>
+<ol type="1">
+<li><strong>Vectors and Matrices:</strong> Small arrays matching
+standard GLSL vector dimensions (such as 2, 3, or 4 elements) are
+translated into declarations like <code>uniform vec2</code>,
+<code>uniform vec3</code>, or <code>uniform mat4</code>.</li>
+<li><strong>Flat Arrays and Textures:</strong> Because WebGL 1.0 has
+strict limits on uniform array lengths, larger constant arrays are
+encoded into 2D floating-point textures. In the GLSL source, gpu.js
+declares these as <code>uniform sampler2D</code>. It then injects helper
+lookup functions that sample the texture coordinates corresponding to
+the requested array index.</li>
+</ol>
+<h3 id="uniform-translation-for-dynamic-reusability">Uniform Translation
+for Dynamic Reusability</h3>
+<p>In configurations where constants can be updated without triggering a
+full, expensive shader re-compilation, gpu.js switches from preprocessor
+substitution to uniform declarations:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">uniform</span> <span class="dt">float</span> factor<span class="op">;</span></span></code></pre></div>
+<p>During execution, gpu.js uses the WebGL API calls (such as
+<code>gl.uniform1f</code> or <code>gl.uniform1i</code>) to bind the
+updated constant values to their allocated uniform locations prior to
+dispatching <code>gl.drawArrays</code> or
+<code>gl.drawElements</code>.</p>
+<h3 id="the-header-injection-process">The Header Injection Process</h3>
+<p>The final GLSL shader string is assembled in stages by the gpu.js
+kernel compiler:</p>
+<ol type="1">
+<li><strong>Type Resolution:</strong> The compiler determines the target
+GLSL type for each key in the <code>constants</code> map.</li>
+<li><strong>Directive Generation:</strong> For macros, it appends
+<code>#define KEY VALUE</code> statements immediately following the GLSL
+version declaration and precision qualifiers.</li>
+<li><strong>Uniform Declaration:</strong> For dynamic values or
+structured data, it adds <code>uniform &lt;type&gt; KEY;</code> lines to
+the global scope.</li>
+<li><strong>AST Replacement:</strong> In the generated kernel body,
+references matching <code>this.constants.KEY</code> are renamed to the
+sanitized GLSL identifier, allowing the graphics driver to bind or
+inline the values as designated.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

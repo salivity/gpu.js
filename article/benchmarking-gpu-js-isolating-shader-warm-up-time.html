@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Benchmarking GPU.js: Isolating Shader Warm-Up Time - gpu.js</title>
+    <meta name="description" content="Benchmark harnesses can successfully isolate shader warm-up time from steady-state iteration time in gpu.js by decoupling the initial compilation and initialization phase from subsequent execution runs. In gpu.js, the first invocation of a kernel incurs">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/benchmarking-gpu-js-isolating-shader-warm-up-time">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Benchmarking GPU.js: Isolating Shader Warm-Up Time - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/benchmarking-gpu-js-isolating-shader-warm-up-time" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Benchmark harnesses can successfully isolate shader warm-up time from steady-state iteration time in gpu.js by decoupling the initial compilation and initialization phase from subsequent execution runs. In gpu.js, the first invocation of a kernel incurs" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="benchmarking-gpujs-isolating-shader-warm-up-time">Benchmarking
+GPU.js: Isolating Shader Warm-Up Time</h1>
+<p>Benchmark harnesses can successfully isolate shader warm-up time from
+steady-state iteration time in gpu.js by decoupling the initial
+compilation and initialization phase from subsequent execution runs. In
+gpu.js, the first invocation of a kernel incurs significant overhead
+from JavaScript-to-GLSL transpilation, driver-level shader compilation,
+and buffer allocations. By running an unmeasured "burn-in" execution
+followed by synchronized steady-state iterations, benchmarking suites
+can capture accurate performance metrics for both phases
+independently.</p>
+<h3 id="the-anatomy-of-gpujs-warm-up-overhead">The Anatomy of GPU.js
+Warm-Up Overhead</h3>
+<p>When a kernel is declared using <code>gpu.createKernel()</code>,
+gpu.js does not immediately compile it into executable machine code on
+the GPU. Instead, compilation occurs lazily upon the kernel's first
+invocation. This initial execution includes several one-time
+operations:</p>
+<ol type="1">
+<li><strong>AST Parsing and GLSL Transpilation:</strong> gpu.js parses
+the JavaScript function into an abstract syntax tree and converts it
+into WebGL-compatible GLSL shader code.</li>
+<li><strong>WebGL Program Linking:</strong> The browser submits the GLSL
+source to the graphics driver, where it is compiled and linked into a
+WebGL program.</li>
+<li><strong>Texture and Framebuffer Allocation:</strong> Initial GPU
+textures and framebuffers are created to pass arguments and read return
+values.</li>
+</ol>
+<p>Because these tasks run on the CPU and the driver pipeline, the
+initial execution time can be orders of magnitude slower than subsequent
+runs.</p>
+<h3 id="how-harnesses-isolate-warm-up-from-steady-state">How Harnesses
+Isolate Warm-Up from Steady-State</h3>
+<p>To isolate these stages, a benchmarking harness must execute a
+multi-phase test consisting of a warm-up pass, a synchronization
+barrier, and measured steady-state loops.</p>
+<h4 id="1-the-warm-up-phase">1. The Warm-Up Phase</h4>
+<p>The harness runs the kernel once using representative input data
+dimensions without recording metrics to the primary benchmark dataset.
+This single pass forces gpu.js to generate the GLSL code, compile the
+shader on the GPU driver, and configure memory layouts. The duration of
+this single pass can be timed separately if the goal is to measure
+initialization and cold-start latency.</p>
+<h4 id="2-resolving-webgl-asynchrony">2. Resolving WebGL Asynchrony</h4>
+<p>GPU operations in the browser are non-blocking and queued
+asynchronously. A common pitfall in naive benchmarks is measuring only
+the time it takes to dispatch commands to the command buffer rather than
+actual execution time.</p>
+<p>To measure genuine execution time, the harness must force the WebGL
+pipeline to flush and complete:</p>
+<ul>
+<li><strong>Output Readback:</strong> Calling the output method (such as
+retrieving the array via kernel output or <code>.toArray()</code>)
+forces the CPU to wait until the GPU completes computation and reads the
+pixels back into system memory.</li>
+<li><strong>Sync Objects:</strong> For advanced setups using WebGL 2,
+<code>gl.fenceSync</code> and <code>gl.clientWaitSync</code> can be used
+to wait for completion without the full overhead of copying large arrays
+back to the CPU.</li>
+</ul>
+<h4 id="3-steady-state-measurement">3. Steady-State Measurement</h4>
+<p>Once the pipeline is warm, the harness measures steady-state
+execution across multiple iterations using high-precision timers
+(<code>performance.now()</code>):</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">+</span> b[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1048576</span>])<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Phase 1: Isolated Warm-Up (triggers GLSL generation &amp; driver compile)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> warmUpStart <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(inputA<span class="op">,</span> inputB)<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> warmUpDuration <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>() <span class="op">-</span> warmUpStart<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co">// Phase 2: Steady-State Execution</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> iterations <span class="op">=</span> <span class="dv">50</span><span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> runtimes <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> iterations<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> start <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>(inputA<span class="op">,</span> inputB)<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Force pipeline synchronization</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  result<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span> </span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> end <span class="op">=</span> <span class="bu">performance</span><span class="op">.</span><span class="fu">now</span>()<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  runtimes<span class="op">.</span><span class="fu">push</span>(end <span class="op">-</span> start)<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="key-considerations-for-reliable-isolation">Key Considerations
+for Reliable Isolation</h3>
+<ul>
+<li><strong>Input Dimension Consistency:</strong> If input array
+dimensions change between the warm-up and the steady-state run, gpu.js
+may recompile the kernel or reallocate texture memory, invalidating the
+warm-up isolation.</li>
+<li><strong>Garbage Collection:</strong> Allocating new typed arrays
+inside the steady-state loop can trigger V8 or browser garbage
+collection pauses. Pre-allocate all inputs and reuse output buffers
+where possible to ensure that steady-state measurements reflect only
+compute and GPU dispatch latency.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

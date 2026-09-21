@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stereo Widening with Haas Effect in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to accelerate audio stereo widening by implementing the Haas effect using parallel GPU processing with gpu.js. You will learn the core acoustic principles of the Haas effect, how to calculate sample-accurate delays, and how to w">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/stereo-widening-with-haas-effect-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Stereo Widening with Haas Effect in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/stereo-widening-with-haas-effect-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to accelerate audio stereo widening by implementing the Haas effect using parallel GPU processing with gpu.js. You will learn the core acoustic principles of the Haas effect, how to calculate sample-accurate delays, and how to w" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="stereo-widening-with-haas-effect-in-gpujs">Stereo Widening with
+Haas Effect in gpu.js</h1>
+<p>This article explains how to accelerate audio stereo widening by
+implementing the Haas effect using parallel GPU processing with gpu.js.
+You will learn the core acoustic principles of the Haas effect, how to
+calculate sample-accurate delays, and how to write and execute a
+dedicated GPU kernel that simultaneously processes left and right audio
+channels to achieve real-time or offline spatial expansion.</p>
+<h3 id="understanding-the-haas-effect-in-digital-audio">Understanding
+the Haas Effect in Digital Audio</h3>
+<p>The Haas effect, or precedence effect, occurs when two identical or
+nearly identical sounds arrive at human ears with a slight time
+difference between roughly 10 and 35 milliseconds. Instead of perceiving
+two distinct sounds, the auditory system fuses them into a single
+auditory event while perceiving an expanded stereo image directed toward
+the earlier sound.</p>
+<p>In digital signal processing, you apply this effect by leaving one
+channel untouched (or delayed slightly) while delaying the opposing
+channel by <span class="math inline">\(N\)</span> samples, calculated
+as:</p>
+<p><span class="math display">\[\text{delaySamples} = \text{sampleRate}
+\times \text{delayTimeInSeconds}\]</span></p>
+<p>For example, at a standard sample rate of 44,100 Hz, a 20ms delay
+requires delaying one channel by 882 samples.</p>
+<h3 id="preparing-audio-buffers-for-gpujs">Preparing Audio Buffers for
+gpu.js</h3>
+<p>gpu.js operates on multi-dimensional or flat typed arrays
+(<code>Float32Array</code>). For optimal performance on the GPU, pass
+discrete mono channel arrays (<code>leftChannel</code> and
+<code>rightChannel</code>) rather than interleaved stereo buffers.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> { GPU } <span class="im">from</span> <span class="st">&#39;gpu.js&#39;</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sampleRate <span class="op">=</span> <span class="dv">44100</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> delayMs <span class="op">=</span> <span class="dv">20</span><span class="op">;</span> </span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> delaySamples <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(sampleRate <span class="op">*</span> (delayMs <span class="op">/</span> <span class="dv">1000</span>))<span class="op">;</span></span></code></pre></div>
+<h3 id="writing-the-haas-widener-gpu-kernel">Writing the Haas Widener
+GPU Kernel</h3>
+<p>The GPU kernel runs once per audio sample in parallel. Because the
+delay requires reading a sample from an earlier point in time (<span
+class="math inline">\(i - \text{delay}\)</span>), the kernel checks
+boundary conditions to ensure it does not access negative indices.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> haasWidenerKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(leftChannel<span class="op">,</span> rightChannel<span class="op">,</span> delaySamples<span class="op">,</span> mix) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Direct audio for the left channel</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> leftDirect <span class="op">=</span> leftChannel[i]<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Delayed audio for the right channel</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> rightDelayed <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">&gt;=</span> delaySamples) {</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        rightDelayed <span class="op">=</span> rightChannel[i <span class="op">-</span> delaySamples]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Apply wet/dry mix to balance the stereo width</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> outLeft <span class="op">=</span> leftDirect<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> outRight <span class="op">=</span> (rightChannel[i] <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> mix)) <span class="op">+</span> (rightDelayed <span class="op">*</span> mix)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Write back stereo channels into a 2D output format: [Left, Right]</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">===</span> <span class="dv">0</span>) {</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> outLeft<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> outRight<span class="op">;</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([audioLength<span class="op">,</span> <span class="dv">2</span>])</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span> <span class="co">// Retains output on GPU if chaining with other DSP kernels</span></span></code></pre></div>
+<h3 id="executing-the-kernel-and-retrieving-data">Executing the Kernel
+and Retrieving Data</h3>
+<p>To run the processor, supply the input channels along with the delay
+parameters:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">processStereoWidening</span>(leftBuffer<span class="op">,</span> rightBuffer<span class="op">,</span> wetDryMix <span class="op">=</span> <span class="fl">0.8</span>) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> audioLength <span class="op">=</span> leftBuffer<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Reconfigure kernel output dimension dynamically if sample size changes</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    haasWidenerKernel<span class="op">.</span><span class="fu">setOutput</span>([audioLength<span class="op">,</span> <span class="dv">2</span>])<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Execute computation on the GPU</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> stereoOutput <span class="op">=</span> <span class="fu">haasWidenerKernel</span>(leftBuffer<span class="op">,</span> rightBuffer<span class="op">,</span> delaySamples<span class="op">,</span> wetDryMix)<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Extract the separated left and right arrays from the GPU memory</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> processedLeft <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(audioLength)<span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> processedRight <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(audioLength)<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// In non-pipeline mode or after calling .toArray():</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> rawResult <span class="op">=</span> stereoOutput<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> audioLength<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>        processedLeft[i] <span class="op">=</span> rawResult[<span class="dv">0</span>][i]<span class="op">;</span></span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        processedRight[i] <span class="op">=</span> rawResult[<span class="dv">1</span>][i]<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> { processedLeft<span class="op">,</span> processedRight }<span class="op">;</span></span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="key-considerations-for-gpu-audio-processing">Key Considerations
+for GPU Audio Processing</h3>
+<ul>
+<li><strong>PCIe Transfer Overhead:</strong> Transferring audio data
+between CPU system memory and GPU VRAM introduces latency. This approach
+is most effective for large audio buffers, batch offline rendering, or
+when chained with other GPU-based audio DSP filters.</li>
+<li><strong>Phase Coherence:</strong> Extreme delay times or aggressive
+wet mixes can cause comb filtering when summed to mono. Keep delays
+strictly between 10ms and 30ms, and verify mono compatibility by summing
+<code>(processedLeft + processedRight) * 0.5</code>.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Scalar vs Array Arguments - gpu.js</title>
+    <meta name="description" content="This article provides an overview of the internal mechanisms gpu.js uses to process different data types, contrasting how scalar numerical inputs and multi-dimensional array inputs are translated into GPU-compatible formats. In gpu.js, JavaScript functio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-scalar-vs-array-arguments">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Scalar vs Array Arguments - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-scalar-vs-array-arguments" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article provides an overview of the internal mechanisms gpu.js uses to process different data types, contrasting how scalar numerical inputs and multi-dimensional array inputs are translated into GPU-compatible formats. In gpu.js, JavaScript functio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-scalar-vs-array-arguments">How GPU.js Handles
+Scalar vs Array Arguments</h1>
+<p>This article provides an overview of the internal mechanisms
+<code>gpu.js</code> uses to process different data types, contrasting
+how scalar numerical inputs and multi-dimensional array inputs are
+translated into GPU-compatible formats. In <code>gpu.js</code>,
+JavaScript functions are transpiled into WebGL or WebGPU shader code,
+requiring distinct handling for scalar primitives versus complex data
+collections to accommodate the constraints of graphics hardware.</p>
+<h2 id="scalar-numerical-arguments">Scalar Numerical Arguments</h2>
+<p>Scalar numerical arguments—such as individual integers or
+floating-point numbers—are passed directly to the underlying shader as
+uniform variables (e.g., <code>uniform float</code> or
+<code>uniform int</code> in GLSL).</p>
+<p>Because uniforms remain constant across all concurrent threads during
+a single kernel execution, they entail minimal overhead:</p>
+<ul>
+<li><strong>Direct Value Passing:</strong> The CPU sends the single
+numeric value straight to the GPU state without complex
+serialization.</li>
+<li><strong>Registers and Caches:</strong> Inside the shader, the scalar
+resides in fast uniform memory, making read access nearly instantaneous
+for every thread.</li>
+<li><strong>Read-Only Context:</strong> Like all WebGL uniforms, scalars
+cannot be modified within the kernel execution; they act as read-only
+constants across the execution grid.</li>
+</ul>
+<h2 id="array-arguments">Array Arguments</h2>
+<p>Because traditional WebGL fragment shaders cannot accept dynamically
+sized, arbitrary arrays as standard inputs, <code>gpu.js</code> handles
+array arguments by encoding them into GPU textures.</p>
+<p>When you pass a 1D, 2D, or 3D array to a kernel:</p>
+<ol type="1">
+<li><strong>Texture Packing:</strong> <code>gpu.js</code> serializes the
+array data into a typed array and uploads it to GPU VRAM as a 2D
+floating-point texture. If the input is a multidimensional array, the
+library maps the nested dimensions to specific texture dimensions.</li>
+<li><strong>Coordinate Translation:</strong> Within the generated shader
+code, standard array indexing syntax (such as
+<code>myArray[this.thread.y][this.thread.x]</code>) is transpiled into
+UV texture coordinate calculations.</li>
+<li><strong>Texture Sampling:</strong> The shader fetches the requested
+value by sampling the texture at the calculated coordinates using
+built-in sampling functions rather than reading directly from system
+memory.</li>
+</ol>
+<h2 id="architectural-and-performance-differences">Architectural and
+Performance Differences</h2>
+<ul>
+<li><strong>Memory Overhead:</strong> Scalar arguments involve almost no
+transfer latency. In contrast, array arguments require allocating
+texture memory and copying data from the CPU to the GPU, which can
+become a bottleneck for large datasets unless inputs are already kept on
+the GPU using <code>gpu.js</code> textures.</li>
+<li><strong>Access Mechanics:</strong> Scalars are accessed directly by
+name as uniforms. Array elements require mathematical coordinate
+transformation and a texture lookup per read, consuming more GPU
+execution cycles.</li>
+<li><strong>Size Limitations:</strong> Scalar arguments are constrained
+only by the number of available uniform registers. Arrays are limited by
+the host machine's <code>MAX_TEXTURE_SIZE</code> limits, which dictate
+the maximum dimensions of an array that can be successfully encoded into
+a single texture.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

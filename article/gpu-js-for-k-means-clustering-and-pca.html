@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js for K-Means Clustering and PCA - gpu.js</title>
+    <meta name="description" content="GPU.js can be effectively used to accelerate both unsupervised K-Means clustering and Principal Component Analysis (PCA) in JavaScript environments. By compiling parallel JavaScript functions into WebGL shaders, GPU.js offloads heavy mathematical computa">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-for-k-means-clustering-and-pca">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js for K-Means Clustering and PCA - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-for-k-means-clustering-and-pca" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js can be effectively used to accelerate both unsupervised K-Means clustering and Principal Component Analysis (PCA) in JavaScript environments. By compiling parallel JavaScript functions into WebGL shaders, GPU.js offloads heavy mathematical computa" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-for-k-means-clustering-and-pca">GPU.js for K-Means
+Clustering and PCA</h1>
+<p>GPU.js can be effectively used to accelerate both unsupervised
+K-Means clustering and Principal Component Analysis (PCA) in JavaScript
+environments. By compiling parallel JavaScript functions into WebGL
+shaders, GPU.js offloads heavy mathematical computations directly to the
+graphics hardware. While both algorithms benefit substantially from GPU
+acceleration, their implementation structures differ: K-Means maps
+naturally to GPU kernels for distance calculations, whereas PCA
+leverages the GPU primarily for covariance matrix operations before
+deriving eigenvectors.</p>
+<h3 id="accelerating-k-means-clustering-with-gpujs">Accelerating K-Means
+Clustering with GPU.js</h3>
+<p>K-Means clustering relies heavily on repetitive distance
+calculations, making it an ideal candidate for parallel processing. The
+algorithm alternates between two main steps:</p>
+<ol type="1">
+<li><strong>Cluster Assignment:</strong> For every data point, the
+Euclidean distance to every centroid must be calculated to find the
+nearest cluster. In GPU.js, each thread can evaluate a single data point
+concurrently across all centroids. This transforms an <span
+class="math inline">\(O(n \times k)\)</span> operation into a massively
+parallel execution, reducing runtime bottlenecks when handling
+high-dimensional or large-scale datasets.</li>
+<li><strong>Centroid Updates:</strong> Once points are assigned, new
+centroids are calculated by averaging coordinates. Because WebGL kernels
+excel at map operations rather than native reductions, you can either
+perform parallel reduction passes within GPU.js or pass the cluster
+assignments back to the CPU to compute the averages.</li>
+</ol>
+<p>For datasets containing tens of thousands of data points, performing
+the distance matrix computations on the GPU yields significant
+performance improvements over standard single-threaded CPU loops.</p>
+<h3 id="implementing-pca-with-gpujs">Implementing PCA with GPU.js</h3>
+<p>Principal Component Analysis reduces dimensionality by identifying
+the directions of maximum variance within high-dimensional data.
+Implementing PCA involves three key computational stages:</p>
+<ol type="1">
+<li><strong>Mean Centering:</strong> Shifting data points by subtracting
+the mean of each feature. This can be handled efficiently across
+multiple threads in GPU.js.</li>
+<li><strong>Covariance Matrix Computation:</strong> This step requires
+calculating the outer product <span class="math inline">\(X^T
+X\)</span>, which is a standard matrix multiplication. Matrix
+multiplication is one of the most efficient tasks for GPU execution, and
+GPU.js provides substantial speedups here over standard JavaScript
+arrays.</li>
+<li><strong>Eigendecomposition or Singular Value Decomposition
+(SVD):</strong> Computing the eigenvalues and eigenvectors of the
+resulting covariance matrix is mathematically complex and less
+straightforward to write natively in GPU.js kernels.</li>
+</ol>
+<p>Because of the complexity of SVD, the standard approach is a hybrid
+pipeline: GPU.js is used to compute the covariance matrix rapidly, and a
+lightweight CPU linear algebra library (or iterative power-iteration
+kernels on the GPU) is used to extract the principal components.</p>
+<h3 id="limitations-and-practical-considerations">Limitations and
+Practical Considerations</h3>
+<ul>
+<li><strong>Memory Transfer Overhead:</strong> Moving data textures
+between the CPU and GPU introduces latency. For small datasets (fewer
+than a few thousand points), the CPU may be faster due to the absence of
+memory transfer overhead.</li>
+<li><strong>Precision Limits:</strong> GPU.js relies on WebGL textures,
+which often use 32-bit single-precision floating-point numbers. If your
+PCA or clustering calculations require 64-bit double precision, WebGL
+hardware limitations may cause minor rounding discrepancies.</li>
+<li><strong>Data Formatting:</strong> Input data must be structured as
+flat or 2D arrays to be passed into GPU kernels efficiently, requiring
+clean pre-processing before execution.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

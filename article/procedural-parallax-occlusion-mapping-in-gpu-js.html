@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Procedural Parallax Occlusion Mapping in GPU.js - gpu.js</title>
+    <meta name="description" content="This guide demonstrates how to implement Parallax Occlusion Mapping (POM) on procedural surfaces using GPU.js. By leveraging GPU.js to transpile JavaScript functions into WebGL shaders, you can calculate per-pixel ray-marched depth displacements directly">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/procedural-parallax-occlusion-mapping-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Procedural Parallax Occlusion Mapping in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/procedural-parallax-occlusion-mapping-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This guide demonstrates how to implement Parallax Occlusion Mapping (POM) on procedural surfaces using GPU.js. By leveraging GPU.js to transpile JavaScript functions into WebGL shaders, you can calculate per-pixel ray-marched depth displacements directly" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="procedural-parallax-occlusion-mapping-in-gpujs">Procedural
+Parallax Occlusion Mapping in GPU.js</h1>
+<p>This guide demonstrates how to implement Parallax Occlusion Mapping
+(POM) on procedural surfaces using GPU.js. By leveraging GPU.js to
+transpile JavaScript functions into WebGL shaders, you can calculate
+per-pixel ray-marched depth displacements directly on the GPU without
+external image textures. You will learn how to define an analytical
+procedural height function, march view rays through the virtual
+displacement layer, find the accurate surface intersection via linear
+interpolation, and render the resulting relief with dynamic shading.</p>
+<h3 id="understanding-parallax-occlusion-mapping">Understanding Parallax
+Occlusion Mapping</h3>
+<p>Parallax Occlusion Mapping is an enhancement of bump mapping and
+parallax mapping that traces a view vector through an apparent height
+field. Instead of shifting texture coordinates based on a single height
+sample, POM marches along the view ray across multiple layers until it
+determines that the ray has intersected the geometry. It then performs
+an interpolation step between the layer before the collision and the
+layer after the collision to find the precise intersection point,
+producing accurate self-occlusion, motion parallax, and depth perception
+on flat surfaces.</p>
+<p>When working procedurally, the height value is computed
+mathematically within the shader on demand rather than sampled from a
+pre-baked texture.</p>
+<h3 id="1-setting-up-gpujs">1. Setting Up GPU.js</h3>
+<p>GPU.js allows you to write high-performance compute kernels using a
+subset of JavaScript syntax. First, instantiate your GPU context and
+configure it to output to a canvas.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;webgl2&#39;</span> <span class="co">// WebGL2 provides better loop and precision handling</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="2-defining-the-procedural-height-function">2. Defining the
+Procedural Height Function</h3>
+<p>Because GPU.js compiles functions into GLSL, procedural generation
+functions must use standard math operations compatible with GPU.js. You
+can register custom functions using <code>gpu.addFunction</code>.</p>
+<p>Below is a procedural height function using layered sinusoidal
+functions:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(<span class="kw">function</span> <span class="fu">getProceduralHeight</span>(u<span class="op">,</span> v) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> scale <span class="op">=</span> <span class="fl">10.0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> x <span class="op">=</span> u <span class="op">*</span> scale<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> y <span class="op">=</span> v <span class="op">*</span> scale<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Layered wave functions simulating a bumpy surface</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> h1 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(y)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> h2 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(x <span class="op">*</span> <span class="fl">2.0</span> <span class="op">+</span> y) <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> h3 <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(y <span class="op">*</span> <span class="fl">3.0</span> <span class="op">-</span> x) <span class="op">*</span> <span class="fl">0.25</span><span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Normalize result between 0.0 and 1.0</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> total <span class="op">=</span> (h1 <span class="op">+</span> h2 <span class="op">+</span> h3) <span class="op">/</span> <span class="fl">1.75</span><span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> (total <span class="op">+</span> <span class="fl">1.0</span>) <span class="op">*</span> <span class="fl">0.5</span><span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="3-calculating-procedural-normals">3. Calculating Procedural
+Normals</h3>
+<p>To light the displaced surface, compute surface normals at the
+intersection point using finite differences:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(<span class="kw">function</span> <span class="fu">getProceduralNormal</span>(u<span class="op">,</span> v<span class="op">,</span> eps) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> hL <span class="op">=</span> <span class="fu">getProceduralHeight</span>(u <span class="op">-</span> eps<span class="op">,</span> v)<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> hR <span class="op">=</span> <span class="fu">getProceduralHeight</span>(u <span class="op">+</span> eps<span class="op">,</span> v)<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> hD <span class="op">=</span> <span class="fu">getProceduralHeight</span>(u<span class="op">,</span> v <span class="op">-</span> eps)<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> hU <span class="op">=</span> <span class="fu">getProceduralHeight</span>(u<span class="op">,</span> v <span class="op">+</span> eps)<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Normal approximation from gradient</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> nx <span class="op">=</span> hL <span class="op">-</span> hR<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> ny <span class="op">=</span> hD <span class="op">-</span> hU<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> nz <span class="op">=</span> <span class="fl">2.0</span> <span class="op">*</span> eps<span class="op">;</span></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> len <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(nx <span class="op">*</span> nx <span class="op">+</span> ny <span class="op">*</span> ny <span class="op">+</span> nz <span class="op">*</span> nz)<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> [nx <span class="op">/</span> len<span class="op">,</span> ny <span class="op">/</span> len<span class="op">,</span> nz <span class="op">/</span> len]<span class="op">;</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="4-writing-the-pom-ray-marching-kernel">4. Writing the POM
+Ray-Marching Kernel</h3>
+<p>The core POM logic samples the procedural height along the view ray.
+In a full 3D pipeline, calculations occur in tangent space; in a direct
+screen-space compute kernel, we simulate a fixed or variable view angle
+directly across normalized UV coordinates.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> renderPOM <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(viewDirX<span class="op">,</span> viewDirY<span class="op">,</span> viewDirZ<span class="op">,</span> lightDirX<span class="op">,</span> lightDirY<span class="op">,</span> lightDirZ<span class="op">,</span> heightScale) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Normalize UV coordinates [0, 1]</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> u <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> v <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">output</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Configuration for POM quality</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> minLayers <span class="op">=</span> <span class="fl">8.0</span><span class="op">;</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> maxLayers <span class="op">=</span> <span class="fl">32.0</span><span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Dynamically scale sample count based on viewing angle</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> numLayers <span class="op">=</span> minLayers <span class="op">+</span> (maxLayers <span class="op">-</span> minLayers) <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">abs</span>(viewDirZ)<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> layerDepth <span class="op">=</span> <span class="fl">1.0</span> <span class="op">/</span> numLayers<span class="op">;</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Ray step displacement vector</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> deltaUV_X <span class="op">=</span> (viewDirX <span class="op">/</span> viewDirZ) <span class="op">*</span> heightScale <span class="op">/</span> numLayers<span class="op">;</span></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> deltaUV_Y <span class="op">=</span> (viewDirY <span class="op">/</span> viewDirZ) <span class="op">*</span> heightScale <span class="op">/</span> numLayers<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> currentUV_X <span class="op">=</span> u<span class="op">;</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> currentUV_Y <span class="op">=</span> v<span class="op">;</span></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> currentLayerDepth <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> currentHeight <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> <span class="fu">getProceduralHeight</span>(currentUV_X<span class="op">,</span> currentUV_Y)<span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Linear search along the ray</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>  <span class="cf">while</span> (currentLayerDepth <span class="op">&lt;</span> currentHeight) {</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>    currentUV_X <span class="op">-=</span> deltaUV_X<span class="op">;</span></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    currentUV_Y <span class="op">-=</span> deltaUV_Y<span class="op">;</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>    currentHeight <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> <span class="fu">getProceduralHeight</span>(currentUV_X<span class="op">,</span> currentUV_Y)<span class="op">;</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>    currentLayerDepth <span class="op">+=</span> layerDepth<span class="op">;</span></span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Linear interpolation for exact intersection</span></span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> prevUV_X <span class="op">=</span> currentUV_X <span class="op">+</span> deltaUV_X<span class="op">;</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> prevUV_Y <span class="op">=</span> currentUV_Y <span class="op">+</span> deltaUV_Y<span class="op">;</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> prevLayerDepth <span class="op">=</span> currentLayerDepth <span class="op">-</span> layerDepth<span class="op">;</span></span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> prevHeight <span class="op">=</span> <span class="fl">1.0</span> <span class="op">-</span> <span class="fu">getProceduralHeight</span>(prevUV_X<span class="op">,</span> prevUV_Y)<span class="op">;</span></span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> afterDepth <span class="op">=</span> currentHeight <span class="op">-</span> currentLayerDepth<span class="op">;</span></span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> beforeDepth <span class="op">=</span> prevHeight <span class="op">-</span> prevLayerDepth<span class="op">;</span></span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> weight <span class="op">=</span> afterDepth <span class="op">/</span> (afterDepth <span class="op">-</span> beforeDepth)<span class="op">;</span></span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> finalU <span class="op">=</span> prevUV_X <span class="op">*</span> weight <span class="op">+</span> currentUV_X <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> weight)<span class="op">;</span></span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> finalV <span class="op">=</span> prevUV_Y <span class="op">*</span> weight <span class="op">+</span> currentUV_Y <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> weight)<span class="op">;</span></span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Compute normal at the displaced coordinate</span></span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> normal <span class="op">=</span> <span class="fu">getProceduralNormal</span>(finalU<span class="op">,</span> finalV<span class="op">,</span> <span class="fl">0.005</span>)<span class="op">;</span></span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Diffuse Lambertian Lighting</span></span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> diffuse <span class="op">=</span> normal[<span class="dv">0</span>] <span class="op">*</span> lightDirX <span class="op">+</span> normal[<span class="dv">1</span>] <span class="op">*</span> lightDirY <span class="op">+</span> normal[<span class="dv">2</span>] <span class="op">*</span> lightDirZ<span class="op">;</span></span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (diffuse <span class="op">&lt;</span> <span class="fl">0.0</span>) diffuse <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>  </span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> ambient <span class="op">=</span> <span class="fl">0.1</span><span class="op">;</span></span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> finalColor <span class="op">=</span> diffuse <span class="op">+</span> ambient<span class="op">;</span></span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-54"><a href="#cb4-54" aria-hidden="true" tabindex="-1"></a>  <span class="kw">this</span><span class="op">.</span><span class="fu">color</span>(finalColor<span class="op">,</span> finalColor<span class="op">,</span> finalColor<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb4-55"><a href="#cb4-55" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb4-56"><a href="#cb4-56" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])</span>
+<span id="cb4-57"><a href="#cb4-57" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setGraphical</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<h3 id="5-execution-and-rendering">5. Execution and Rendering</h3>
+<p>To display the procedural POM effect, initialize normalized view and
+light vectors and execute the kernel on a render loop:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="bu">document</span><span class="op">.</span><span class="at">body</span><span class="op">.</span><span class="fu">appendChild</span>(renderPOM<span class="op">.</span><span class="at">canvas</span>)<span class="op">;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">render</span>() {</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Example view direction (looking down and slightly angled)</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> vx <span class="op">=</span> <span class="fl">0.3</span><span class="op">,</span> vy <span class="op">=</span> <span class="fl">0.3</span><span class="op">,</span> vz <span class="op">=</span> <span class="fl">0.9</span><span class="op">;</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> vLen <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(vx <span class="op">*</span> vx <span class="op">+</span> vy <span class="op">*</span> vy <span class="op">+</span> vz <span class="op">*</span> vz)<span class="op">;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Example light direction</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> lx <span class="op">=</span> <span class="fl">0.5</span><span class="op">,</span> ly <span class="op">=</span> <span class="fl">0.5</span><span class="op">,</span> lz <span class="op">=</span> <span class="fl">0.7</span><span class="op">;</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> lLen <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(lx <span class="op">*</span> lx <span class="op">+</span> ly <span class="op">*</span> ly <span class="op">+</span> lz <span class="op">*</span> lz)<span class="op">;</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> heightScale <span class="op">=</span> <span class="fl">0.08</span><span class="op">;</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">renderPOM</span>(</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    vx <span class="op">/</span> vLen<span class="op">,</span> vy <span class="op">/</span> vLen<span class="op">,</span> vz <span class="op">/</span> vLen<span class="op">,</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    lx <span class="op">/</span> lLen<span class="op">,</span> ly <span class="op">/</span> lLen<span class="op">,</span> lz <span class="op">/</span> lLen<span class="op">,</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    heightScale</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  )<span class="op">;</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">requestAnimationFrame</span>(render)<span class="op">;</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a><span class="fu">render</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ol type="1">
+<li><strong>Layer Count Tuning</strong>: Set the minimum and maximum
+step counts carefully. Because procedural functions recompute
+mathematical expressions at every step instead of reading a cached
+texture memory fetch, excessive iterations rapidly degrade frame
+rates.</li>
+<li><strong>Mathematical Complexity</strong>: Keep the procedural height
+function computationally lean. Transcendental operations
+(<code>Math.sin</code>, <code>Math.cos</code>, <code>Math.pow</code>)
+are hardware-accelerated, but cascading multiple octaves directly
+impacts ray-marching speed.</li>
+<li><strong>Boundary Handling</strong>: If coordinates step outside the
+<code>[0, 1]</code> UV domain during steep viewing angles, clamp or wrap
+coordinates using modulo arithmetic (<code>u % 1.0</code>) to avoid edge
+artifacts.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

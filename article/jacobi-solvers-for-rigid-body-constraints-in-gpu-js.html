@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jacobi Solvers for Rigid Body Constraints in GPU.js - gpu.js</title>
+    <meta name="description" content="Iterative constraint resolution for rigid body physics can be successfully implemented in gpu.js using a Jacobi solver, but it requires specific architectural trade-offs compared to traditional CPU methods. While standard physics engines rely on the sequ">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/jacobi-solvers-for-rigid-body-constraints-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Jacobi Solvers for Rigid Body Constraints in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/jacobi-solvers-for-rigid-body-constraints-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Iterative constraint resolution for rigid body physics can be successfully implemented in gpu.js using a Jacobi solver, but it requires specific architectural trade-offs compared to traditional CPU methods. While standard physics engines rely on the sequ" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="jacobi-solvers-for-rigid-body-constraints-in-gpujs">Jacobi
+Solvers for Rigid Body Constraints in GPU.js</h1>
+<p>Iterative constraint resolution for rigid body physics can be
+successfully implemented in gpu.js using a Jacobi solver, but it
+requires specific architectural trade-offs compared to traditional CPU
+methods. While standard physics engines rely on the sequential Projected
+Gauss-Seidel (PGS) algorithm, the Jacobi method calculates constraint
+impulses simultaneously, making it inherently parallel and compatible
+with GPU architectures. This article explores how to implement iterative
+Jacobi constraint solving in gpu.js, its mathematical formulation, and
+the practical challenges associated with WebGL-based compute.</p>
+<h3 id="why-jacobi-solvers-fit-the-gpu">Why Jacobi Solvers Fit the
+GPU</h3>
+<p>In rigid body dynamics, constraints (such as joints, contacts, and
+limits) are typically modeled as a system of linear equations or a
+Linear Complementarity Problem (LCP):</p>
+<p><span class="math display">\[J M^{-1} J^T \lambda = b\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(J\)</span> is the constraint
+Jacobian.</li>
+<li><span class="math inline">\(M^{-1}\)</span> is the inverse mass and
+inertia matrix.</li>
+<li><span class="math inline">\(\lambda\)</span> represents the
+constraint impulses (Lagrange multipliers).</li>
+<li><span class="math inline">\(b\)</span> is the constraint error
+vector.</li>
+</ul>
+<p>Projected Gauss-Seidel (PGS) updates <span
+class="math inline">\(\lambda\)</span> sequentially: calculating
+constraint <span class="math inline">\(i\)</span> immediately updates
+the velocities used to calculate constraint <span
+class="math inline">\(i+1\)</span>. This feedback loop prevents race
+conditions on a CPU, but it cannot be directly parallelized across
+thousands of GPU threads.</p>
+<p>A Jacobi solver, by contrast, decouples these dependencies. Every
+constraint is evaluated simultaneously using velocities and positions
+strictly from the previous iteration. Because the output of one thread
+does not immediately affect another in the same pass, the algorithm
+avoids write conflicts and matches the SIMD (Single Instruction,
+Multiple Data) paradigm of graphics processors.</p>
+<h3 id="implementing-the-jacobi-approach-in-gpujs">Implementing the
+Jacobi Approach in gpu.js</h3>
+<p>Because gpu.js compiles JavaScript functions into WebGL fragment
+shaders, it does not support arbitrary read/write memory within a single
+execution pass. To solve constraints iteratively, you must implement a
+"ping-pong" buffering architecture:</p>
+<ol type="1">
+<li><strong>Data Representation:</strong> Store physical
+states—positions, orientations (quaternions), linear velocities, angular
+velocities, and constraint definitions—in 2D or 1D float arrays. In
+gpu.js, these are passed as textures to the kernels.</li>
+<li><strong>The Solving Kernel:</strong> Write a gpu.js kernel that maps
+one thread per constraint (or one thread per rigid body). Each thread
+reads the shared velocities, computes the delta impulse needed to
+correct its assigned constraint, and outputs the calculated delta.</li>
+<li><strong>Velocity Update Kernel:</strong> A secondary kernel
+aggregates the constraint impulses applied to each body, updates the
+velocities, and writes them to an alternate output texture.</li>
+<li><strong>Iteration Loop:</strong> Run the solving and update kernels
+sequentially across multiple iterations (typically 10 to 30 times per
+physics step) by swapping the input and output textures on the CPU side
+without reading data back to the JavaScript main thread.</li>
+</ol>
+<h3 id="convergence-issues-and-under-relaxation">Convergence Issues and
+Under-Relaxation</h3>
+<p>The primary drawback of the standard Jacobi solver is stability.
+While Gauss-Seidel converges reliably for stiff systems, a pure Jacobi
+solver often overshoots, leading to high-frequency oscillations or
+explosive instability, especially in long constraint chains (like ropes
+or articulated ragdolls).</p>
+<p>To stabilize a Jacobi solver in gpu.js, you must apply
+<strong>under-relaxation</strong> (often related to the Jacobi-SOR
+method):</p>
+<p><span class="math display">\[\lambda^{(k+1)} = \lambda^{(k)} + \omega
+\Delta \lambda\]</span></p>
+<p>Where <span class="math inline">\(\omega\)</span> is a relaxation
+parameter typically chosen in the range of <span
+class="math inline">\(0.1 \le \omega \le 0.6\)</span>. This scales down
+the immediate correction of each constraint to account for the
+simultaneous corrections being applied by neighboring constraints. While
+under-relaxation prevents system explosion, it introduces a "spongy" or
+elastic appearance, requiring more iterations to achieve rigid
+behavior.</p>
+<h3 id="limitations-of-gpujs-for-constraint-solving">Limitations of
+gpu.js for Constraint Solving</h3>
+<p>While technically feasible, solving rigid body constraints with
+Jacobi solvers inside gpu.js presents several practical bottlenecks:</p>
+<ul>
+<li><strong>Kernel Invocation Overhead:</strong> Iterative solvers
+require dozens of iterations per frame. Calling gpu.js kernels inside
+nested JavaScript loops creates significant WebGL draw call and
+state-change overhead.</li>
+<li><strong>Scattering vs. Gathering:</strong> A constraint produces
+impulses for two distinct bodies (scattering), but WebGL fragment
+shaders can only write to the coordinate of the target pixel
+(gathering). Structuring data so that bodies aggregate forces from
+connected constraints requires complex indexing structures that degrade
+shader performance.</li>
+<li><strong>Memory Readback Costs:</strong> Transferring the final
+simulation state from the GPU back to the CPU via
+<code>readPixels</code> (which gpu.js uses under the hood) is
+synchronous and can cause pipeline stalls.</li>
+</ul>
+<h3 id="conclusion">Conclusion</h3>
+<p>Rigid body constraints can be solved iteratively using Jacobi solvers
+in gpu.js. The decoupled nature of the Jacobi algorithm allows parallel
+execution within the constraints of WebGL fragment shaders. However, due
+to the need for under-relaxation to maintain stability and the inherent
+overhead of managing iterative draw calls in WebGL, this approach is
+best suited for large volumes of simple constraints (such as mass-spring
+networks or non-interlocking particle collisions) rather than complex,
+highly rigid articulated mechanisms.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

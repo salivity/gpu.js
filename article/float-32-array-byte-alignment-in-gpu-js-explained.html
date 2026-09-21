@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Float32Array Byte Alignment in GPU.js Explained - gpu.js</title>
+    <meta name="description" content="This article examines how the gpu.js library manages byte alignment and memory layout when transferring Float32Array typed buffers from CPU memory to GPU memory. It details the underlying WebGL pixel store alignments, 2D texture dimensions, WebGPU buffer">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/float-32-array-byte-alignment-in-gpu-js-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Float32Array Byte Alignment in GPU.js Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/float-32-array-byte-alignment-in-gpu-js-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the gpu.js library manages byte alignment and memory layout when transferring Float32Array typed buffers from CPU memory to GPU memory. It details the underlying WebGL pixel store alignments, 2D texture dimensions, WebGPU buffer" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="float32array-byte-alignment-in-gpujs-explained">Float32Array
+Byte Alignment in GPU.js Explained</h1>
+<p>This article examines how the gpu.js library manages byte alignment
+and memory layout when transferring <code>Float32Array</code> typed
+buffers from CPU memory to GPU memory. It details the underlying WebGL
+pixel store alignments, 2D texture dimensions, WebGPU buffer stride
+limits, and the zero-padding mechanisms used to prevent memory
+corruption during parallel computations.</p>
+<h3 id="native-4-byte-boundary-matching">Native 4-Byte Boundary
+Matching</h3>
+<p>A JavaScript <code>Float32Array</code> consists of 32-bit IEEE 754
+single-precision floating-point numbers, where each element naturally
+occupies 4 bytes. Under WebGL and OpenGL specifications, memory
+transfers default to an unpack alignment constraint
+(<code>gl.UNPACK_ALIGNMENT</code>) of 4 bytes. Because every element in
+a <code>Float32Array</code> already adheres to a 4-byte boundary,
+standard scalar transfers avoid the fractional offset misalignments
+common with smaller data types like <code>Int8Array</code> or packed
+24-bit RGB structures.</p>
+<h3 id="texture-packing-and-row-alignment-in-webgl">Texture Packing and
+Row Alignment in WebGL</h3>
+<p>Because WebGL 1 and standard WebGL 2 contexts lack universal support
+for arbitrary compute storage buffers (SSBOs), gpu.js encodes array
+inputs into 2D textures. Data transfer to the GPU occurs via calls such
+as <code>gl.texImage2D</code> or <code>gl.texSubImage2D</code>.</p>
+<p>When passing a <code>Float32Array</code> to a texture, WebGL drivers
+require that each row of pixel data begins at an address that is a
+multiple of the context's unpack alignment. gpu.js ensures safety across
+diverse hardware by explicitly setting:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>gl<span class="op">.</span><span class="fu">pixelStorei</span>(gl<span class="op">.</span><span class="at">UNPACK_ALIGNMENT</span><span class="op">,</span> <span class="dv">1</span>)<span class="op">;</span></span></code></pre></div>
+<p>Setting <code>UNPACK_ALIGNMENT</code> to 1 byte removes the
+requirement that row strides terminate on 4- or 8-byte multiples. This
+permits arbitrary texture widths without triggering driver-level buffer
+overruns or misalignment errors when mapping 1D arrays into 2D texture
+coordinate spaces.</p>
+<h3 id="dimension-calculation-and-zero-padding">Dimension Calculation
+and Zero-Padding</h3>
+<p>Arbitrary-sized input arrays rarely fit into perfect square textures.
+When a 1D <code>Float32Array</code> must be mapped to a 2D texture grid,
+gpu.js determines the optimal power-of-two or rectangular dimensions
+(width and height) to host the elements.</p>
+<p>If the capacity of the allocated 2D texture exceeds the length of the
+source <code>Float32Array</code>, trailing elements cause an incomplete
+final row. gpu.js prevents memory read faults by allocating an internal
+target buffer sized to the full dimension requirements, copying the
+source data, and padding the excess positions with zeros. This
+guarantees that the driver reads a buffer exactly matching the expected
+byte size of <code>width × height × channels × 4 bytes</code>.</p>
+<h3 id="webgpu-buffer-and-pitch-alignment">WebGPU Buffer and Pitch
+Alignment</h3>
+<p>In its WebGPU backend, gpu.js interacts directly with
+<code>GPUBuffer</code> and <code>GPUTexture</code> abstractions rather
+than WebGL textures. WebGPU imposes rigid hardware-level alignment
+constraints:</p>
+<ol type="1">
+<li><strong>Copy Buffer to Texture Constraints:</strong> The
+<code>bytesPerRow</code> attribute when copying data between buffers and
+textures must be a multiple of 256 bytes.</li>
+<li><strong>Uniform and Storage Offsets:</strong> Dynamic buffer offsets
+must align to the device’s <code>minStorageBufferOffsetAlignment</code>
+(often 256 bytes).</li>
+</ol>
+<p>To satisfy these constraints, gpu.js computes the minimum row pitch
+that satisfies the 256-byte boundary. If the byte width of the
+<code>Float32Array</code> row does not cleanly divide by 256, gpu.js
+injects stride padding into the array buffer before issuing the
+<code>writeBuffer</code> or copy commands. Shaders are then compiled
+with indexing arithmetic that accounts for this stride, ignoring the
+padding bytes during kernel execution.</p>
+<h3 id="fallback-packing-for-unsupported-float-textures">Fallback
+Packing for Unsupported Float Textures</h3>
+<p>On platforms where floating-point textures
+(<code>OES_texture_float</code> or WebGL2
+<code>EXT_color_buffer_float</code>) are not natively writable or
+readable, gpu.js falls back to encoding 32-bit floats into standard
+8-bit RGBA channels. In this mode, each 4-byte float is mathematically
+split across four 1-byte unsigned integers using bitwise operations and
+reassembled within the shader code. Because this fallback produces a
+four-channel unsigned byte array, it naturally aligns to the default
+4-byte texture read requirements, avoiding byte offset errors on
+restricted mobile hardware.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

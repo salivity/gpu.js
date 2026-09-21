@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Color Histograms and CCVs in GPU.js - gpu.js</title>
+    <meta name="description" content="Generating chromaticity histograms and color-coherence vectors (CCVs) from live camera feeds is achievable in gpu.js by streaming media through WebRTC and processing individual video frames via WebGL fragment shaders. While simple per-pixel transformatio">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/real-time-color-histograms-and-cc-vs-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Real-Time Color Histograms and CCVs in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/real-time-color-histograms-and-cc-vs-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Generating chromaticity histograms and color-coherence vectors (CCVs) from live camera feeds is achievable in gpu.js by streaming media through WebRTC and processing individual video frames via WebGL fragment shaders. While simple per-pixel transformatio" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="real-time-color-histograms-and-ccvs-in-gpujs">Real-Time Color
+Histograms and CCVs in GPU.js</h1>
+<p>Generating chromaticity histograms and color-coherence vectors (CCVs)
+from live camera feeds is achievable in gpu.js by streaming media
+through WebRTC and processing individual video frames via WebGL fragment
+shaders. While simple per-pixel transformations such as chromaticity
+conversion are natively optimal for the parallel architecture of gpu.js,
+features requiring spatial grouping and global data aggregation—like
+CCVs and histogram binning—require specialized multi-pass shader
+pipelines to overcome the absence of atomic write operations in standard
+WebGL.</p>
+<p>To capture the live stream, an HTML5 <code>&lt;video&gt;</code>
+element receiving data via
+<code>navigator.mediaDevices.getUserMedia</code> serves as the dynamic
+input texture. The gpu.js library accepts HTML video elements directly,
+updating the GPU-bound texture on every requestAnimationFrame loop
+without requiring CPU-side frame decoding.</p>
+<p>Generating a chromaticity histogram begins with mapping the live RGB
+stream into normalized chromaticity coordinates (<span
+class="math inline">\(r = R / (R+G+B)\)</span>, <span
+class="math inline">\(g = G / (R+G+B)\)</span>) to achieve luminance
+invariance. Because WebGL fragment shaders cannot perform scattered
+writes into arbitrary memory bins, calculating the global histogram
+within gpu.js typically requires a reduction technique. A quantization
+kernel first discretizes each pixel into a predefined <span
+class="math inline">\((r, g)\)</span> bin index. A series of
+downsampling reduction passes then aggregates these bin counts
+progressively across the frame, producing the final histogram array.</p>
+<p>Color-coherence vectors extend the chromaticity histogram by
+categorizing pixels as either coherent (belonging to a large continuous
+region of the same color) or incoherent (isolated pixels or small
+clusters). This requires connected-component labeling (CCL), which is
+computationally intensive for real-time applications. Within gpu.js, CCL
+is executed through iterative label-propagation kernels using the
+<code>pipeline: true</code> configuration, preventing expensive CPU-GPU
+data transfers between iterations. Each step compares a pixel’s
+quantized color to its neighbors, spreading a unique component
+identifier until convergence is achieved.</p>
+<p>Once regions are labeled, a secondary pass evaluates the component
+sizes against a coherence threshold (typically <span
+class="math inline">\(\tau \ge 1\%\)</span> of total pixels). Pixels are
+then tagged as coherent or incoherent, yielding two distinct histograms
+per color bin.</p>
+<p>Practical real-time execution in the browser requires balancing video
+resolution and pipeline depth. Performing multi-pass reductions and
+iterative CCL on standard HD resolutions will lead to dropped frames.
+Scaling down the incoming camera feed to a lower processing resolution
+(such as 160x120 or 320x240) preserves dominant spatial coherence and
+chromatic signatures while maintaining a stable 30 to 60 frames per
+second.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

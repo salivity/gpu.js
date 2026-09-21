@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Processing Distributed Data with gpu.js and RabbitMQ - gpu.js</title>
+    <meta name="description" content="This article examines whether gpu.js can process distributed data chunks coordinated by a Node.js message queue like RabbitMQ. It explores the technical viability of this architecture, outlines how tasks flow from a message broker to GPU-accelerated work">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/processing-distributed-data-with-gpu-js-and-rabbit-mq">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Processing Distributed Data with gpu.js and RabbitMQ - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/processing-distributed-data-with-gpu-js-and-rabbit-mq" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether gpu.js can process distributed data chunks coordinated by a Node.js message queue like RabbitMQ. It explores the technical viability of this architecture, outlines how tasks flow from a message broker to GPU-accelerated work" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="processing-distributed-data-with-gpujs-and-rabbitmq">Processing
+Distributed Data with gpu.js and RabbitMQ</h1>
+<p>This article examines whether gpu.js can process distributed data
+chunks coordinated by a Node.js message queue like RabbitMQ. It explores
+the technical viability of this architecture, outlines how tasks flow
+from a message broker to GPU-accelerated workers, highlights performance
+bottlenecks such as serialization and VRAM management, and details the
+infrastructure required to run headless WebGL computations across a
+distributed cluster.</p>
+<h2 id="architecture-overview">Architecture Overview</h2>
+<p>While gpu.js is strictly an in-memory compute library that converts
+JavaScript into WebGL/OpenCL shader code, it can easily process
+distributed data chunks when paired with RabbitMQ. Gpu.js does not
+provide native networking, clustering, or distribution capabilities, but
+a Node.js process can act as the orchestration wrapper. In this design,
+RabbitMQ distributes the workload, Node.js manages message lifecycle and
+data flow, and gpu.js executes massive parallel computations on the
+local host's graphics hardware.</p>
+<h2 id="how-the-pipeline-works">How the Pipeline Works</h2>
+<p>The workflow relies on standard distributed worker patterns:</p>
+<ol type="1">
+<li><strong>Chunking and Ingestion:</strong> A producer application
+breaks a large dataset—such as a high-resolution image, an extensive
+financial simulation, or a large matrix—into independent, parallelizable
+slices.</li>
+<li><strong>Message Queuing:</strong> The producer publishes these data
+slices as messages to a RabbitMQ exchange, which routes them to a
+designated work queue.</li>
+<li><strong>Worker Consumption:</strong> Multiple Node.js worker
+instances subscribe to the queue using libraries such as
+<code>amqplib</code>. Each worker is deployed on a machine equipped with
+a compatible GPU.</li>
+<li><strong>GPU Execution:</strong> When a worker receives a message, it
+transfers the array or matrix payload to a compiled <code>gpu.js</code>
+kernel. The kernel executes across thousands of GPU cores
+simultaneously.</li>
+<li><strong>Acknowledgment and Aggregation:</strong> Once the
+computation finishes, the worker extracts the output array from the GPU,
+publishes the result to a destination queue or database, and sends an
+acknowledgment (<code>ack</code>) back to RabbitMQ.</li>
+</ol>
+<h2 id="key-considerations-for-implementation">Key Considerations for
+Implementation</h2>
+<h3 id="headless-environments">Headless Environments</h3>
+<p>Running gpu.js in a server-side Node.js environment requires a
+headless WebGL context. On headless Linux servers or within Docker
+containers, you must configure dependencies like
+<code>headless-gl</code> along with appropriate graphics drivers (such
+as NVIDIA CUDA/display drivers) and virtual display servers (like Xvfb)
+to allow the Node runtime to access the GPU.</p>
+<h3 id="serialization-overhead">Serialization Overhead</h3>
+<p>Transferring large datasets over RabbitMQ requires serialization
+(e.g., JSON or Protocol Buffers). Parsing massive text-based JSON arrays
+inside Node.js introduces heavy CPU overhead that can negate GPU
+speedups. To maximize throughput, send raw binary payloads—such as
+TypedArray buffers (Float32Array)—directly over the queue.</p>
+<h3 id="memory-and-concurrency">Memory and Concurrency</h3>
+<p>Unlike CPUs that gracefully swap memory, GPUs can quickly run into
+out-of-memory errors if too many kernels run concurrently. You must
+configure RabbitMQ's prefetch limit (<code>channel.prefetch(1)</code>)
+so that each Node.js worker processes only one compute task at a time,
+ensuring that the GPU's VRAM is not exhausted.</p>
+<h2 id="conclusion">Conclusion</h2>
+<p>Combining gpu.js with RabbitMQ offers a cost-effective,
+JavaScript-native approach to distributed computing for embarrassingly
+parallel workloads. By isolating compute tasks to individual worker
+nodes, you scale compute capacity horizontally simply by spinning up
+additional GPU-equipped workers against the RabbitMQ task queue.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

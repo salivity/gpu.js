@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js SPH Fluid Simulation: 2D and 3D Explained - gpu.js</title>
+    <meta name="description" content="This article examines whether gpu.js can simulate 2D and 3D Smoothed-Particle Hydrodynamics (SPH) for fluid motion. It explores the technical feasibility of executing particle-based fluid dynamics through gpu.js, compares implementation challenges betwee">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-sph-fluid-simulation-2-d-and-3-d-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js SPH Fluid Simulation: 2D and 3D Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-sph-fluid-simulation-2-d-and-3-d-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines whether gpu.js can simulate 2D and 3D Smoothed-Particle Hydrodynamics (SPH) for fluid motion. It explores the technical feasibility of executing particle-based fluid dynamics through gpu.js, compares implementation challenges betwee" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-sph-fluid-simulation-2d-and-3d-explained">GPU.js SPH Fluid
+Simulation: 2D and 3D Explained</h1>
+<p>This article examines whether gpu.js can simulate 2D and 3D
+Smoothed-Particle Hydrodynamics (SPH) for fluid motion. It explores the
+technical feasibility of executing particle-based fluid dynamics through
+gpu.js, compares implementation challenges between 2D and 3D domains,
+highlights performance bottlenecks inherent to browser-based GPU
+acceleration, and evaluates whether modern alternatives like WebGPU are
+better suited for large-scale fluid simulations.</p>
+<h3 id="understanding-sph-and-gpujs-capabilities">Understanding SPH and
+GPU.js Capabilities</h3>
+<p>Smoothed-Particle Hydrodynamics (SPH) is a computational method used
+for simulating fluid flows by discretizing a continuum fluid into
+pseudo-particles. Each particle carries properties such as mass,
+momentum, and density. SPH relies heavily on evaluating interactions
+between neighboring particles through smoothing kernels to resolve the
+Navier-Stokes equations.</p>
+<p>GPU.js is an open-source JavaScript library that transpiles a subset
+of JavaScript into WebGL shaders (fragment shaders), allowing parallel
+execution on the GPU without writing raw GLSL. Because particle
+operations in SPH are inherently parallel, gpu.js can execute these
+calculations substantially faster than CPU-bound JavaScript.</p>
+<h3 id="simulating-2d-sph-in-gpujs">Simulating 2D SPH in GPU.js</h3>
+<p>Simulating 2D SPH in gpu.js is entirely feasible and relatively
+straightforward to implement for moderate particle counts (typically
+between 1,000 and 20,000 particles).</p>
+<p>In a 2D environment, the computational pipeline consists of three
+core steps:</p>
+<ol type="1">
+<li><strong>Density and Pressure Evaluation:</strong> Calculating the
+local density for each particle based on its distance to neighboring
+particles.</li>
+<li><strong>Force Computation:</strong> Computing pressure-gradient
+forces and viscosity forces exerted by adjacent particles.</li>
+<li><strong>Integration:</strong> Updating velocities and positions over
+discrete time steps using algorithms like Euler or Verlet
+integration.</li>
+</ol>
+<p>For smaller particle counts, a brute-force approach (<span
+class="math inline">\(O(N^2)\)</span> complexity) can be written
+directly in gpu.js by passing particle arrays into a kernel where each
+thread loops over every other particle. For larger particle counts, an
+<span class="math inline">\(O(N)\)</span> or <span
+class="math inline">\(O(N \log N)\)</span> approach is required. This
+involves spatial partitioning (such as a uniform grid or spatial
+hashing), which can be represented in gpu.js using structured textures
+to index neighboring cells.</p>
+<h3 id="simulating-3d-sph-in-gpujs">Simulating 3D SPH in GPU.js</h3>
+<p>Simulating 3D SPH in gpu.js is technically possible, but it
+introduces significant architectural and performance hurdles:</p>
+<ul>
+<li><strong>Data Representation:</strong> WebGL fragment shaders output
+data to 2D textures. Representing a 3D coordinate space and performing
+neighbor searches requires flattening 3D spatial grids into 2D memory
+layouts, which increases kernel complexity and memory overhead.</li>
+<li><strong>Neighbor Search Overhead:</strong> In 3D space, each
+particle must check up to 27 neighboring cells (the host cell plus 26
+adjacent cells) instead of the 9 cells required in 2D. Without native
+compute capabilities, managing these lookups in a fragment shader
+creates high memory bandwidth pressure.</li>
+<li><strong>Particle Count Constraints:</strong> Visually convincing 3D
+fluid simulations generally require hundreds of thousands to millions of
+particles. The abstraction layer of gpu.js introduces overhead that
+typically bottlenecks performance before reaching production-grade
+particle volumes in 3D.</li>
+</ul>
+<h3 id="technical-limitations-of-gpujs-for-sph">Technical Limitations of
+GPU.js for SPH</h3>
+<p>While gpu.js handles the mathematical parallelization of SPH kernels,
+it suffers from several underlying constraints:</p>
+<ol type="1">
+<li><strong>Lack of Atomic Operations and Shared Memory:</strong> SPH
+spatial partitioning algorithms often rely on atomic operations to bin
+particles into grid cells. Because gpu.js relies on WebGL fragment
+shaders rather than dedicated compute shaders, it lacks native atomics
+and fast shared local memory.</li>
+<li><strong>Ping-Pong Buffering Overhead:</strong> Since fragment
+shaders cannot read from and write to the same texture simultaneously,
+multi-pass simulations require ping-pong framebuffers, increasing driver
+overhead between pipeline steps.</li>
+<li><strong>CPU-GPU Transfer Costs:</strong> Reading particle data back
+to the CPU (e.g., via <code>kernel()</code>) causes pipeline stalls. To
+maintain high frame rates, rendering must occur entirely within the
+WebGL context without reading the simulation state back to
+JavaScript.</li>
+</ol>
+<h3 id="conclusion">Conclusion</h3>
+<p>GPU.js can successfully simulate 2D SPH fluid dynamics for real-time
+interactive demos, educational visualizations, and smaller datasets.
+While it is theoretically capable of simulating 3D SPH, the
+architectural limitations of fragment-shader-based compute and memory
+indexing make it inefficient for complex 3D fluids. For robust 3D fluid
+simulations in the browser, modern WebGPU implementations provide
+compute shaders, storage buffers, and atomic operations that are
+substantially better equipped for the task.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

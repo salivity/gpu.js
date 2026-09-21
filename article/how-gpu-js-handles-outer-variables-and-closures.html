@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Handles Outer Variables and Closures - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js manages JavaScript closures and outer lexical scope when compiling kernel functions to GPU shaders. Because GPU.js transpiles a subset of JavaScript directly into WebGL or WebGPU shader code (such as GLSL), it cannot use">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-outer-variables-and-closures">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Handles Outer Variables and Closures - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-handles-outer-variables-and-closures" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js manages JavaScript closures and outer lexical scope when compiling kernel functions to GPU shaders. Because GPU.js transpiles a subset of JavaScript directly into WebGL or WebGPU shader code (such as GLSL), it cannot use" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-handles-outer-variables-and-closures">How GPU.js
+Handles Outer Variables and Closures</h1>
+<p>This article explains how GPU.js manages JavaScript closures and
+outer lexical scope when compiling kernel functions to GPU shaders.
+Because GPU.js transpiles a subset of JavaScript directly into WebGL or
+WebGPU shader code (such as GLSL), it cannot use standard JavaScript
+runtime closures. Instead, attempting to directly reference outer
+variables produces compilation errors unless those variables are
+explicitly passed as kernel arguments or bound using GPU.js
+constants.</p>
+<h2 id="the-transpilation-barrier">The Transpilation Barrier</h2>
+<p>In standard JavaScript, functions maintain access to variables in
+their surrounding lexical environment via closures. When a function
+executes on the CPU, the JavaScript engine resolves variable references
+by traversing the scope chain in system memory.</p>
+<p>GPU.js operates differently. Instead of executing JavaScript code on
+the CPU, it takes the kernel function’s source code, parses its Abstract
+Syntax Tree (AST), and transpiles that AST into a shader language (such
+as GLSL) to execute across thousands of GPU cores. The GPU execution
+environment is entirely isolated from the JavaScript runtime heap.
+Consequently, the GPU has no direct memory access to the host engine's
+scope chain, making standard lexical closures technically impossible to
+resolve at runtime.</p>
+<h2 id="what-happens-when-a-closure-is-attempted">What Happens When a
+Closure Is Attempted</h2>
+<p>If you write a GPU.js kernel that attempts to capture an outer
+variable directly:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiplier <span class="op">=</span> <span class="fl">2.5</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> multiplier<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span></code></pre></div>
+<p>GPU.js will parse the AST and encounter the identifier
+<code>multiplier</code>. Because it is neither declared inside the
+kernel nor defined as a parameter, the transpiler cannot deduce its type
+or locate its value in GPU memory. As a result, GPU.js will fail during
+kernel compilation, throwing an error indicating that the variable is an
+undeclared symbol or unsupported identifier.</p>
+<h2 id="supported-methods-for-passing-outer-state">Supported Methods for
+Passing Outer State</h2>
+<p>To work around the absence of traditional lexical closures, GPU.js
+provides two deterministic mechanisms to bridge outer data into the
+kernel.</p>
+<h3 id="1-kernel-arguments">1. Kernel Arguments</h3>
+<p>The most dynamic way to supply external values to a kernel is through
+function parameters. When arguments are supplied to the kernel call,
+GPU.js translates them into GLSL uniforms or texture bindings:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> multiplier) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> multiplier<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(myArray<span class="op">,</span> <span class="fl">2.5</span>)<span class="op">;</span></span></code></pre></div>
+<p>Passing values as parameters allows variables to change between
+invocations without forcing the shader to recompile.</p>
+<h3 id="2-the-constants-configuration-object">2. The
+<code>constants</code> Configuration Object</h3>
+<p>When outer lexical values do not change frequently and represent
+static configuration, GPU.js allows you to inject them via the
+<code>constants</code> property in the kernel settings:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> multiplier <span class="op">=</span> <span class="fl">2.5</span><span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">multiplier</span><span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">constants</span><span class="op">:</span> { <span class="dt">multiplier</span><span class="op">:</span> multiplier }<span class="op">,</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">output</span><span class="op">:</span> [<span class="dv">100</span>]</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>(myArray)<span class="op">;</span></span></code></pre></div>
+<p>When using <code>constants</code>, GPU.js evaluates the values at the
+time of kernel creation and inlines them directly into the generated
+shader code as static definitions or uniform constants. This replaces
+the need for lexical capture while retaining the performance benefits of
+native shader constants.</p>
+<h3 id="3-handling-outer-helper-functions">3. Handling Outer Helper
+Functions</h3>
+<p>Just as primitive variables cannot be closed over, external
+JavaScript functions cannot be called from within a kernel via standard
+lexical scoping. To call an external helper function inside a kernel,
+you must register it ahead of time using
+<code>gpu.addFunction()</code>:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">square</span>(x) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> x <span class="op">*</span> x<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(square)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data) {</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="fu">square</span>(data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>])<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">100</span>])<span class="op">;</span></span></code></pre></div>
+<p>Registering the function enables GPU.js to translate the helper into
+a native shader function before compiling the main kernel.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

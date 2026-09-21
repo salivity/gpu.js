@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Accelerate BVH Traversal for Ray Tracing in GPU.js - gpu.js</title>
+    <meta name="description" content="Bounding Volume Hierarchy (BVH) traversal represents the primary computational bottleneck in browser-based ray tracing pipelines. This article explains how to accelerate BVH ray intersection inside GPU.js by structuring memory for the WebGL pipeline, eli">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/accelerate-bvh-traversal-for-ray-tracing-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Accelerate BVH Traversal for Ray Tracing in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/accelerate-bvh-traversal-for-ray-tracing-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Bounding Volume Hierarchy (BVH) traversal represents the primary computational bottleneck in browser-based ray tracing pipelines. This article explains how to accelerate BVH ray intersection inside GPU.js by structuring memory for the WebGL pipeline, eli" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="accelerate-bvh-traversal-for-ray-tracing-in-gpujs">Accelerate
+BVH Traversal for Ray Tracing in GPU.js</h1>
+<p>Bounding Volume Hierarchy (BVH) traversal represents the primary
+computational bottleneck in browser-based ray tracing pipelines. This
+article explains how to accelerate BVH ray intersection inside GPU.js by
+structuring memory for the WebGL pipeline, eliminating recursion,
+optimizing Ray-AABB (Axis-Aligned Bounding Box) intersection tests, and
+minimizing execution divergence across GPU threads.</p>
+<h2 id="linearize-the-bvh-into-texture-friendly-arrays">Linearize the
+BVH into Texture-Friendly Arrays</h2>
+<p>GPU.js executes kernels by compiling JavaScript functions into WebGL
+fragment shaders. WebGL shaders cannot navigate pointer-based tree
+structures or dynamically allocated nodes. To traverse a BVH, you must
+flatten the hierarchical tree into linear, typed arrays before passing
+them to the GPU.js kernel.</p>
+<p>Organize your node data into a continuous <code>Float32Array</code>.
+Each node can be represented using 32-byte or 64-byte alignments
+matching 4-component vectors (<code>vec4</code>). For example, two
+<code>vec4</code> structures per node:</p>
+<ul>
+<li><strong>Vector A:</strong>
+<code>[min_x, min_y, min_z, left_child_or_primitive_offset]</code></li>
+<li><strong>Vector B:</strong>
+<code>[max_x, max_y, max_z, primitive_count_or_miss_link]</code></li>
+</ul>
+<p>Flattening the structure into tightly packed textures maximizes
+texture cache hits during traversal.</p>
+<h2 id="implement-stackless-or-fixed-stack-traversal">Implement
+Stackless or Fixed-Stack Traversal</h2>
+<p>WebGL lacks native call-stack recursion. Because GPU.js kernels
+cannot recurse, traversal must be converted into an iterative loop using
+one of two approaches:</p>
+<h3 id="1-the-skip-pointer-rope-method">1. The Skip-Pointer (Rope)
+Method</h3>
+<p>The most performant approach for GPU.js is stackless traversal using
+skip-pointers (also called "escape indices"). Each BVH node stores an
+index to the next node to visit when the current bounding box test
+yields a miss.</p>
+<ul>
+<li><strong>On Hit:</strong> Move directly to the left child (offset
+<code>index + 1</code>).</li>
+<li><strong>On Miss:</strong> Jump directly to the precomputed skip
+target.</li>
+</ul>
+<p>This removes the need for any local array stack, reducing private
+register allocation per invocation and preventing memory spills.</p>
+<h3 id="2-fixed-size-emulated-stacks">2. Fixed-Size Emulated Stacks</h3>
+<p>If your acceleration structure requires depth-first traversal with
+back-to-front sorting:</p>
+<ul>
+<li>Allocate a fixed-size integer array inside the kernel (e.g.,
+<code>const stack = new Int32Array(32)</code>).</li>
+<li>Avoid dynamic lengths; manage a simple pointer index variable
+(<code>let stackPtr = 0</code>).</li>
+<li>Keep the maximum depth strictly bounded during the offline BVH build
+phase to avoid exceeding the fixed array boundary.</li>
+</ul>
+<h2 id="optimize-the-ray-aabb-slab-test">Optimize the Ray-AABB Slab
+Test</h2>
+<p>Repeated box intersection tests dominate traversal runtime. Standard
+ray-box intersection equations involve divisions that degrade shader
+performance.</p>
+<ul>
+<li><strong>Precompute Reciprocals:</strong> Compute ray direction
+inverses (<code>1.0 / rayDirX</code>, <code>1.0 / rayDirY</code>,
+<code>1.0 / rayDirZ</code>) on the CPU or once at the start of the ray
+generation kernel.</li>
+<li><strong>Eliminate Branching in Slab Tests:</strong> Use
+<code>Math.min()</code> and <code>Math.max()</code> (which map directly
+to native GPU instructions <code>min</code> and <code>max</code>) rather
+than <code>if-else</code> blocks to determine the near and far
+intersection distances:</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Precomputed invDirX, invDirY, invDirZ passed to traversal</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> t1 <span class="op">=</span> (nodeMinX <span class="op">-</span> rayOrigX) <span class="op">*</span> invDirX<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> t2 <span class="op">=</span> (nodeMaxX <span class="op">-</span> rayOrigX) <span class="op">*</span> invDirX<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tNearX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(t1<span class="op">,</span> t2)<span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tFarX <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(t1<span class="op">,</span> t2)<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tMin <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(tNearX<span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(tNearY<span class="op">,</span> tNearZ))<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> tMax <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(tFarX<span class="op">,</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">min</span>(tFarY<span class="op">,</span> tFarZ))<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> hit <span class="op">=</span> tMax <span class="op">&gt;=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">max</span>(tMin<span class="op">,</span> <span class="fl">0.0</span>) <span class="op">&amp;&amp;</span> tMin <span class="op">&lt;</span> hitDistance<span class="op">;</span></span></code></pre></div>
+<h2 id="reduce-warp-and-workgroup-divergence">Reduce Warp and Workgroup
+Divergence</h2>
+<p>GPU execution efficiency drops dramatically when adjacent threads
+follow different execution branches. Rays traversing different branches
+of the BVH cause execution serialization within a warp or wavefront.</p>
+<ul>
+<li><strong>Ray Sorting:</strong> Sort rays by spatial direction (e.g.,
+using Morton codes or simple screen-space tiling) before execution. Rays
+covering adjacent pixels should evaluate similar regions of the BVH
+simultaneously.</li>
+<li><strong>Early Out Traversal:</strong> Maintain the current closest
+intersection distance (<code>hitDistance</code>) globally within the
+thread. Test <code>tMin &lt; hitDistance</code> before evaluating the
+node's children to prune dead branches immediately.</li>
+<li><strong>SAH Construction:</strong> Build the BVH using a Surface
+Area Heuristic (SAH) on the CPU prior to sending data to GPU.js. A
+well-balanced SAH tree minimizes empty space within bounding boxes and
+drastically cuts traversal steps across all rays.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Memory Leaks: Undisposed Textures Explained - gpu.js</title>
+    <meta name="description" content="Repeatedly creating textures without disposing of them in gpu.js leads to severe memory leaks in both GPU video RAM (VRAM) and system RAM, ultimately causing application crashes or WebGL context loss. Because gpu.js relies on WebGL underneath, allocating">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-memory-leaks-undisposed-textures-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Memory Leaks: Undisposed Textures Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-memory-leaks-undisposed-textures-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Repeatedly creating textures without disposing of them in gpu.js leads to severe memory leaks in both GPU video RAM (VRAM) and system RAM, ultimately causing application crashes or WebGL context loss. Because gpu.js relies on WebGL underneath, allocating" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-memory-leaks-undisposed-textures-explained">GPU.js Memory
+Leaks: Undisposed Textures Explained</h1>
+<p>Repeatedly creating textures without disposing of them in gpu.js
+leads to severe memory leaks in both GPU video RAM (VRAM) and system
+RAM, ultimately causing application crashes or WebGL context loss.
+Because gpu.js relies on WebGL underneath, allocating textures
+continuously consumes hardware-accelerated resources that the browser's
+standard garbage collector cannot efficiently reclaim on its own.</p>
+<h2 id="how-gpujs-allocates-textures">How GPU.js Allocates Textures</h2>
+<p>When you execute a kernel with graphical output or use pipeline mode
+(<code>pipeline: true</code>), gpu.js outputs data directly as a WebGL
+texture. Textures are not standard JavaScript arrays; they are
+high-performance data buffers allocated directly inside the GPU's
+memory. Each new texture instantiates a new WebGL texture object bound
+to the active rendering context.</p>
+<h2 id="the-garbage-collection-disconnect">The Garbage Collection
+Disconnect</h2>
+<p>JavaScript employs automatic garbage collection (GC), but garbage
+collectors primarily monitor the memory footprint within the JavaScript
+virtual machine (such as V8). A gpu.js texture object in JavaScript is
+merely a lightweight reference—a wrapper around a resource that lives
+inside GPU memory.</p>
+<p>Because the JavaScript engine sees only a tiny wrapper object taking
+up negligible heap space, it does not prioritize running garbage
+collection. Meanwhile, the actual GPU memory (VRAM) rapidly fills up
+with heavy graphical buffers that remain tied to the active WebGL
+context.</p>
+<h2 id="consequences-of-continuous-allocation">Consequences of
+Continuous Allocation</h2>
+<p>If textures are created inside a continuous loop, animation frame, or
+recurring task without explicit cleanup, the following issues occur
+sequentially:</p>
+<ol type="1">
+<li><strong>VRAM and Dedicated Memory Spike:</strong> Video memory usage
+will climb continuously. If the GPU runs out of dedicated VRAM, the
+operating system attempts to swap data to shared system memory,
+introducing immense latency.</li>
+<li><strong>Performance Degradation:</strong> Kernel execution times
+increase significantly as the GPU and driver struggle with texture
+thrashing and allocation bottlenecks.</li>
+<li><strong>WebGL Context Loss:</strong> Once memory limits are reached,
+the browser will forcibly terminate the WebGL context with a
+<code>webglcontextlost</code> error to protect system stability. Any
+running kernels will fail immediately.</li>
+<li><strong>Browser Tab Crash:</strong> In extreme cases, rapid
+unmonitored allocations outpace the browser's safeguards, resulting in
+an Out of Memory (OOM) browser crash.</li>
+</ol>
+<h2 id="preventing-texture-memory-leaks">Preventing Texture Memory
+Leaks</h2>
+<p>To maintain steady memory consumption, textures must be manually
+destroyed when they are no longer required.</p>
+<p>gpu.js provides an explicit cleanup method for this purpose:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> texture <span class="op">=</span> <span class="fu">myKernel</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Process or read data from texture...</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Explicitly free the texture from GPU memory</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>texture<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span></code></pre></div>
+<p>When using pipelining across multiple kernel passes, ensure that
+intermediate textures from previous cycles are deleted immediately after
+their successor kernels finish reading them. Explicit disposal
+guarantees that the underlying WebGL textures are unbound and destroyed
+instantly, keeping VRAM utilization stable and predictable.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

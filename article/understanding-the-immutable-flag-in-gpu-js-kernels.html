@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Understanding the Immutable Flag in GPU.js Kernels - gpu.js</title>
+    <meta name="description" content="In GPU.js, the immutable kernel flag governs how memory buffers for input textures are managed during execution, preventing the runtime from recycling or overwriting texture memory. This article explains the purpose of the immutable setting, why texture">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/understanding-the-immutable-flag-in-gpu-js-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Understanding the Immutable Flag in GPU.js Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/understanding-the-immutable-flag-in-gpu-js-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In GPU.js, the immutable kernel flag governs how memory buffers for input textures are managed during execution, preventing the runtime from recycling or overwriting texture memory. This article explains the purpose of the immutable setting, why texture" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="understanding-the-immutable-flag-in-gpujs-kernels">Understanding
+the Immutable Flag in GPU.js Kernels</h1>
+<p>In GPU.js, the <code>immutable</code> kernel flag governs how memory
+buffers for input textures are managed during execution, preventing the
+runtime from recycling or overwriting texture memory. This article
+explains the purpose of the <code>immutable</code> setting, why texture
+recycling happens by default in GPU-accelerated JavaScript, and how to
+use this flag to preserve data integrity across chained and iterative
+computations.</p>
+<h3 id="texture-recycling-in-gpujs">Texture Recycling in GPU.js</h3>
+<p>By default, GPU.js aggressively optimizes GPU memory (VRAM)
+allocation. When kernels are configured with
+<code>pipeline: true</code>, the output of a kernel is returned as a
+WebGL texture rather than a raw JavaScript array. This prevents
+expensive readbacks from VRAM to CPU memory.</p>
+<p>To maintain performance and prevent memory leaks, GPU.js utilizes an
+internal texture pool. When a texture is passed as an input to another
+kernel, the engine assumes that the input data is disposable unless
+configured otherwise. Once the operation completes, the input texture's
+underlying WebGL framebuffer can be overwritten or recycled for the next
+output.</p>
+<h3 id="the-role-of-the-immutable-flag">The Role of the
+<code>immutable</code> Flag</h3>
+<p>Setting <code>immutable: true</code> in the kernel configuration
+forces GPU.js to treat input textures as read-only, non-recyclable
+resources.</p>
+<p>When <code>immutable</code> is set to <code>true</code>:</p>
+<ul>
+<li><strong>Prevents Memory Reuse:</strong> GPU.js will not return the
+input texture's buffer to the internal memory pool.</li>
+<li><strong>Preserves Texture Integrity:</strong> The data inside the
+input texture remains intact in VRAM, allowing the same texture to be
+safely passed into multiple separate kernels or referenced across
+multiple frames.</li>
+<li><strong>Eliminates Race Conditions:</strong> In complex execution
+pipelines, it stops subsequent operations from modifying or corrupting
+an input texture while it is still required by another branch of
+computation.</li>
+</ul>
+<h3 id="configuration-example">Configuration Example</h3>
+<p>You define the <code>immutable</code> flag inside the kernel options
+object during initialization:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(textureA) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> textureA[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">*</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>]<span class="op">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span><span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="dt">immutable</span><span class="op">:</span> <span class="kw">true</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h3 id="when-to-use-immutable-true">When to Use
+<code>immutable: true</code></h3>
+<p>The <code>immutable</code> flag is essential in specific
+architectures:</p>
+<ol type="1">
+<li><strong>Branching Pipelines:</strong> When a single texture serves
+as the input for two or more distinct kernels executing
+sequentially.</li>
+<li><strong>Iterative Simulations:</strong> In simulations like Conway's
+Game of Life or physics solvers where a baseline texture needs to be
+referenced repeatedly without being corrupted by intermediate
+steps.</li>
+<li><strong>Static Lookup Tables:</strong> When using a pre-calculated
+texture as a persistent read-only lookup table throughout the
+application's lifecycle.</li>
+</ol>
+<h3 id="memory-trade-offs">Memory Trade-offs</h3>
+<p>While <code>immutable: true</code> ensures safe data handling, it
+increases VRAM consumption because GPU.js cannot automatically reclaim
+texture memory. When using immutable textures, you must manually manage
+texture lifecycles and explicitly release memory using the
+<code>texture.delete()</code> method once the data is no longer
+needed.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Shallow Water Simulation with GPU.js - gpu.js</title>
+    <meta name="description" content="Simulating 2D shallow water wave equations with reflective obstacle boundaries in real time is entirely feasible in modern web browsers using GPU.js. By translating explicit finite-difference numerical solvers into WebGL fragment shaders, GPU.js leverage">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/real-time-shallow-water-simulation-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Real-Time Shallow Water Simulation with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/real-time-shallow-water-simulation-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating 2D shallow water wave equations with reflective obstacle boundaries in real time is entirely feasible in modern web browsers using GPU.js. By translating explicit finite-difference numerical solvers into WebGL fragment shaders, GPU.js leverage" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="real-time-shallow-water-simulation-with-gpujs">Real-Time Shallow
+Water Simulation with GPU.js</h1>
+<p>Simulating 2D shallow water wave equations with reflective obstacle
+boundaries in real time is entirely feasible in modern web browsers
+using GPU.js. By translating explicit finite-difference numerical
+solvers into WebGL fragment shaders, GPU.js leverages the parallel
+architecture of the graphics card to update fluid grids at interactive
+frame rates. This article breaks down the mathematical formulation,
+boundary condition implementations, and performance considerations
+necessary to achieve stable, real-time wave dynamics with solid
+obstacles.</p>
+<h3 id="the-shallow-water-equations">The Shallow Water Equations</h3>
+<p>The shallow water equations, also known as the Saint-Venant
+equations, describe fluid flow below a pressure surface where horizontal
+scale is significantly larger than fluid depth. In a simplified,
+linearized 2D form suitable for high-performance wave rendering, the
+system governs fluid height (<span class="math inline">\(h\)</span>) and
+horizontal velocities (<span class="math inline">\(u, v\)</span>):</p>
+<p><span class="math display">\[\frac{\partial h}{\partial t} + H \left(
+\frac{\partial u}{\partial x} + \frac{\partial v}{\partial y} \right) =
+0\]</span></p>
+<p><span class="math display">\[\frac{\partial u}{\partial t} + g
+\frac{\partial h}{\partial x} = 0\]</span></p>
+<p><span class="math display">\[\frac{\partial v}{\partial t} + g
+\frac{\partial h}{\partial y} = 0\]</span></p>
+<p>Where <span class="math inline">\(H\)</span> is the mean fluid depth
+and <span class="math inline">\(g\)</span> is gravitational
+acceleration. For full non-linear behavior, advection terms are
+included, but the core wave propagation mechanics remain numerically
+similar.</p>
+<h3 id="executing-via-gpujs">Executing via GPU.js</h3>
+<p>GPU.js abstracts the complexities of writing raw GLSL shaders by
+compiling JavaScript functions into WebGL compute shaders. In a
+numerical simulation, the computational domain is discretized into a 2D
+grid where each cell corresponds to a pixel.</p>
+<p>To execute the solver:</p>
+<ol type="1">
+<li><strong>Pipelining:</strong> Enable <code>pipeline: true</code> on
+GPU.js kernels. This keeps calculation outputs in GPU memory as
+textures, preventing expensive round-trip transfers between the CPU and
+GPU.</li>
+<li><strong>Ping-Pong Buffering:</strong> Numerical PDE solvers require
+the state at the previous time step to compute the next. Two alternating
+textures (read-state and write-state) are maintained to allow safe
+read-write operations per time step.</li>
+<li><strong>Explicit Integration:</strong> Numerical schemes like the
+Leapfrog method or Lax-Wendroff can be expressed directly in GPU.js
+kernels, where each thread updates a single cell by sampling its
+immediate orthogonal neighbors (<span class="math inline">\(i \pm 1, j
+\pm 1\)</span>).</li>
+</ol>
+<h3 id="implementing-reflective-obstacle-boundaries">Implementing
+Reflective Obstacle Boundaries</h3>
+<p>Reflective boundaries require enforcing zero normal flux across solid
+surfaces. In physical terms, fluid cannot penetrate a solid wall,
+causing incident waves to reflect back into the domain with equal
+phase.</p>
+<ol type="1">
+<li><strong>Obstacle Masking:</strong> An auxiliary 2D array or texture
+acts as a collision mask, where values designate whether a cell is fluid
+or an obstacle.</li>
+<li><strong>Velocity Inversion (Dirichlet Condition):</strong> For any
+cell adjacent to an obstacle, the velocity normal to the obstacle
+boundary is set to zero (<span class="math inline">\(u \cdot \hat{n} =
+0\)</span>), or mirrored negatively to eliminate mass transfer through
+the boundary interface.</li>
+<li><strong>Height Extrapolation (Neumann Condition):</strong> Fluid
+height at the boundary cell is set equal to the adjacent fluid cell
+(<span class="math inline">\(\frac{\partial h}{\partial n} =
+0\)</span>). This ensures zero pressure gradient across the boundary
+wall.</li>
+</ol>
+<p>In GPU.js, this logic is handled within the kernel via conditional
+checks against the obstacle mask texture. If a neighbor is marked as
+solid, the kernel replaces that neighbor's state with the reflective
+counterpart before applying the finite-difference stencil.</p>
+<h3 id="performance-and-stability-constraints">Performance and Stability
+Constraints</h3>
+<p>Real-time performance of 60 FPS or higher is easily achievable on
+consumer hardware for grid sizes ranging from <span
+class="math inline">\(256 \times 256\)</span> up to <span
+class="math inline">\(1024 \times 1024\)</span>. However, two key
+constraints must be managed:</p>
+<ul>
+<li><strong>The Courant-Friedrichs-Lewy (CFL) Condition:</strong> The
+numerical time step (<span class="math inline">\(\Delta t\)</span>) must
+satisfy <span class="math inline">\(\Delta t \le \frac{\Delta
+x}{\sqrt{gH}}\)</span> to prevent numerical instability and exponential
+explosion of wave amplitudes. Multiple sub-steps per animation frame may
+be required if spatial resolution (<span class="math inline">\(\Delta
+x\)</span>) is high.</li>
+<li><strong>Precision Limits:</strong> GPU.js relies on WebGL texture
+precision. Ensuring that WebGL floating-point textures
+(<code>OES_texture_float</code>) are supported is critical for
+preventing quantization artifacts in fluid height calculations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why Passing Textures in GPU.js Speeds Up Simulations - gpu.js</title>
+    <meta name="description" content="Running complex simulations requires executing multiple sequential computational steps across thousands or millions of data points. When using GPU.js, chaining kernels by passing textures instead of raw JavaScript arrays yields massive performance improv">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-passing-textures-in-gpu-js-speeds-up-simulations">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why Passing Textures in GPU.js Speeds Up Simulations - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-passing-textures-in-gpu-js-speeds-up-simulations" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running complex simulations requires executing multiple sequential computational steps across thousands or millions of data points. When using GPU.js, chaining kernels by passing textures instead of raw JavaScript arrays yields massive performance improv" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-passing-textures-in-gpujs-speeds-up-simulations">Why Passing
+Textures in GPU.js Speeds Up Simulations</h1>
+<p>Running complex simulations requires executing multiple sequential
+computational steps across thousands or millions of data points. When
+using GPU.js, chaining kernels by passing textures instead of raw
+JavaScript arrays yields massive performance improvements by eliminating
+the data-transfer bottleneck between the CPU and GPU. This article
+breaks down the mechanics of GPU memory pipelines, why conventional
+array returns degrade performance, and how texture passing keeps data
+localized on high-speed VRAM for maximum throughput.</p>
+<h3 id="the-host-to-device-bottleneck">The Host-to-Device
+Bottleneck</h3>
+<p>In standard GPU.js operations, a kernel accepts standard JavaScript
+arrays, uploads them to the GPU for execution, and converts the computed
+result back into an array on the host (CPU).</p>
+<p>While the graphics processor can perform millions of parallel
+calculations in milliseconds, moving data across the PCIe bus between
+system RAM and GPU VRAM is exceptionally slow. In an iterative
+simulation—such as Conway’s Game of Life, fluid dynamics, or n-body
+gravity models—this round-trip data conversion occurs on every single
+frame or tick. The time spent serializing arrays, crossing the hardware
+bus, and deserializing the output completely negates the parallel
+processing advantages of the GPU.</p>
+<h3 id="how-passing-textures-works">How Passing Textures Works</h3>
+<p>GPU.js allows kernels to output and consume native WebGL textures
+directly by configuring the kernel with the <code>pipeline: true</code>
+option.</p>
+<p>When a kernel outputs a texture:</p>
+<ol type="1">
+<li>The kernel executes its parallel logic.</li>
+<li>The output values are written directly to a framebuffer bound to a
+GPU texture.</li>
+<li>Instead of reading back the pixel data to JavaScript, GPU.js returns
+a reference handle to that texture.</li>
+<li>The subsequent kernel accepts this texture handle as an input
+parameter, binding it directly as a sampler.</li>
+</ol>
+<p>At no point does the underlying computational data leave the GPU's
+onboard memory.</p>
+<h3 id="key-factors-driving-the-speedup">Key Factors Driving the
+Speedup</h3>
+<h4 id="1-zero-bus-transfer-latency">1. Zero Bus Transfer Latency</h4>
+<p>By leaving the data in VRAM, you eliminate the PCIe transfer cost for
+intermediate simulation steps. The CPU acts merely as an orchestrator
+sending execution commands rather than a data carrier.</p>
+<h4 id="2-avoidance-of-readback-stalls">2. Avoidance of Readback
+Stalls</h4>
+<p>Reading pixels back from the GPU to the CPU is an inherently
+synchronous, blocking operation in WebGL (via
+<code>gl.readPixels</code>). This forces the GPU pipeline to flush and
+stall until all calculations finish and the data is copied to system
+memory. Textures allow kernels to run asynchronously without stalling
+the GPU pipeline.</p>
+<h4 id="3-ultra-high-vram-bandwidth">3. Ultra-High VRAM Bandwidth</h4>
+<p>Modern graphics cards feature dedicated memory interfaces with
+hundreds of gigabytes per second of bandwidth. Feeding a texture from
+one compute pass into the next allows the GPU to read and write
+intermediate states at internal VRAM speeds, which are orders of
+magnitude faster than standard system memory transfers.</p>
+<h3 id="best-practices-for-simulation-loops">Best Practices for
+Simulation Loops</h3>
+<p>To maintain peak efficiency in an iterative loop:</p>
+<ul>
+<li><strong>Enable Pipelining:</strong> Set
+<code>{ pipeline: true }</code> on all kernels involved in the
+intermediate simulation steps.</li>
+<li><strong>Keep Data on the GPU:</strong> Only convert textures back to
+JavaScript arrays using <code>.toArray()</code> when user interaction or
+data logging strictly requires CPU-side inspection.</li>
+<li><strong>Direct Canvas Rendering:</strong> If the goal is visual
+output, render the final texture directly to an HTML5 canvas using
+GPU.js's graphical mode, avoiding CPU readbacks entirely from
+initialization to display.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split-Operator Method in GPU.js for Wave Packets - gpu.js</title>
+    <meta name="description" content="This article explains how to simulate quantum wave packet propagation by solving the time-dependent Schrödinger equation using the split-operator Fourier method accelerated by gpu.js. You will learn the theoretical framework behind operator splitting, h">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/split-operator-method-in-gpu-js-for-wave-packets">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Split-Operator Method in GPU.js for Wave Packets - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/split-operator-method-in-gpu-js-for-wave-packets" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to simulate quantum wave packet propagation by solving the time-dependent Schrödinger equation using the split-operator Fourier method accelerated by gpu.js. You will learn the theoretical framework behind operator splitting, h" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="split-operator-method-in-gpujs-for-wave-packets">Split-Operator
+Method in GPU.js for Wave Packets</h1>
+<p>This article explains how to simulate quantum wave packet propagation
+by solving the time-dependent Schrödinger equation using the
+split-operator Fourier method accelerated by gpu.js. You will learn the
+theoretical framework behind operator splitting, how complex
+wavefunctions and spatial grids are represented on the GPU, and how to
+structure the computational pipeline across coordinate and momentum
+spaces using WebGL-accelerated JavaScript kernels.</p>
+<h2
+id="theoretical-foundation-split-operator-fourier-method">Theoretical
+Foundation: Split-Operator Fourier Method</h2>
+<p>The one-dimensional time-dependent Schrödinger equation is defined
+as:</p>
+<p><span class="math display">\[i\hbar \frac{\partial
+\psi(x,t)}{\partial t} = \left[
+-\frac{\hbar^2}{2m}\frac{\partial^2}{\partial x^2} + V(x) \right]
+\psi(x,t) = (\hat{T} + \hat{V})\psi(x,t)\]</span></p>
+<p>Because the kinetic operator <span
+class="math inline">\(\hat{T}\)</span> and potential operator <span
+class="math inline">\(\hat{V}\)</span> do not commute, the time
+evolution operator <span
+class="math inline">\(e^{-i(\hat{T}+\hat{V})\Delta t / \hbar}\)</span>
+is approximated using the symmetric Strang-splitting (second-order
+Trotter-Suzuki) scheme:</p>
+<p><span class="math display">\[e^{-i(\hat{T}+\hat{V})\Delta t / \hbar}
+= e^{-i\hat{V}\frac{\Delta t}{2\hbar}} e^{-i\hat{T}\frac{\Delta
+t}{\hbar}} e^{-i\hat{V}\frac{\Delta t}{2\hbar}} + \mathcal{O}(\Delta
+t^3)\]</span></p>
+<p>The algorithm executes in three phases per time step:</p>
+<ol type="1">
+<li>Apply the potential evolution operator for <span
+class="math inline">\(\Delta t / 2\)</span> in position space.</li>
+<li>Transform the wavefunction to momentum space using a Fast Fourier
+Transform (FFT), apply the kinetic evolution operator for <span
+class="math inline">\(\Delta t\)</span>, and transform back via Inverse
+FFT (IFFT).</li>
+<li>Apply the potential evolution operator again for <span
+class="math inline">\(\Delta t / 2\)</span> in position space.</li>
+</ol>
+<h2 id="data-representation-in-gpujs">Data Representation in GPU.js</h2>
+<p><code>gpu.js</code> executes WebGL shaders by taking JavaScript
+arrays and returning new arrays or textures. Because native WebGL
+1.0/2.0 fragment shaders do not natively support complex numbers, a
+complex wavefunction <span class="math inline">\(\psi(x) = R(x) + i
+I(x)\)</span> is represented using interleaved floats or two parallel 1D
+arrays: one for the real component and one for the imaginary
+component.</p>
+<p>Complex multiplication <span class="math inline">\((a + ib)(c + id) =
+(ac - bd) + i(ad + bc)\)</span> must be explicitly computed inside each
+shader kernel.</p>
+<h2 id="setting-up-grid-and-constants">Setting Up Grid and
+Constants</h2>
+<p>Initialize the spatial domain, momentum domain, and physical
+constants:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> N <span class="op">=</span> <span class="dv">1024</span><span class="op">;</span> <span class="co">// Power of 2 for FFT</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> L <span class="op">=</span> <span class="fl">20.0</span><span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dx <span class="op">=</span> L <span class="op">/</span> N<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dt <span class="op">=</span> <span class="fl">0.01</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> hbar <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> mass <span class="op">=</span> <span class="fl">1.0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Spatial grid and momentum grid</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> x <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(N)<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> k <span class="op">=</span> <span class="kw">new</span> <span class="bu">Float32Array</span>(N)<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dk <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span>) <span class="op">/</span> L<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> N<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  x[i] <span class="op">=</span> <span class="op">-</span>L <span class="op">/</span> <span class="dv">2</span> <span class="op">+</span> i <span class="op">*</span> dx<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  k[i] <span class="op">=</span> (i <span class="op">&lt;</span> N <span class="op">/</span> <span class="dv">2</span> <span class="op">?</span> i <span class="op">:</span> i <span class="op">-</span> N) <span class="op">*</span> dk<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h2 id="implementing-gpujs-kernels">Implementing GPU.js Kernels</h2>
+<h3 id="1-potential-operator-kernel">1. Potential Operator Kernel</h3>
+<p>The potential operator phase shift <span class="math inline">\(e^{-i
+V(x) \Delta t / (2\hbar)} = \cos(\theta_V) - i\sin(\theta_V)\)</span>,
+where <span class="math inline">\(\theta_V = \frac{V(x)\Delta
+t}{2\hbar}\)</span>.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> applyPotential <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(real<span class="op">,</span> imag<span class="op">,</span> V<span class="op">,</span> dt<span class="op">,</span> hbar) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> theta <span class="op">=</span> <span class="op">-</span>(V[i] <span class="op">*</span> dt) <span class="op">/</span> (<span class="fl">2.0</span> <span class="op">*</span> hbar)<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cosT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(theta)<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> sinT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(theta)<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Complex multiplication: (real + i*imag) * (cosT + i*sinT)</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> r <span class="op">=</span> real[i] <span class="op">*</span> cosT <span class="op">-</span> imag[i] <span class="op">*</span> sinT<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> im <span class="op">=</span> real[i] <span class="op">*</span> sinT <span class="op">+</span> imag[i] <span class="op">*</span> cosT<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> [r<span class="op">,</span> im]<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">;</span></span></code></pre></div>
+<h3 id="2-fast-fourier-transform-fft-on-the-gpu">2. Fast Fourier
+Transform (FFT) on the GPU</h3>
+<p>The split-operator method requires transforming data between real and
+momentum space. On the GPU, a radix-2 Cooley-Tukey FFT is implemented
+through <span class="math inline">\(\log_2(N)\)</span> distinct dispatch
+passes:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> fftStep <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(real<span class="op">,</span> imag<span class="op">,</span> step<span class="op">,</span> N<span class="op">,</span> direction) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> halfStep <span class="op">=</span> step <span class="op">/</span> <span class="dv">2</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> k <span class="op">=</span> i <span class="op">%</span> step<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> j <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(i <span class="op">/</span> step) <span class="op">*</span> step<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> angle <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="cn">PI</span> <span class="op">*</span> (k <span class="op">%</span> halfStep)) <span class="op">/</span> step <span class="op">*</span> direction<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> cosA <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(angle)<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> sinA <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(angle)<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> targetIdx <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> partnerIdx <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (k <span class="op">&lt;</span> halfStep) {</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    targetIdx <span class="op">=</span> j <span class="op">+</span> k<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    partnerIdx <span class="op">=</span> j <span class="op">+</span> k <span class="op">+</span> halfStep<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>      real[targetIdx] <span class="op">+</span> (cosA <span class="op">*</span> real[partnerIdx] <span class="op">-</span> sinA <span class="op">*</span> imag[partnerIdx])<span class="op">,</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>      imag[targetIdx] <span class="op">+</span> (sinA <span class="op">*</span> real[partnerIdx] <span class="op">+</span> cosA <span class="op">*</span> imag[partnerIdx])</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>    ]<span class="op">;</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>    targetIdx <span class="op">=</span> j <span class="op">+</span> (k <span class="op">-</span> halfStep)<span class="op">;</span></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>    partnerIdx <span class="op">=</span> j <span class="op">+</span> k<span class="op">;</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>      real[targetIdx] <span class="op">-</span> (cosA <span class="op">*</span> real[partnerIdx] <span class="op">-</span> sinA <span class="op">*</span> imag[partnerIdx])<span class="op">,</span></span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>      imag[targetIdx] <span class="op">-</span> (sinA <span class="op">*</span> real[partnerIdx] <span class="op">+</span> cosA <span class="op">*</span> imag[partnerIdx])</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    ]<span class="op">;</span></span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">;</span></span></code></pre></div>
+<h3 id="3-kinetic-operator-kernel">3. Kinetic Operator Kernel</h3>
+<p>In momentum space, <span class="math inline">\(\hat{T} =
+\frac{\hbar^2 k^2}{2m}\)</span>. The kinetic evolution phase shift is
+<span class="math inline">\(e^{-i \frac{\hbar k^2}{2m} \Delta t} =
+\cos(\theta_T) - i\sin(\theta_T)\)</span>, where <span
+class="math inline">\(\theta_T = \frac{\hbar k^2 \Delta
+t}{2m}\)</span>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> applyKinetic <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(real<span class="op">,</span> imag<span class="op">,</span> k<span class="op">,</span> dt<span class="op">,</span> hbar<span class="op">,</span> mass) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> i <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> kVal <span class="op">=</span> k[i]<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> theta <span class="op">=</span> <span class="op">-</span>(hbar <span class="op">*</span> kVal <span class="op">*</span> kVal <span class="op">*</span> dt) <span class="op">/</span> (<span class="fl">2.0</span> <span class="op">*</span> mass)<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> cosT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(theta)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> sinT <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(theta)<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> r <span class="op">=</span> real[i] <span class="op">*</span> cosT <span class="op">-</span> imag[i] <span class="op">*</span> sinT<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> im <span class="op">=</span> real[i] <span class="op">*</span> sinT <span class="op">+</span> imag[i] <span class="op">*</span> cosT<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> [r<span class="op">,</span> im]<span class="op">;</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([N])<span class="op">;</span></span></code></pre></div>
+<h2 id="the-time-evolution-execution-loop">The Time Evolution Execution
+Loop</h2>
+<p>To execute the propagation without moving data back and forth to the
+CPU on every pass, enable pipeline mode (<code>pipeline: true</code>) on
+all kernels so that output textures remain in GPU memory.</p>
+<p>The complete step sequence:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">timeStep</span>(real<span class="op">,</span> imag<span class="op">,</span> potential<span class="op">,</span> kValues) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 1: V(x) evolution for dt / 2</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">let</span> psi <span class="op">=</span> <span class="fu">applyPotential</span>(real<span class="op">,</span> imag<span class="op">,</span> potential<span class="op">,</span> dt<span class="op">,</span> hbar)<span class="op">;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 2: Forward FFT to k-space</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> s <span class="op">=</span> <span class="dv">2</span><span class="op">;</span> s <span class="op">&lt;=</span> N<span class="op">;</span> s <span class="op">&lt;&lt;=</span> <span class="dv">1</span>) {</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    psi <span class="op">=</span> <span class="fu">fftStep</span>(<span class="fu">extractReal</span>(psi)<span class="op">,</span> <span class="fu">extractImag</span>(psi)<span class="op">,</span> s<span class="op">,</span> N<span class="op">,</span> <span class="op">-</span><span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 3: T(k) evolution for dt</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  psi <span class="op">=</span> <span class="fu">applyKinetic</span>(<span class="fu">extractReal</span>(psi)<span class="op">,</span> <span class="fu">extractImag</span>(psi)<span class="op">,</span> kValues<span class="op">,</span> dt<span class="op">,</span> hbar<span class="op">,</span> mass)<span class="op">;</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 4: Inverse FFT back to x-space</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (<span class="kw">let</span> s <span class="op">=</span> <span class="dv">2</span><span class="op">;</span> s <span class="op">&lt;=</span> N<span class="op">;</span> s <span class="op">&lt;&lt;=</span> <span class="dv">1</span>) {</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    psi <span class="op">=</span> <span class="fu">fftStep</span>(<span class="fu">extractReal</span>(psi)<span class="op">,</span> <span class="fu">extractImag</span>(psi)<span class="op">,</span> s<span class="op">,</span> N<span class="op">,</span> <span class="fl">1.0</span>)<span class="op">;</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  psi <span class="op">=</span> <span class="fu">scaleIFFT</span>(<span class="fu">extractReal</span>(psi)<span class="op">,</span> <span class="fu">extractImag</span>(psi)<span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> N)<span class="op">;</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  <span class="co">// Step 5: V(x) evolution for dt / 2</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  psi <span class="op">=</span> <span class="fu">applyPotential</span>(<span class="fu">extractReal</span>(psi)<span class="op">,</span> <span class="fu">extractImag</span>(psi)<span class="op">,</span> potential<span class="op">,</span> dt<span class="op">,</span> hbar)<span class="op">;</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> psi<span class="op">;</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>This sequence advances the wave packet by <span
+class="math inline">\(\Delta t\)</span> with second-order accuracy.
+Repeating this loop drives real-time quantum dynamics, such as barrier
+tunneling or harmonic oscillation, directly inside the browser.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Unpacks Multi-Channel Textures - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js unpacks multi-channel vector textures when they are passed as inputs to downstream kernels. When chaining GPU operations using pipeline mode or sub-kernels, GPU.js retains data in GPU memory as WebGL textures rather than">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-unpacks-multi-channel-textures">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Unpacks Multi-Channel Textures - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-unpacks-multi-channel-textures" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js unpacks multi-channel vector textures when they are passed as inputs to downstream kernels. When chaining GPU operations using pipeline mode or sub-kernels, GPU.js retains data in GPU memory as WebGL textures rather than" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-unpacks-multi-channel-textures">How GPU.js Unpacks
+Multi-Channel Textures</h1>
+<p>This article explains how GPU.js unpacks multi-channel vector
+textures when they are passed as inputs to downstream kernels. When
+chaining GPU operations using pipeline mode or sub-kernels, GPU.js
+retains data in GPU memory as WebGL textures rather than serializing it
+back to the CPU. Understanding how GPU.js synthesizes custom GLSL
+accessor functions, calculates UV coordinates, and decodes
+multi-component RGBA texels clarifies how downstream kernels
+transparently retrieve vector elements.</p>
+<h3 id="webgl-texture-storage-and-pipelines">WebGL Texture Storage and
+Pipelines</h3>
+<p>In GPU.js, enabling <code>pipeline: true</code> forces a kernel to
+return a <code>GPUTexture</code> object rather than a typed array or
+native JavaScript array. Under the hood, this texture is backed by a
+WebGL frame buffer object (FBO) attachment. Because WebGL standard
+render targets write to four-channel color buffers (Red, Green, Blue,
+Alpha), any multi-dimensional vector, sub-kernel output, or packed
+floating-point value is mapped across these four channels
+(<code>vec4</code>).</p>
+<p>When this <code>GPUTexture</code> is fed into a second, downstream
+kernel, GPU.js binds the underlying WebGL texture to a
+<code>sampler2D</code> uniform assigned to that input variable.</p>
+<h3 id="automatic-glsl-sampler-generation">Automatic GLSL Sampler
+Generation</h3>
+<p>Downstream kernels do not require the developer to write raw texture
+sampling logic. Instead, the GPU.js compiler inspects the argument
+signature and metadata attached to the incoming <code>GPUTexture</code>.
+It automatically injects an accessor function into the generated GLSL
+fragment shader corresponding to the argument name.</p>
+<p>If the incoming parameter is named <code>upstreamData</code>, GPU.js
+injects:</p>
+<ol type="1">
+<li>A uniform declaration:
+<code>uniform sampler2D user_upstreamData;</code></li>
+<li>Size and dimension uniforms detailing the width, height, and depth
+of the texture.</li>
+<li>A wrapper function that accepts indices (such as 1D
+<code>index</code>, 2D <code>[x, y]</code>, or 3D
+<code>[x, y, z]</code>) and returns the appropriate scalar or vector
+value.</li>
+</ol>
+<h3 id="index-to-uv-coordinate-mapping">Index-to-UV Coordinate
+Mapping</h3>
+<p>Inside the auto-generated GLSL accessor, GPU.js converts discrete
+array indices into normalized UV coordinates bounded between
+<code>0.0</code> and <code>1.0</code>. The calculation offsets indices
+by <code>0.5</code> pixels to ensure lookups target the center of each
+texel, avoiding linear interpolation artifacts:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="dt">vec2</span> uv <span class="op">=</span> <span class="op">(</span>indexCoords <span class="op">+</span> <span class="dt">vec2</span><span class="op">(</span><span class="fl">0.5</span><span class="op">,</span> <span class="fl">0.5</span><span class="op">))</span> <span class="op">/</span> textureDimensions<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="dt">vec4</span> texel <span class="op">=</span> <span class="dt">texture2D</span><span class="op">(</span>user_upstreamData<span class="op">,</span> uv<span class="op">);</span></span></code></pre></div>
+<h3 id="channel-unpacking-strategies">Channel Unpacking Strategies</h3>
+<p>Once the <code>vec4</code> texel is retrieved via
+<code>texture2D</code>, the downstream kernel unpacks it depending on
+the upstream output mode:</p>
+<h4 id="1-native-multi-channel-vectors">1. Native Multi-Channel
+Vectors</h4>
+<p>If the upstream kernel explicitly produced vector outputs (such as 2,
+3, or 4-element arrays or sub-kernels), the elements map directly to
+<code>texel.r</code>, <code>texel.g</code>, <code>texel.b</code>, and
+<code>texel.a</code>.</p>
+<ul>
+<li>When the downstream code accesses a specific sub-index (e.g.,
+<code>upstreamData[y][x][0]</code>), the compiler replaces the
+JavaScript array access with GLSL swizzling (<code>texel.r</code>).</li>
+<li>If the kernel accesses the vector as a whole, the GLSL accessor
+returns a <code>vec4</code> (or <code>vec2</code>/<code>vec3</code>
+depending on the channel count).</li>
+</ul>
+<h4 id="2-packed-high-precision-floats">2. Packed High-Precision
+Floats</h4>
+<p>In environments lacking floating-point texture support (such as
+certain WebGL 1 configurations without <code>OES_texture_float</code>),
+GPU.js encodes a single 32-bit float across all four 8-bit RGBA channels
+using an IEEE 754 emulation routine. When a downstream kernel accesses
+this texture, GPU.js includes an internal decode function:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode glsl"><code class="sourceCode glsl"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> <span class="fu">decode32</span><span class="op">(</span><span class="dt">vec4</span> rgba<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">const</span> <span class="dt">vec4</span> shift <span class="op">=</span> <span class="dt">vec4</span><span class="op">(</span><span class="fl">1.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">255.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">65025.0</span><span class="op">,</span> <span class="fl">1.0</span> <span class="op">/</span> <span class="fl">16581375.0</span><span class="op">);</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="kw">return</span> <span class="bu">dot</span><span class="op">(</span>rgba<span class="op">,</span> shift<span class="op">);</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p>In this scenario, the multi-channel nature of the texture acts as bit
+storage for a single scalar value. The downstream kernel automatically
+runs the texel through the decoding dot product before returning the
+scalar value to the computation.</p>
+<h3 id="sub-kernel-output-separation">Sub-Kernel Output Separation</h3>
+<p>When using sub-kernels that return multiple named outputs from a
+single pass, GPU.js either binds separate render targets (in WebGL 2 via
+Multiple Render Targets / <code>drawBuffers</code>) or encodes the
+outputs into designated channel masks of a single texture. Downstream
+kernels receiving a specific sub-kernel reference are supplied with a
+GLSL accessor tied exclusively to that output's bound texture or its
+corresponding swizzled channel mask (<code>.r</code>, <code>.g</code>,
+<code>.b</code>, or <code>.a</code>).</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

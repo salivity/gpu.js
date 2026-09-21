@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Policy Evaluation in DQN with Target Networks Using GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement policy evaluation within a Deep Q-Network (DQN) framework utilizing target networks and hardware acceleration via gpu.js. You will learn the mechanics of formulating Bellman updates on the GPU, structuring neural ne">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/policy-evaluation-in-dqn-with-target-networks-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Policy Evaluation in DQN with Target Networks Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/policy-evaluation-in-dqn-with-target-networks-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement policy evaluation within a Deep Q-Network (DQN) framework utilizing target networks and hardware acceleration via gpu.js. You will learn the mechanics of formulating Bellman updates on the GPU, structuring neural ne" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1
+id="policy-evaluation-in-dqn-with-target-networks-using-gpujs">Policy
+Evaluation in DQN with Target Networks Using GPU.js</h1>
+<p>This article explains how to implement policy evaluation within a
+Deep Q-Network (DQN) framework utilizing target networks and hardware
+acceleration via gpu.js. You will learn the mechanics of formulating
+Bellman updates on the GPU, structuring neural network forward passes as
+parallel compute kernels, computing Temporal Difference (TD) targets
+using an isolated target network, and synchronizing network parameters
+to maintain training stability.</p>
+<h2 id="policy-evaluation-and-target-networks">Policy Evaluation and
+Target Networks</h2>
+<p>In standard Q-learning, policy evaluation iteratively computes the
+action-value function <span class="math inline">\(Q(s, a)\)</span> to
+approximate the expected return of taking action <span
+class="math inline">\(a\)</span> in state <span
+class="math inline">\(s\)</span>. In Deep Q-Networks (DQN),
+parameterized function approximators (neural networks) estimate these
+values.</p>
+<p>The standard update relies on the Bellman equation:</p>
+<p><span class="math display">\[Y_t = R_{t+1} + \gamma \max_{a}
+Q(S_{t+1}, a; \theta_t)\]</span></p>
+<p>Using the same parameter set <span
+class="math inline">\(\theta_t\)</span> to compute both the current
+estimate <span class="math inline">\(Q(S_t, A_t; \theta_t)\)</span> and
+the target <span class="math inline">\(Y_t\)</span> leads to
+non-stationary targets and training instability. To resolve this, a
+target network parameterized by <span
+class="math inline">\(\theta^-\)</span> is introduced:</p>
+<p><span class="math display">\[Y_t = R_{t+1} + \gamma \max_{a}
+Q(S_{t+1}, a; \theta^-)\]</span></p>
+<p>The target weights <span class="math inline">\(\theta^-\)</span>
+remain fixed for a predetermined number of steps before being
+synchronized with the active training weights <span
+class="math inline">\(\theta\)</span>.</p>
+<h2 id="structuring-dqn-with-gpujs">Structuring DQN with gpu.js</h2>
+<p>gpu.js compiles specialized JavaScript functions into WebGL or OpenCL
+shaders, allowing matrix operations and array manipulations to execute
+in parallel across GPU threads. To implement DQN policy evaluation, two
+functional components are required on the GPU:</p>
+<ol type="1">
+<li><strong>Forward Pass Kernel</strong>: Computes <span
+class="math inline">\(Q(s, \cdot)\)</span> across all discrete actions
+for a given state batch.</li>
+<li><strong>Bellman Target Kernel</strong>: Evaluates transitions <span
+class="math inline">\((s, a, r, s&#39;, d)\)</span> and constructs
+target values using the target network outputs.</li>
+</ol>
+<h3 id="1-initializing-gpujs">1. Initializing gpu.js</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span></code></pre></div>
+<h3 id="2-dense-layer-kernel-matrix-multiplication-and-relu">2. Dense
+Layer Kernel (Matrix Multiplication and ReLU)</h3>
+<p>A simple feedforward pass computes <span class="math inline">\(Z =
+\text{ReLU}(W \cdot X + B)\)</span>. In gpu.js, this is defined as a
+kernel outputting a 2D tensor:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> forwardDenseRelu <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(weights<span class="op">,</span> inputs<span class="op">,</span> biases<span class="op">,</span> inputSize) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> inputSize<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> weights[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> inputs[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    sum <span class="op">+=</span> biases[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>]<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum <span class="op">&gt;</span> <span class="dv">0</span> <span class="op">?</span> sum <span class="op">:</span> <span class="dv">0</span><span class="op">;</span> <span class="co">// ReLU activation</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([batchSize<span class="op">,</span> outputSize])<span class="op">;</span></span></code></pre></div>
+<p>For the output layer representing discrete Q-values, a linear
+activation (without the ReLU conditional) is used to permit negative
+Q-values.</p>
+<h3 id="3-implementing-the-target-network-evaluation-kernel">3.
+Implementing the Target Network Evaluation Kernel</h3>
+<p>Once the target network performs a forward pass on the next states
+<span class="math inline">\(S&#39;\)</span>, the evaluation kernel
+identifies <span class="math inline">\(\max_{a&#39;} Q(S&#39;, a&#39;;
+\theta^-)\)</span> and computes the Bellman target.</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeTDTargets <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(rewards<span class="op">,</span> nextQValues<span class="op">,</span> terminals<span class="op">,</span> gamma<span class="op">,</span> numActions) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sampleIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Find the maximum Q-value for the next state S&#39;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> maxNextQ <span class="op">=</span> <span class="op">-</span><span class="fl">9999999.0</span><span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> a <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> a <span class="op">&lt;</span> numActions<span class="op">;</span> a<span class="op">++</span>) {</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> qVal <span class="op">=</span> nextQValues[a][sampleIdx]<span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (qVal <span class="op">&gt;</span> maxNextQ) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>            maxNextQ <span class="op">=</span> qVal<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>    <span class="co">// If terminal, target is simply the reward; otherwise include discounted future reward</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> isTerminal <span class="op">=</span> terminals[sampleIdx]<span class="op">;</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (isTerminal <span class="op">===</span> <span class="dv">1</span>) {</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> rewards[sampleIdx]<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>    } <span class="cf">else</span> {</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> rewards[sampleIdx] <span class="op">+</span> (gamma <span class="op">*</span> maxNextQ)<span class="op">;</span></span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([batchSize])<span class="op">;</span></span></code></pre></div>
+<h3 id="4-computing-the-temporal-difference-loss">4. Computing the
+Temporal Difference Loss</h3>
+<p>The policy evaluation step measures the error between the current
+online predictions <span class="math inline">\(Q(S, A; \theta)\)</span>
+and the computed targets <span class="math inline">\(Y\)</span>.</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeTDErrors <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(currentQValues<span class="op">,</span> actions<span class="op">,</span> targets) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> sampleIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> actionTaken <span class="op">=</span> actions[sampleIdx]<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> predictedQ <span class="op">=</span> currentQValues[actionTaken][sampleIdx]<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> targetQ <span class="op">=</span> targets[sampleIdx]<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Returns TD error: (Q(s,a) - Target)</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> predictedQ <span class="op">-</span> targetQ<span class="op">;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([batchSize])<span class="op">;</span></span></code></pre></div>
+<h2 id="synchronizing-the-target-network">Synchronizing the Target
+Network</h2>
+<p>The target network must track the active network parameters to ensure
+steady policy convergence. Parameter updates are handled using either
+periodic hard copying or continuous soft updates.</p>
+<h3 id="hard-update">Hard Update</h3>
+<p>In a hard update scheme, online weights are directly assigned to the
+target network every <span class="math inline">\(C\)</span> updates:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">hardUpdateTargetNetwork</span>(onlineWeights<span class="op">,</span> targetWeights) {</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> layer <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> layer <span class="op">&lt;</span> onlineWeights<span class="op">.</span><span class="at">length</span><span class="op">;</span> layer<span class="op">++</span>) {</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Deep copy matrices</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        targetWeights[layer] <span class="op">=</span> onlineWeights[layer]<span class="op">.</span><span class="fu">map</span>(row <span class="kw">=&gt;</span> [<span class="op">...</span>row])<span class="op">;</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="soft-update-polyak-averaging">Soft Update (Polyak
+Averaging)</h3>
+<p>Alternatively, a soft update gradually blends active weights into the
+target weights at every training iteration:</p>
+<p><span class="math display">\[\theta^- \leftarrow \tau \theta + (1 -
+\tau) \theta^-\]</span></p>
+<p>This operation can be vectorized using an element-wise gpu.js
+kernel:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> softUpdateKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(onlineWeights<span class="op">,</span> targetWeights<span class="op">,</span> tau) {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> wTarget <span class="op">=</span> targetWeights[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> wOnline <span class="op">=</span> onlineWeights[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (tau <span class="op">*</span> wOnline) <span class="op">+</span> ((<span class="fl">1.0</span> <span class="op">-</span> tau) <span class="op">*</span> wTarget)<span class="op">;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([numCols<span class="op">,</span> numRows])<span class="op">;</span></span></code></pre></div>
+<h2 id="execution-flow-for-policy-evaluation">Execution Flow for Policy
+Evaluation</h2>
+<ol type="1">
+<li><strong>Sample Batch</strong>: Retrieve a mini-batch of tuples <span
+class="math inline">\((S, A, R, S&#39;, D)\)</span> from the replay
+memory.</li>
+<li><strong>Predict Next State Values</strong>: Pass <span
+class="math inline">\(S&#39;\)</span> through the target network layers
+using the forward pass kernels with target parameters <span
+class="math inline">\(\theta^-\)</span>.</li>
+<li><strong>Calculate TD Targets</strong>: Execute
+<code>computeTDTargets</code> on the GPU with the retrieved rewards,
+terminal flags, and calculated target Q-values.</li>
+<li><strong>Predict Current Values</strong>: Pass <span
+class="math inline">\(S\)</span> through the active network kernels with
+parameters <span class="math inline">\(\theta\)</span>.</li>
+<li><strong>Compute Error and Gradients</strong>: Execute
+<code>computeTDErrors</code> to derive sample-specific gradients.</li>
+<li><strong>Update Parameters</strong>: Apply backpropagation to update
+<span class="math inline">\(\theta\)</span> via standard gradient
+descent.</li>
+<li><strong>Sync Targets</strong>: Execute <code>softUpdateKernel</code>
+or periodically invoke <code>hardUpdateTargetNetwork</code> to refresh
+<span class="math inline">\(\theta^-\)</span>.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Audio Phase and Vectorscope with GPU.js - gpu.js</title>
+    <meta name="description" content="Calculating real-time audio phase correlation and stereo vectorscope data using gpu.js is entirely possible in modern web browsers. By offloading parallel mathematical reductions and coordinate transformations to the GPU via WebGL shaders, gpu.js can pro">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/real-time-audio-phase-and-vectorscope-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Real-Time Audio Phase and Vectorscope with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/real-time-audio-phase-and-vectorscope-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Calculating real-time audio phase correlation and stereo vectorscope data using gpu.js is entirely possible in modern web browsers. By offloading parallel mathematical reductions and coordinate transformations to the GPU via WebGL shaders, gpu.js can pro" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="real-time-audio-phase-and-vectorscope-with-gpujs">Real-Time
+Audio Phase and Vectorscope with GPU.js</h1>
+<p>Calculating real-time audio phase correlation and stereo vectorscope
+data using gpu.js is entirely possible in modern web browsers. By
+offloading parallel mathematical reductions and coordinate
+transformations to the GPU via WebGL shaders, gpu.js can process
+standard audio frame buffers (such as 1024 to 4096 samples) within
+typical display refresh intervals (16.6ms for 60 FPS). However,
+achieving optimal real-time performance requires structuring the
+pipeline to minimize CPU-to-GPU data transfer overhead, which is often
+the primary bottleneck rather than the mathematical workload itself.</p>
+<h3 id="audio-phase-correlation-on-the-gpu">Audio Phase Correlation on
+the GPU</h3>
+<p>Audio phase correlation measures the phase alignment between stereo
+channels, yielding a value between -1.0 (completely out of phase) and
++1.0 (mono/fully in phase). The calculation requires three discrete
+parallel sums across the buffer: the dot product of the left and right
+channels, the sum of squares for the left channel, and the sum of
+squares for the right channel:</p>
+<p><span class="math display">\[\text{Correlation} = \frac{\sum (L_i
+\times R_i)}{\sqrt{\sum (L_i^2) \times \sum (R_i^2)}}\]</span></p>
+<p>In gpu.js, this is accomplished by running an element-wise
+multiplication kernel across the channel arrays, followed by a parallel
+reduction to compute the final sums. Because standard audio buffers are
+relatively small (usually 2048 floats per channel), gpu.js can compute
+these sums in fractions of a millisecond.</p>
+<h3 id="stereo-vectorscope-data-generation">Stereo Vectorscope Data
+Generation</h3>
+<p>A stereo vectorscope (or goniometer) maps stereo audio onto a visual
+plane, typically rotated 45 degrees to display mid/side
+relationships:</p>
+<ul>
+<li><strong>Mid (Vertical axis):</strong> <span class="math inline">\((L
++ R) \times 0.7071\)</span></li>
+<li><strong>Side (Horizontal axis):</strong> <span
+class="math inline">\((L - R) \times 0.7071\)</span></li>
+</ul>
+<p>gpu.js is well-suited for transforming raw <span
+class="math inline">\(L/R\)</span> samples into <span
+class="math inline">\((X, Y)\)</span> coordinate matrices. If the
+vectorscope is generated as an intensity map (a 2D persistence display
+showing sample density), gpu.js can maintain an accumulator grid as a
+dynamic texture. The kernel takes the coordinate pairs, computes their
+decay, and maps the intensity values directly on the GPU without
+round-tripping coordinates back to the CPU.</p>
+<h3 id="performance-and-pipeline-bottlenecks">Performance and Pipeline
+Bottlenecks</h3>
+<p>While gpu.js has the raw compute capacity to process these
+calculations, real-time performance depends on specific architectural
+factors:</p>
+<ol type="1">
+<li><strong>Buffer Transfer Latency:</strong> Standard Web Audio API
+buffers reside on the CPU via an <code>AudioWorkletNode</code> or
+<code>AnalyserNode</code>. Uploading these arrays to the GPU as textures
+introduces memory transfer latency. Because the sample count per frame
+is relatively low, the transfer overhead can rival the compute
+time.</li>
+<li><strong>GPU Readback Costs:</strong> If phase correlation values
+must be read back to JavaScript (using <code>kernel()</code>), CPU
+synchronization stalls can occur. To maintain smooth frame rates, the
+pipeline should either render the metrics directly to an HTML canvas
+using gpu.js graphical output modes or batch the readbacks
+asynchronously.</li>
+<li><strong>GPU vs. CPU Trade-off:</strong> For purely scalar phase
+correlation calculations, modern CPU SIMD instructions executed in
+WebAssembly or directly in an <code>AudioWorklet</code> are often fast
+enough to run without GPU assistance. However, when generating
+high-resolution, high-density visual vectorscopes with thousands of
+plotted points and phosphor-decay effects, gpu.js significantly
+outperforms CPU-based 2D canvas rendering.</li>
+</ol>
+<h3 id="practical-implementation-approach">Practical Implementation
+Approach</h3>
+<p>To achieve reliable 60+ FPS performance:</p>
+<ul>
+<li>Capture continuous audio chunks inside an
+<code>AudioWorkletProcessor</code> to avoid main-thread UI jank.</li>
+<li>Pass <code>Float32Array</code> buffers directly into gpu.js kernels
+without intermediate object allocations.</li>
+<li>Set the gpu.js output mode to render directly to a WebGL canvas
+(<code>graphical: true</code>) for vectorscope plotting, keeping the
+frame data entirely inside GPU memory.</li>
+<li>Execute phase correlation reduction as a secondary lightweight
+kernel, reading the single resulting scalar back to the CPU only when
+necessary for UI telemetry.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

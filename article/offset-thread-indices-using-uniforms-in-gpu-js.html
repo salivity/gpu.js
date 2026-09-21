@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offset Thread Indices Using Uniforms in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explains how to implement offset thread indices using global uniform displacement vectors in GPU.js. While native thread coordinates (this.thread.x, this.thread.y, and this.thread.z) are read-only hardware identifiers that cannot be directly">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/offset-thread-indices-using-uniforms-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Offset Thread Indices Using Uniforms in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/offset-thread-indices-using-uniforms-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to implement offset thread indices using global uniform displacement vectors in GPU.js. While native thread coordinates (this.thread.x, this.thread.y, and this.thread.z) are read-only hardware identifiers that cannot be directly" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="offset-thread-indices-using-uniforms-in-gpujs">Offset Thread
+Indices Using Uniforms in GPU.js</h1>
+<p>This article explains how to implement offset thread indices using
+global uniform displacement vectors in GPU.js. While native thread
+coordinates (<code>this.thread.x</code>, <code>this.thread.y</code>, and
+<code>this.thread.z</code>) are read-only hardware identifiers that
+cannot be directly reassigned, developers can easily apply uniform
+displacement vectors within kernel functions to access shifted memory
+locations, perform coordinate transformations, and calculate spatial
+offsets.</p>
+<h2 id="understanding-thread-coordinates-in-gpujs">Understanding Thread
+Coordinates in GPU.js</h2>
+<p>In GPU.js, kernels execute code across hundreds or thousands of
+parallel threads. Each thread receives a fixed, unique coordinate mapped
+to the output grid:</p>
+<ul>
+<li><code>this.thread.x</code></li>
+<li><code>this.thread.y</code></li>
+<li><code>this.thread.z</code></li>
+</ul>
+<p>Because these values reflect the physical position of the current
+execution unit relative to the output buffer, attempting to mutate them
+directly (such as <code>this.thread.x += dx</code>) will cause
+compilation errors or undefined behavior in the underlying WebGL shader
+translation.</p>
+<h2 id="applying-displacement-vectors-via-uniforms">Applying
+Displacement Vectors via Uniforms</h2>
+<p>To achieve thread displacement, you pass your offset values—such as a
+2D or 3D displacement vector—into the kernel as arguments. GPU.js treats
+kernel function arguments as GLSL uniforms. Uniforms are global values
+that remain constant across all threads for a single dispatch.</p>
+<p>Inside the kernel logic, compute virtual or displaced coordinates by
+combining the native thread position with the uniform vector:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeShiftedKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(sourceMatrix<span class="op">,</span> displacement) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read displaced coordinates</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> shiftedX <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> displacement[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> shiftedY <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">+</span> displacement[<span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read from the source matrix at the displaced coordinate</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sourceMatrix[shiftedY][shiftedX]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">// Usage: displace by 10 units on X and -5 units on Y</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> displacementVector <span class="op">=</span> [<span class="dv">10</span><span class="op">,</span> <span class="op">-</span><span class="dv">5</span>]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">computeShiftedKernel</span>(sourceData<span class="op">,</span> displacementVector)<span class="op">;</span></span></code></pre></div>
+<h2 id="boundary-handling-considerations">Boundary Handling
+Considerations</h2>
+<p>When thread coordinates are offset by uniform vectors, displaced
+indices frequently exceed the boundaries of input matrices or textures.
+Standard arrays will return <code>0</code> or cause sampling artifacts
+if accessed out of bounds. To prevent invalid reads, implement boundary
+checks such as clamping or wrapping directly inside the kernel:</p>
+<ul>
+<li><strong>Clamping:</strong> Restrict the offset coordinate so it does
+not drop below zero or exceed matrix dimensions.</li>
+<li><strong>Wrapping (Toroidal):</strong> Use the modulo operator to
+wrap coordinates around the edges of the simulation domain.</li>
+<li><strong>Conditional Fallbacks:</strong> Return a predefined default
+value (like zero or transparent alpha) when the displaced index falls
+outside the valid range.</li>
+</ul>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> safeShiftKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(source<span class="op">,</span> dx<span class="op">,</span> dy<span class="op">,</span> width<span class="op">,</span> height) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> targetX <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> dx<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> targetY <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">+</span> dy<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Boundary check</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (targetX <span class="op">&lt;</span> <span class="dv">0</span> <span class="op">||</span> targetX <span class="op">&gt;=</span> width <span class="op">||</span> targetY <span class="op">&lt;</span> <span class="dv">0</span> <span class="op">||</span> targetY <span class="op">&gt;=</span> height) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> source[targetY][targetX]<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">;</span></span></code></pre></div>
+<h2 id="practical-use-cases">Practical Use Cases</h2>
+<p>Using uniform displacement vectors to offset index reads is
+fundamental in high-performance GPU tasks, including:</p>
+<ol type="1">
+<li><strong>Convolution and Image Filters:</strong> Accessing
+neighboring pixels using fixed kernel offsets (e.g., Sobel, Gaussian
+blur).</li>
+<li><strong>Cellular Automata:</strong> Evaluating neighbor states in
+simulations like Conway's Game of Life.</li>
+<li><strong>Fluid and Particle Simulations:</strong> Sampling velocity
+fields at displaced coordinates to calculate advection.</li>
+<li><strong>Scrolling Backgrounds:</strong> Translating coordinate
+systems for camera movement across game maps.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

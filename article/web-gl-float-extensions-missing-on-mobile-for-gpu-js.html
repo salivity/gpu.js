@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL Float Extensions Missing on Mobile for gpu.js - gpu.js</title>
+    <meta name="description" content="When running general-purpose GPU computing on mobile browsers using gpu.js, operations often fail or lose precision due to missing hardware and driver support for floating-point textures. While desktop environments almost universally support full 32-bit">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/web-gl-float-extensions-missing-on-mobile-for-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="WebGL Float Extensions Missing on Mobile for gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/web-gl-float-extensions-missing-on-mobile-for-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When running general-purpose GPU computing on mobile browsers using gpu.js, operations often fail or lose precision due to missing hardware and driver support for floating-point textures. While desktop environments almost universally support full 32-bit" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="webgl-float-extensions-missing-on-mobile-for-gpujs">WebGL Float
+Extensions Missing on Mobile for gpu.js</h1>
+<p>When running general-purpose GPU computing on mobile browsers using
+gpu.js, operations often fail or lose precision due to missing hardware
+and driver support for floating-point textures. While desktop
+environments almost universally support full 32-bit floating-point
+textures and render targets, mobile chipsets frequently omit key WebGL
+extensions to save power and memory bandwidth. This article outlines the
+specific WebGL 1.0 and WebGL 2.0 extensions typically absent on mobile
+devices, explains why their absence disrupts gpu.js, and details the
+resulting architectural limitations.</p>
+<h3 id="the-critical-missing-extensions">The Critical Missing
+Extensions</h3>
+<p>To compute and store high-precision numerical data, gpu.js requires
+both the ability to create floating-point textures and the capability to
+use them as render targets (framebuffer attachments). On mobile devices,
+the following extensions are most commonly missing or restricted:</p>
+<ul>
+<li><strong><code>WEBGL_color_buffer_float</code> (WebGL 1.0):</strong>
+This is the most frequently missing extension on mobile WebGL 1.0
+implementations. While a device might support reading float textures,
+this extension is required to render calculation outputs directly into
+32-bit float textures.</li>
+<li><strong><code>EXT_color_buffer_float</code> (WebGL 2.0):</strong>
+WebGL 2.0 natively supports 32-bit floating-point textures for storage
+and sampling, but it does <em>not</em> mandate the ability to render to
+them. The <code>EXT_color_buffer_float</code> extension is required to
+attach 32-bit float formats (like <code>R32F</code>, <code>RG32F</code>,
+and <code>RGBA32F</code>) to framebuffers. Mobile GPUs often omit this
+extension, breaking the write cycle in gpu.js compute kernels.</li>
+<li><strong><code>OES_texture_float_linear</code> (WebGL 1.0 &amp;
+2.0):</strong> This extension provides linear interpolation filtering
+for 32-bit floating-point textures. Many mobile drivers only support
+nearest-neighbor filtering (<code>NEAREST</code>) on float textures,
+preventing smooth interpolation if intermediate sampling is needed.</li>
+<li><strong><code>OES_texture_float</code> (WebGL 1.0):</strong>
+Although more widely supported than its framebuffer counterpart, older
+or low-end mobile chipsets sometimes lack base support for allocating
+32-bit floating-point textures altogether.</li>
+</ul>
+<h3 id="the-read-vs-write-disconnect">The Read vs. Write Disconnect</h3>
+<p>A frequent point of failure in mobile environments is the difference
+between texture sampling (reading) and render target attachment
+(writing). Mobile architectures frequently support
+<code>OES_texture_float</code>, allowing shaders to read 32-bit floats.
+However, they omit <code>WEBGL_color_buffer_float</code> or
+<code>EXT_color_buffer_float</code>.</p>
+<p>Because gpu.js functions by executing fragment shaders that write
+calculation results into a texture via Framebuffer Objects (FBOs), the
+inability to write to float textures renders the pipeline
+non-functional. When gpu.js attempts to bind a 32-bit float texture as a
+color attachment without these extensions, the driver returns an
+<code>INCOMPLETE_ATTACHMENT</code> or
+<code>FRAMEBUFFER_UNSUPPORTED</code> error.</p>
+<h3 id="mobile-architectural-constraints">Mobile Architectural
+Constraints</h3>
+<p>Mobile GPUs—such as ARM Mali, Qualcomm Adreno, and Imagination
+PowerVR—employ Tile-Based Deferred Rendering (TBDR) architectures.
+Writing 32-bit float data per channel requires significant memory
+bandwidth and on-chip tile memory, which generates heat and drains
+battery life.</p>
+<p>Consequently, mobile hardware vendors prioritize half-precision
+(16-bit float) extensions over full 32-bit float extensions. Mobile
+browsers are far more likely to support:</p>
+<ul>
+<li><code>OES_texture_half_float</code></li>
+<li><code>EXT_color_buffer_half_float</code></li>
+</ul>
+<p>These half-float alternatives reduce the memory footprint by half,
+but they limit the dynamic range and numerical precision available for
+scientific or intensive numerical workloads executed by gpu.js.</p>
+<h3 id="impact-on-gpujs-and-fallback-mechanisms">Impact on gpu.js and
+Fallback Mechanisms</h3>
+<p>When gpu.js detects that 32-bit float render targets are unsupported
+due to missing extensions, it cannot perform direct single-pass
+floating-point calculations. To function on these devices, the library
+must fall back to manual byte-packing algorithms.</p>
+<p>In this fallback mode, 32-bit floating-point values are
+mathematically split and encoded across the standard 8-bit channels
+(RGBA) of an integer texture. A subsequent shader pass must then decode
+these bytes back into floating-point numbers. While this allows code to
+run on mobile devices lacking float extensions, it introduces
+significant computational overhead, reducing the overall performance
+gains of GPU acceleration.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

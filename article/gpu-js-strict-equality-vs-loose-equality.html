@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gpu.js Strict Equality vs Loose Equality - gpu.js</title>
+    <meta name="description" content="This article explores how gpu.js handles comparison operators within GPU-accelerated kernel functions. In standard JavaScript, the strict equality operator (===) checks both value and type without coercion, while the loose equality operator (==) coerces">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-strict-equality-vs-loose-equality">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="gpu.js Strict Equality vs Loose Equality - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-strict-equality-vs-loose-equality" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how gpu.js handles comparison operators within GPU-accelerated kernel functions. In standard JavaScript, the strict equality operator (===) checks both value and type without coercion, while the loose equality operator (==) coerces" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-strict-equality-vs-loose-equality">gpu.js Strict Equality
+vs Loose Equality</h1>
+<p>This article explores how gpu.js handles comparison operators within
+GPU-accelerated kernel functions. In standard JavaScript, the strict
+equality operator (<code>===</code>) checks both value and type without
+coercion, while the loose equality operator (<code>==</code>) coerces
+operands to a common type before comparing. However, because gpu.js
+compiles JavaScript into statically typed shader code (such as WebGL
+GLSL), it treats both operators identically, relying entirely on the
+target shading language's native equality rules.</p>
+<h2 id="transpilation-to-shader-code">Transpilation to Shader Code</h2>
+<p>When you write a kernel in gpu.js, the library parses the JavaScript
+Abstract Syntax Tree (AST) and converts the logic into GLSL (OpenGL
+Shading Language). GLSL is a strictly typed language derived from C. It
+does not support JavaScript's dynamic runtime evaluation or type
+coercion mechanisms.</p>
+<p>During AST parsing:</p>
+<ul>
+<li><code>===</code> is translated to the GLSL <code>==</code>
+operator.</li>
+<li><code>==</code> is also translated to the GLSL <code>==</code>
+operator.</li>
+</ul>
+<p>Because both symbols map to the identical GLSL token, there is zero
+functional or performance difference between <code>==</code> and
+<code>===</code> within a compiled gpu.js kernel.</p>
+<h2 id="the-absence-of-type-coercion">The Absence of Type Coercion</h2>
+<p>In standard JavaScript environments (like Node.js or the browser's
+main thread), loose equality allows expressions such as
+<code>1 == "1"</code> or <code>0 == false</code> to evaluate to
+<code>true</code>.</p>
+<p>In a gpu.js kernel, type coercion does not occur:</p>
+<ul>
+<li>Shaders do not have mixed-type comparison tables.</li>
+<li>Every variable in the kernel is assigned a concrete GLSL type (such
+as <code>float</code>, <code>int</code>, or a vector).</li>
+<li>Attempting to compare two inherently different types without an
+explicit cast will lead to a GLSL compilation error rather than coerced
+comparison.</li>
+</ul>
+<p>For example, comparing an integer to a floating-point number using
+either <code>==</code> or <code>===</code> without explicit conversion
+will cause the shader compilation to fail:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// This fails compilation under both == and ===</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (intVal <span class="op">==</span> floatVal) { <span class="op">...</span> }</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (intVal <span class="op">===</span> floatVal) { <span class="op">...</span> }</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co">// Correct approach: explicitly match types</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">float</span>(intVal) <span class="op">==</span> floatVal) { <span class="op">...</span> }</span></code></pre></div>
+<h2 id="best-practices-for-equality-in-gpujs">Best Practices for
+Equality in gpu.js</h2>
+<ol type="1">
+<li><strong>Expect Static Typing:</strong> Treat kernel code like a
+statically typed language. Ensure that operands on both sides of any
+equality check evaluate to the exact same GPU data type.</li>
+<li><strong>Consistency:</strong> While <code>===</code> works without
+issue, using standard JavaScript conventions (preferring
+<code>===</code>) helps maintain clean code that passes standard linters
+like ESLint, even though gpu.js treats it as <code>==</code>.</li>
+<li><strong>Explicit Type Casting:</strong> When comparing mixed
+numerical types, always use explicit conversion functions (such as
+<code>float(...)</code> or <code>int(...)</code>) to prevent shader
+compiler errors.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

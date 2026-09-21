@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallelize Conv Backward Pass in gpu.js - gpu.js</title>
+    <meta name="description" content="This article explains how to parallelize the backward pass of a convolutional layer to compute filter gradients ($dW$) using gpu.js. It covers mapping the 4D filter tensor onto GPU execution threads, restructuring high-dimensional coordinates to fit gpu.">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallelize-conv-backward-pass-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallelize Conv Backward Pass in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallelize-conv-backward-pass-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how to parallelize the backward pass of a convolutional layer to compute filter gradients ($dW$) using gpu.js. It covers mapping the 4D filter tensor onto GPU execution threads, restructuring high-dimensional coordinates to fit gpu." />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallelize-conv-backward-pass-in-gpujs">Parallelize Conv
+Backward Pass in gpu.js</h1>
+<p>This article explains how to parallelize the backward pass of a
+convolutional layer to compute filter gradients (<span
+class="math inline">\(dW\)</span>) using gpu.js. It covers mapping the
+4D filter tensor onto GPU execution threads, restructuring
+high-dimensional coordinates to fit gpu.js kernel limits, and
+implementing an accumulation loop over batch and spatial dimensions
+directly in WebGL-accelerated JavaScript.</p>
+<hr />
+<h3 id="understanding-the-filter-gradient-operation">Understanding the
+Filter Gradient Operation</h3>
+<p>In a convolutional layer backward pass, the gradient of the loss with
+respect to the filter weights (<span class="math inline">\(dW\)</span>)
+is computed by convolving the input activations (<span
+class="math inline">\(X\)</span>) with the incoming upstream gradients
+(<span class="math inline">\(dY\)</span>).</p>
+<p>For a weight tensor of shape <span class="math inline">\((K_h, K_w,
+C_{in}, C_{out})\)</span>, the gradient for a specific weight is:</p>
+<p><span class="math display">\[dW(k_y, k_x, c_{in}, c_{out}) =
+\sum_{b=0}^{B-1} \sum_{y=0}^{H_{out}-1} \sum_{x=0}^{W_{out}-1} X(b, y
+\cdot s + k_y, x \cdot s + k_x, c_{in}) \cdot dY(b, y, x,
+c_{out})\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(B\)</span> is the batch size.</li>
+<li><span class="math inline">\(H_{out}, W_{out}\)</span> are the
+spatial dimensions of the upstream gradient.</li>
+<li><span class="math inline">\(s\)</span> is the stride.</li>
+<li><span class="math inline">\(k_y, k_x\)</span> are filter spatial
+coordinates.</li>
+<li><span class="math inline">\(c_{in}, c_{out}\)</span> are input and
+output channel indices.</li>
+</ul>
+<h3 id="parallelization-strategy-in-gpujs">Parallelization Strategy in
+gpu.js</h3>
+<p>To parallelize this effectively on the GPU:</p>
+<ol type="1">
+<li><strong>Thread Assignment:</strong> Assign exactly one GPU thread to
+each unique filter parameter. Each thread computes a single scalar value
+of <span class="math inline">\(dW\)</span>.</li>
+<li><strong>Dimension Mapping:</strong> Because gpu.js natively supports
+up to 3D output topologies (<code>[x, y, z]</code>), the 4D weight
+tensor <span class="math inline">\((K_h, K_w, C_{in}, C_{out})\)</span>
+must be reshaped. A standard approach flattens the spatial filter
+dimensions <span class="math inline">\((K_w \cdot K_h)\)</span> into the
+X-axis, maps <span class="math inline">\(C_{in}\)</span> to the Y-axis,
+and maps <span class="math inline">\(C_{out}\)</span> to the
+Z-axis.</li>
+<li><strong>Inner Reduction:</strong> Inside each thread, iterate
+through the batch size and the output feature map coordinates (<span
+class="math inline">\(H_{out}, W_{out}\)</span>), accumulating products
+of input features and output gradients.</li>
+</ol>
+<h3 id="implementation-in-gpujs">Implementation in gpu.js</h3>
+<p>The following example shows how to configure and execute the kernel.
+The inputs <span class="math inline">\(X\)</span> and <span
+class="math inline">\(dY\)</span> are passed as flattened 1D arrays or
+appropriately mapped 3D/2D arrays. Here, inputs are treated as flattened
+arrays with explicit stride-based indexing for maximum
+compatibility.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">createFilterGradientKernel</span>(params) {</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="kw">const</span> {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    batchSize<span class="op">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    inHeight<span class="op">,</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    inWidth<span class="op">,</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    inChannels<span class="op">,</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    outHeight<span class="op">,</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    outWidth<span class="op">,</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    outChannels<span class="op">,</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    kernelHeight<span class="op">,</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    kernelWidth<span class="op">,</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    stride<span class="op">,</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    padding</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  } <span class="op">=</span> params<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(input<span class="op">,</span> gradOutput) {</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Thread indices</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// x represents flattened spatial weight position: [0, kernelWidth * kernelHeight - 1]</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="co">// y represents input channel: [0, inChannels - 1]</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>    <span class="co">// z represents output channel: [0, outChannels - 1]</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> kIndex <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cIn <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> cOut <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">z</span><span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> kx <span class="op">=</span> kIndex <span class="op">%</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">kernelWidth</span><span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> ky <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>(kIndex <span class="op">/</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">kernelWidth</span>)<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Loop over batch and spatial positions of the upstream gradient</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> b <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> b <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">batchSize</span><span class="op">;</span> b<span class="op">++</span>) {</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>      <span class="cf">for</span> (<span class="kw">let</span> oy <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> oy <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outHeight</span><span class="op">;</span> oy<span class="op">++</span>) {</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> ox <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> ox <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outWidth</span><span class="op">;</span> ox<span class="op">++</span>) {</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>          </span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>          <span class="kw">const</span> iy <span class="op">=</span> oy <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">stride</span> <span class="op">-</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">padding</span> <span class="op">+</span> ky<span class="op">;</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>          <span class="kw">const</span> ix <span class="op">=</span> ox <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">stride</span> <span class="op">-</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">padding</span> <span class="op">+</span> kx<span class="op">;</span></span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>          <span class="co">// Boundary check for padding</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>          <span class="cf">if</span> (iy <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> iy <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inHeight</span> <span class="op">&amp;&amp;</span> ix <span class="op">&gt;=</span> <span class="dv">0</span> <span class="op">&amp;&amp;</span> ix <span class="op">&lt;</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inWidth</span>) {</span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Calculate 1D indices for flattened inputs</span></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> inIdx <span class="op">=</span> b <span class="op">*</span> (<span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inHeight</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inWidth</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inChannels</span>)</span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>                        <span class="op">+</span> iy <span class="op">*</span> (<span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inWidth</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inChannels</span>)</span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>                        <span class="op">+</span> ix <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">inChannels</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>                        <span class="op">+</span> cIn<span class="op">;</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> gradIdx <span class="op">=</span> b <span class="op">*</span> (<span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outHeight</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outWidth</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outChannels</span>)</span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>                          <span class="op">+</span> oy <span class="op">*</span> (<span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outWidth</span> <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outChannels</span>)</span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>                          <span class="op">+</span> ox <span class="op">*</span> <span class="kw">this</span><span class="op">.</span><span class="at">constants</span><span class="op">.</span><span class="at">outChannels</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>                          <span class="op">+</span> cOut<span class="op">;</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>            sum <span class="op">+=</span> input[inIdx] <span class="op">*</span> gradOutput[gradIdx]<span class="op">;</span></span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>          }</span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>      }</span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setConstants</span>({</span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>    batchSize<span class="op">,</span></span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a>    inHeight<span class="op">,</span></span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a>    inWidth<span class="op">,</span></span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a>    inChannels<span class="op">,</span></span>
+<span id="cb1-68"><a href="#cb1-68" aria-hidden="true" tabindex="-1"></a>    outHeight<span class="op">,</span></span>
+<span id="cb1-69"><a href="#cb1-69" aria-hidden="true" tabindex="-1"></a>    outWidth<span class="op">,</span></span>
+<span id="cb1-70"><a href="#cb1-70" aria-hidden="true" tabindex="-1"></a>    outChannels<span class="op">,</span></span>
+<span id="cb1-71"><a href="#cb1-71" aria-hidden="true" tabindex="-1"></a>    kernelHeight<span class="op">,</span></span>
+<span id="cb1-72"><a href="#cb1-72" aria-hidden="true" tabindex="-1"></a>    kernelWidth<span class="op">,</span></span>
+<span id="cb1-73"><a href="#cb1-73" aria-hidden="true" tabindex="-1"></a>    stride<span class="op">,</span></span>
+<span id="cb1-74"><a href="#cb1-74" aria-hidden="true" tabindex="-1"></a>    padding</span>
+<span id="cb1-75"><a href="#cb1-75" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>  <span class="op">.</span><span class="fu">setOutput</span>([kernelWidth <span class="op">*</span> kernelHeight<span class="op">,</span> inChannels<span class="op">,</span> outChannels])<span class="op">;</span></span>
+<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="execution-and-reshaping">Execution and Reshaping</h3>
+<p>To execute the kernel:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> convParams <span class="op">=</span> {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="dt">batchSize</span><span class="op">:</span> <span class="dv">16</span><span class="op">,</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="dt">inHeight</span><span class="op">:</span> <span class="dv">28</span><span class="op">,</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="dt">inWidth</span><span class="op">:</span> <span class="dv">28</span><span class="op">,</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="dt">inChannels</span><span class="op">:</span> <span class="dv">3</span><span class="op">,</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">outHeight</span><span class="op">:</span> <span class="dv">26</span><span class="op">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">outWidth</span><span class="op">:</span> <span class="dv">26</span><span class="op">,</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="dt">outChannels</span><span class="op">:</span> <span class="dv">8</span><span class="op">,</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="dt">kernelHeight</span><span class="op">:</span> <span class="dv">3</span><span class="op">,</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="dt">kernelWidth</span><span class="op">:</span> <span class="dv">3</span><span class="op">,</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="dt">stride</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="dt">padding</span><span class="op">:</span> <span class="dv">0</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>}<span class="op">;</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeFilterGradients <span class="op">=</span> <span class="fu">createFilterGradientKernel</span>(convParams)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="co">// inputData: Float32Array of size [16 * 28 * 28 * 3]</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a><span class="co">// gradOutputData: Float32Array of size [16 * 26 * 26 * 8]</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> filterGradients <span class="op">=</span> <span class="fu">computeFilterGradients</span>(inputData<span class="op">,</span> gradOutputData)<span class="op">;</span></span></code></pre></div>
+<p>The output <code>filterGradients</code> returns a 3D nested array of
+dimensions
+<code>[outChannels][inChannels][kernelWidth * kernelHeight]</code>. You
+can directly reshape or upload this result to update weights using
+gradient descent.</p>
+<h3 id="optimizations">Optimizations</h3>
+<ul>
+<li><strong>Pipelining and Textures:</strong> Set
+<code>pipeline: true</code> and <code>immutable: true</code> on the
+kernel if you intend to feed the resulting gradients directly into an
+optimizer kernel (e.g., Adam or SGD). This avoids transferring weights
+back to the CPU.</li>
+<li><strong>Index Math Hoisting:</strong> Flattened coordinates use
+repetitive multiplications. While WebGL compilers optimize certain index
+calculations, splitting operations into separate 2D texture accesses or
+passing pre-formatted textures matching <code>[W, H, C * B]</code> can
+reduce multiplication overhead inside deep loops.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

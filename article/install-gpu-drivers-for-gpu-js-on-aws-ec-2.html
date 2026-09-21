@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install GPU Drivers for GPU.js on AWS EC2 - gpu.js</title>
+    <meta name="description" content="Running GPU-accelerated JavaScript applications in the cloud requires specific hardware, proprietary drivers, and native OpenGL bindings. This guide outlines the exact process to configure an Amazon Web Services (AWS) EC2 GPU instance, install native NVI">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/install-gpu-drivers-for-gpu-js-on-aws-ec-2">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Install GPU Drivers for GPU.js on AWS EC2 - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/install-gpu-drivers-for-gpu-js-on-aws-ec-2" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running GPU-accelerated JavaScript applications in the cloud requires specific hardware, proprietary drivers, and native OpenGL bindings. This guide outlines the exact process to configure an Amazon Web Services (AWS) EC2 GPU instance, install native NVI" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="install-gpu-drivers-for-gpujs-on-aws-ec2">Install GPU Drivers
+for GPU.js on AWS EC2</h1>
+<p>Running GPU-accelerated JavaScript applications in the cloud requires
+specific hardware, proprietary drivers, and native OpenGL bindings. This
+guide outlines the exact process to configure an Amazon Web Services
+(AWS) EC2 GPU instance, install native NVIDIA graphics drivers and CUDA
+dependencies, configure headless rendering libraries, and verify that
+<code>gpu.js</code> runs directly on the GPU without falling back to the
+CPU in a Node.js environment.</p>
+<h3 id="1-launch-a-compatible-aws-ec2-instance">1. Launch a Compatible
+AWS EC2 Instance</h3>
+<p>Select an instance type that includes a dedicated NVIDIA GPU.
+Recommended options include:</p>
+<ul>
+<li><strong>G4dn instances:</strong> Powered by NVIDIA T4 GPUs
+(cost-effective for general inference and compute).</li>
+<li><strong>G5 instances:</strong> Powered by NVIDIA A10G GPUs (higher
+compute performance).</li>
+</ul>
+<p>Launch the instance using <strong>Ubuntu 22.04 LTS</strong> or
+<strong>Ubuntu 24.04 LTS</strong>, assign sufficient storage (at least
+30 GB), and attach an appropriate security group.</p>
+<h3 id="2-update-system-packages-and-install-compiler-essentials">2.
+Update System Packages and Install Compiler Essentials</h3>
+<p>Connect to your instance via SSH and update the package repository.
+Install the Linux kernel headers and standard build tools required to
+compile native Node.js modules and graphics bindings:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt update <span class="kw">&amp;&amp;</span> <span class="fu">sudo</span> apt upgrade <span class="at">-y</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt install <span class="at">-y</span> build-essential linux-headers-<span class="va">$(</span><span class="fu">uname</span> <span class="at">-r</span><span class="va">)</span> pkg-config</span></code></pre></div>
+<h3 id="3-install-the-nvidia-driver-and-cuda-toolkit">3. Install the
+NVIDIA Driver and CUDA Toolkit</h3>
+<p>Ensure the system detects the attached GPU by installing the
+proprietary NVIDIA drivers and utilities.</p>
+<p>Add the official graphics drivers repository and install the
+recommended driver package:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> add-apt-repository ppa:graphics-drivers/ppa <span class="at">-y</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt update</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt install <span class="at">-y</span> nvidia-driver-535 nvidia-utils-535</span></code></pre></div>
+<p>Once the installation completes, reboot the instance to apply kernel
+changes:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> reboot</span></code></pre></div>
+<p>After reconnecting via SSH, verify that the drivers are functioning
+properly:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="ex">nvidia-smi</span></span></code></pre></div>
+<p>The output should display your GPU model, driver version, and CUDA
+version.</p>
+<h3 id="4-install-native-headless-graphics-libraries">4. Install Native
+Headless Graphics Libraries</h3>
+<p>In a headless cloud environment, <code>gpu.js</code> executes
+server-side via Node.js using <code>headless-gl</code>
+(<code>gl</code>). This native binding requires system-level OpenGL,
+GLEW, and X11 development libraries to compile:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt install <span class="at">-y</span> <span class="dt">\</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  libxi-dev <span class="dt">\</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  libglu1-mesa-dev <span class="dt">\</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  libglew-dev <span class="dt">\</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  libx11-dev <span class="dt">\</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  mesa-utils <span class="dt">\</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  xvfb</span></code></pre></div>
+<h3 id="5-install-nodejs-and-project-dependencies">5. Install Node.js
+and Project Dependencies</h3>
+<p>Install a current LTS version of Node.js using the NodeSource
+repository:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-fsSL</span> https://deb.nodesource.com/setup_20.x <span class="kw">|</span> <span class="fu">sudo</span> <span class="at">-E</span> bash <span class="at">-</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> apt install <span class="at">-y</span> nodejs</span></code></pre></div>
+<p>Create a new working directory and install <code>gpu.js</code>:</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> gpu-test <span class="kw">&amp;&amp;</span> <span class="bu">cd</span> gpu-test</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> init <span class="at">-y</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="ex">npm</span> install gpu.js</span></code></pre></div>
+<p>During the <code>npm install</code> phase, npm compiles the native
+<code>headless-gl</code> binary against the graphics headers installed
+in the previous step.</p>
+<h3 id="6-verify-gpu-execution-in-gpujs">6. Verify GPU Execution in
+gpu.js</h3>
+<p>Create a test script named <code>test.js</code> to ensure
+computations are executed on the physical GPU hardware:</p>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">5</span>])<span class="op">;</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> result <span class="op">=</span> <span class="fu">kernel</span>()<span class="op">;</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Result:&#39;</span><span class="op">,</span> result)<span class="op">;</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Execution Mode:&#39;</span><span class="op">,</span> kernel<span class="op">.</span><span class="at">subKernelOutput</span> <span class="op">?</span> <span class="st">&#39;Unknown&#39;</span> <span class="op">:</span> gpu<span class="op">.</span><span class="at">mode</span>)<span class="op">;</span></span></code></pre></div>
+<p>Run the script:</p>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode bash"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="ex">node</span> test.js</span></code></pre></div>
+<p>If the environment is configured correctly, the output will
+confirm:</p>
+<pre class="text"><code>Result: Float32Array(5) [ 0, 1, 2, 3, 4 ]
+Execution Mode: gpu</code></pre>
+<p>If the mode reports <code>cpu</code>, verify your
+<code>nvidia-smi</code> output and ensure the <code>headless-gl</code>
+native build succeeded during package installation.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

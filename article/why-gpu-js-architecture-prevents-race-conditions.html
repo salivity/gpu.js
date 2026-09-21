@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why gpu.js Architecture Prevents Race Conditions - gpu.js</title>
+    <meta name="description" content="This article explores how the design of gpu.js inherently eliminates race conditions through its strictly isolated per-thread model. By enforcing read-only input structures and restricting each thread to write exclusively to its own unique coordinate in">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-gpu-js-architecture-prevents-race-conditions">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why gpu.js Architecture Prevents Race Conditions - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-gpu-js-architecture-prevents-race-conditions" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores how the design of gpu.js inherently eliminates race conditions through its strictly isolated per-thread model. By enforcing read-only input structures and restricting each thread to write exclusively to its own unique coordinate in" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-gpujs-architecture-prevents-race-conditions">Why gpu.js
+Architecture Prevents Race Conditions</h1>
+<p>This article explores how the design of gpu.js inherently eliminates
+race conditions through its strictly isolated per-thread model. By
+enforcing read-only input structures and restricting each thread to
+write exclusively to its own unique coordinate in the output array,
+gpu.js removes the shared mutable state that typically causes data races
+in concurrent programming. Readers will learn the structural reasons why
+developers can write parallel GPU kernels without manual synchronization
+primitives like locks or semaphores.</p>
+<h3 id="the-single-output-per-thread-model">The Single Output per Thread
+Model</h3>
+<p>The primary reason gpu.js is immune to race conditions lies in how it
+structures kernel execution. When a kernel runs, gpu.js maps each thread
+directly to a specific coordinate within the predefined output
+dimensions, accessed via <code>this.thread.x</code>,
+<code>this.thread.y</code>, and <code>this.thread.z</code>.</p>
+<p>Crucially, a thread in gpu.js does not perform arbitrary memory
+writes. Instead, the return value of the kernel function defines the
+value of that specific coordinate in the target array or texture.
+Because every thread has an exclusive, deterministic output destination,
+no two threads can write to the same memory address simultaneously.</p>
+<h3 id="read-only-input-memory">Read-Only Input Memory</h3>
+<p>Race conditions occur when multiple threads access the same memory
+location concurrently and at least one access is a write. In gpu.js, all
+inputs passed into a kernel—such as arrays, matrices, or textures—are
+treated as strictly immutable during execution.</p>
+<p>While threads can read from any position in the input data, they lack
+the capability to modify that data in place. This guarantees that
+concurrent reads cannot be corrupted by interleaved writes, preserving
+data integrity across all parallel operations.</p>
+<h3 id="absence-of-shared-mutable-state">Absence of Shared Mutable
+State</h3>
+<p>In general GPU programming using lower-level APIs such as WebGL,
+WebGPU, or CUDA, race conditions occur when threads share global memory
+or block-level shared memory without synchronization. Programmers
+typically must rely on atomic operations or barrier synchronization to
+coordinate access.</p>
+<p>gpu.js abstracts parallel computation into a pure functional
+paradigm. It does not expose shared mutable scratchpads or atomic write
+primitives to the kernel body. By completely eliminating shared mutable
+state, it eliminates the possibility of data races by definition.</p>
+<h3 id="deterministic-parallelism">Deterministic Parallelism</h3>
+<p>Because threads operate in total isolation regarding writes,
+execution order does not affect the final result. Threads can finish in
+any sequence, pause, or execute simultaneously on the GPU's hardware
+cores without producing side effects for other threads. This
+architectural separation makes gpu.js inherently race-condition-free,
+providing reliable and predictable parallel computation directly in
+JavaScript.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

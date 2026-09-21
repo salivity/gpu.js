@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Thread Coordinates Outside setOutput Bounds - gpu.js</title>
+    <meta name="description" content="In GPU.js, the execution dimensions of a kernel are strictly bound by the setOutput configuration, meaning threads outside these dimensions are never spawned by the GPU pipeline. However, when an executing thread attempts to calculate and read data from">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-thread-coordinates-outside-set-output-bounds">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Thread Coordinates Outside setOutput Bounds - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-thread-coordinates-outside-set-output-bounds" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In GPU.js, the execution dimensions of a kernel are strictly bound by the setOutput configuration, meaning threads outside these dimensions are never spawned by the GPU pipeline. However, when an executing thread attempts to calculate and read data from" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-thread-coordinates-outside-setoutput-bounds">GPU.js Thread
+Coordinates Outside setOutput Bounds</h1>
+<p>In GPU.js, the execution dimensions of a kernel are strictly bound by
+the <code>setOutput</code> configuration, meaning threads outside these
+dimensions are never spawned by the GPU pipeline. However, when an
+executing thread attempts to calculate and read data from coordinates
+exceeding these bounds—such as accessing an input array or texture
+beyond its defined limits—the result depends on the execution mode,
+generally yielding clamped values, zeroes, or <code>undefined</code>
+rather than triggering a fatal runtime crash.</p>
+<h3 id="thread-allocation-and-the-setoutput-limit">Thread Allocation and
+the setOutput Limit</h3>
+<p>The <code>setOutput</code> method defines the dimensions of the
+output grid, which directly sets the WebGL viewport and determines how
+many parallel instances (threads) the GPU will execute. Because the GPU
+runtime generates threads strictly within the range of <code>0</code> to
+<code>dimension - 1</code> for each axis:</p>
+<ul>
+<li>A kernel will never execute with a <code>this.thread.x</code>,
+<code>this.thread.y</code>, or <code>this.thread.z</code> value natively
+outside the bounds defined by <code>setOutput</code>.</li>
+<li>Threads beyond the defined grid simply do not exist, and no
+operations are dispatched for them.</li>
+</ul>
+<h3 id="reading-out-of-bounds-memory-from-an-active-thread">Reading
+Out-of-Bounds Memory from an Active Thread</h3>
+<p>When an active thread inside the valid <code>setOutput</code>
+boundaries attempts to read an input collection at an index or
+coordinate that lies outside the input's actual dimensions (for
+instance, reading
+<code>matrix[this.thread.y + offset][this.thread.x + offset]</code>),
+GPU.js handles the operation differently depending on the active
+pipeline:</p>
+<h4 id="1-webgl-gpu-mode">1. WebGL (GPU Mode)</h4>
+<p>In WebGL mode, input arrays are encoded into textures, and lookups
+are performed as texture samplers via generated GLSL shaders. When
+sampling a texture outside its defined coordinate space:</p>
+<ul>
+<li>WebGL texture clamping or wrapping behaviors take over.</li>
+<li>By default, texture samplers typically clamp to the edge pixels or
+return an empty vector <code>(0.0, 0.0, 0.0, 0.0)</code>.</li>
+<li>In mathematical kernels, this translates to returning <code>0</code>
+or repeating the boundary value, preventing the shader program from
+crashing the GPU context.</li>
+</ul>
+<h4 id="2-cpu-fallback-mode">2. CPU Fallback Mode</h4>
+<p>If WebGL is unavailable and GPU.js falls back to JavaScript CPU
+execution:</p>
+<ul>
+<li>Array reads outside valid indices follow standard JavaScript
+behavior and return <code>undefined</code>.</li>
+<li>When mathematical operations attempt to process
+<code>undefined</code>, the result degrades to <code>NaN</code>, which
+is then committed to the output array for that specific thread.</li>
+</ul>
+<p>Kernel logic relying on neighbor lookups (such as image convolutions
+or cellular automata) must manually implement boundary checks using
+conditionals like <code>if (x &gt;= width || x &lt; 0)</code> to
+guarantee consistent results across both GPU and CPU execution
+modes.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Cross-Browser Compatibility Explained - gpu.js</title>
+    <meta name="description" content="GPU.js achieves seamless cross-browser compatibility across Google Chrome, Mozilla Firefox, Apple Safari, and Microsoft Edge by compiling standard JavaScript functions into platform-agnostic WebGL shaders. By abstracting the browser-specific graphics pip">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-cross-browser-compatibility-explained">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Cross-Browser Compatibility Explained - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-cross-browser-compatibility-explained" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js achieves seamless cross-browser compatibility across Google Chrome, Mozilla Firefox, Apple Safari, and Microsoft Edge by compiling standard JavaScript functions into platform-agnostic WebGL shaders. By abstracting the browser-specific graphics pip" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-cross-browser-compatibility-explained">GPU.js
+Cross-Browser Compatibility Explained</h1>
+<p>GPU.js achieves seamless cross-browser compatibility across Google
+Chrome, Mozilla Firefox, Apple Safari, and Microsoft Edge by compiling
+standard JavaScript functions into platform-agnostic WebGL shaders. By
+abstracting the browser-specific graphics pipelines and rendering
+engines, GPU.js evaluates hardware capabilities at runtime, adjusts
+precision to match host limits, and falls back gracefully to standard
+CPU execution whenever hardware acceleration is unavailable.</p>
+<h2 id="javascript-to-glsl-transpilation">JavaScript-to-GLSL
+Transpilation</h2>
+<p>The core mechanism behind GPU.js is its ability to transpile
+JavaScript functions into OpenGL Shading Language (GLSL). Chrome,
+Firefox, Safari, and Edge all implement the WebGL standard, which
+accepts GLSL for hardware-accelerated computations. Rather than relying
+on browser-specific JavaScript engine optimizations—such as V8 in Chrome
+and Edge, SpiderMonkey in Firefox, or JavaScriptCore in Safari—GPU.js
+bypasses the JavaScript virtual machine entirely for matrix and
+computational workloads, executing calculations directly on the graphics
+card using uniform shader instructions.</p>
+<h2 id="dynamic-webgl-context-detection">Dynamic WebGL Context
+Detection</h2>
+<p>Different browsers and operating systems provide varying levels of
+graphics API support. GPU.js handles this by systematically probing the
+browser environment during initialization:</p>
+<ol type="1">
+<li><strong>WebGL 2 Detection:</strong> GPU.js first attempts to create
+a <code>webgl2</code> rendering context. WebGL 2 provides native support
+for 32-bit floating-point textures and advanced buffer operations, which
+are fully supported in current builds of Chrome, Edge, Firefox, and
+Safari.</li>
+<li><strong>WebGL 1 Fallback:</strong> If WebGL 2 initialization
+fails—common in legacy browser versions or restricted
+environments—GPU.js automatically negotiates a standard
+<code>webgl</code> (WebGL 1.0) or <code>experimental-webgl</code>
+context.</li>
+<li><strong>Extension Negotiation:</strong> In WebGL 1 mode, GPU.js
+detects optional extensions such as <code>OES_texture_float</code> and
+<code>WEBGL_draw_buffers</code> to ensure broad compatibility with
+floating-point calculations.</li>
+</ol>
+<h2 id="overcoming-engine-specific-graphics-discrepancies">Overcoming
+Engine-Specific Graphics Discrepancies</h2>
+<p>While WebGL is a cross-platform standard, each major browser relies
+on a distinct underlying architecture to interface with the operating
+system:</p>
+<ul>
+<li><strong>Chrome and Edge (Blink):</strong> On Windows, Chromium-based
+browsers route WebGL through ANGLE (Almost Native Graphics Layer Engine)
+to translate GLSL into Direct3D. On macOS, they translate to Metal.
+GPU.js structures its shaders to avoid ambiguous GLSL code that might
+trigger validation errors within ANGLE.</li>
+<li><strong>Safari (WebKit):</strong> Safari routes graphics calls
+directly through Apple's Metal framework. Historically, WebKit enforced
+stricter limits on floating-point precision in fragment shaders and
+delayed full WebGL 2 rollout. GPU.js addresses WebKit's precision
+requirements by dynamically adjusting shader float qualifiers
+(<code>highp</code>, <code>mediump</code>, <code>lowp</code>) based on
+what the specific device and Safari version report as supported.</li>
+<li><strong>Firefox (Gecko):</strong> Firefox utilizes its own WebGL
+implementation, which strictly enforces memory sandboxing and
+out-of-bounds checks. GPU.js ensures internal texture read and write
+bounds are precisely aligned, preventing the silent context losses or
+security exceptions that Firefox can trigger when shaders access
+unallocated memory.</li>
+</ul>
+<h2 id="texture-based-data-encoding">Texture-Based Data Encoding</h2>
+<p>Because standard WebGL 1 lacks generic compute buffers, GPU.js packs
+mathematical arrays into standard 2D textures using RGBA color channels.
+To maintain consistent calculations across all browser engines, GPU.js
+implements uniform bit-shifting and normalization routines that encode
+and decode raw numerical data identically, preventing discrepancies
+caused by differing hardware floating-point roundoff behaviors across
+platforms.</p>
+<h2 id="the-cpu-fallback-mode">The CPU Fallback Mode</h2>
+<p>To guarantee application stability, GPU.js includes an automated CPU
+fallback mode. If a user runs an application in an environment where
+hardware acceleration is disabled—such as corporate enterprise policies
+on Edge, privacy-hardened profiles on Firefox, or virtualized
+environments without GPU passthrough—GPU.js detects the context creation
+failure. Instead of throwing an unhandled runtime error, it executes the
+original JavaScript function iteratively on the CPU, ensuring identical
+output across every browser regardless of underlying hardware
+access.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>What Happens to GPU.js Textures on Page Refresh - gpu.js</title>
+    <meta name="description" content="When a browser window navigates away or refreshes, all GPU textures allocated by gpu.js are automatically reclaimed and destroyed alongside the underlying WebGL context. Because the browser terminates the execution context and tears down the associated c">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/what-happens-to-gpu-js-textures-on-page-refresh">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="What Happens to GPU.js Textures on Page Refresh - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/what-happens-to-gpu-js-textures-on-page-refresh" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When a browser window navigates away or refreshes, all GPU textures allocated by gpu.js are automatically reclaimed and destroyed alongside the underlying WebGL context. Because the browser terminates the execution context and tears down the associated c" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="what-happens-to-gpujs-textures-on-page-refresh">What Happens to
+GPU.js Textures on Page Refresh</h1>
+<p>When a browser window navigates away or refreshes, all GPU textures
+allocated by gpu.js are automatically reclaimed and destroyed alongside
+the underlying WebGL context. Because the browser terminates the
+execution context and tears down the associated canvas element, the
+graphics driver releases the allocated Video RAM (VRAM). As a result,
+you do not face persistent VRAM leaks across page reloads, even if you
+fail to explicitly dispose of your textures in JavaScript.</p>
+<h3 id="the-underlying-webgl-context-lifecycle">The Underlying WebGL
+Context Lifecycle</h3>
+<p>gpu.js operates by compiling JavaScript functions into GLSL shaders
+and running them via WebGL. When you configure kernels to output
+textures—often using the pipeline mode via
+<code>kernel.setOutputToTexture(true)</code>—gpu.js stores the resulting
+computational data directly inside native WebGL texture objects
+(<code>WebGLTexture</code>) on the GPU.</p>
+<p>These textures belong strictly to the
+<code>WebGLRenderingContext</code> or
+<code>WebGL2RenderingContext</code> created by gpu.js. WebGL contexts
+are bound directly to the Document Object Model (DOM) and the lifetime
+of the document. When a navigation or refresh event occurs:</p>
+<ol type="1">
+<li>The browser initiates an unload sequence (<code>beforeunload</code>
+and <code>pagehide</code>).</li>
+<li>The document and its associated DOM nodes, including any off-screen
+or rendered canvas elements created by gpu.js, are destroyed.</li>
+<li>The browser sends a signal to the GPU process to dispose of the
+WebGL context.</li>
+<li>The graphics driver deallocates all associated GPU resources,
+including vertex buffers, framebuffers, compiled shader programs, and
+allocated textures.</li>
+</ol>
+<h3 id="automatic-vram-reclamation-vs-manual-cleanup">Automatic VRAM
+Reclamation vs. Manual Cleanup</h3>
+<p>In long-running Single Page Applications (SPAs) where navigation
+occurs without a full browser refresh, manual cleanup is critical. In
+those scenarios, failing to call <code>texture.delete()</code> or
+<code>gpu.destroy()</code> causes textures to accumulate in VRAM,
+eventually triggering an <code>Out of Memory</code> (OOM) error or
+context loss.</p>
+<p>However, during a hard refresh (F5 / Ctrl+R) or navigation to a new
+URL, manual cleanup inside an <code>unload</code> or
+<code>beforeunload</code> event listener is unnecessary:</p>
+<ul>
+<li><strong>Synchronous Termination:</strong> Browsers prioritize fast
+teardown during page transitions. Relying on JavaScript unload hooks to
+call <code>.delete()</code> on individual textures often fails because
+modern browsers limit or outright ignore complex synchronous execution
+during page dismissal.</li>
+<li><strong>Process-Level Isolation:</strong> Modern browsers (such as
+Chrome, Firefox, and Edge) isolate WebGL instances within a sandboxed
+GPU process. When the renderer process terminates, the GPU process
+handles the deallocation of texture handles at the operating system and
+driver level.</li>
+</ul>
+<h3 id="driver-edge-cases-and-context-loss">Driver Edge Cases and
+Context Loss</h3>
+<p>While the browser guarantees that references are dropped, actual
+physical VRAM reclamation depends on the operating system and graphics
+hardware driver:</p>
+<ul>
+<li><strong>Delayed Garbage Collection:</strong> Some GPU drivers do not
+immediately zero out or return memory blocks to the OS pool upon context
+loss; instead, they mark the blocks as free and defer compaction until
+another process requests VRAM. This can make it appear as though memory
+is still reserved immediately after a refresh.</li>
+<li><strong>Context Loss Events:</strong> If a user repeatedly refreshes
+a page running heavy gpu.js allocations, the rapid cycling of texture
+creation and teardown can overwhelm the GPU driver's command buffer.
+This may trigger a <code>webglcontextlost</code> event, causing the
+browser to temporarily disable WebGL acceleration until the GPU
+resets.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

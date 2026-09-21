@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Battery Savers and GPU.js Performance - gpu.js</title>
+    <meta name="description" content="This article examines how mobile power-throttling and battery-saver modes degrade computational throughput in GPU.js. When mobile operating systems attempt to preserve battery life or manage heat, they apply aggressive constraints on hardware components.">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/mobile-battery-savers-and-gpu-js-performance">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Mobile Battery Savers and GPU.js Performance - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/mobile-battery-savers-and-gpu-js-performance" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how mobile power-throttling and battery-saver modes degrade computational throughput in GPU.js. When mobile operating systems attempt to preserve battery life or manage heat, they apply aggressive constraints on hardware components." />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="mobile-battery-savers-and-gpujs-performance">Mobile Battery
+Savers and GPU.js Performance</h1>
+<p>This article examines how mobile power-throttling and battery-saver
+modes degrade computational throughput in GPU.js. When mobile operating
+systems attempt to preserve battery life or manage heat, they apply
+aggressive constraints on hardware components. Because GPU.js translates
+JavaScript functions into WebGL shader code executed directly on the
+device's graphics processor, these power management features introduce
+clock rate reductions, frame rate capping, thread de-prioritization, and
+severe memory bandwidth bottlenecks.</p>
+<h2 id="how-gpujs-operates-on-mobile-devices">How GPU.js Operates on
+Mobile Devices</h2>
+<p>GPU.js accelerates browser-based computing by compiling a subset of
+JavaScript into GLSL (OpenGL Shading Language). It runs these shaders on
+the client’s GPU via WebGL contexts and reads the output back through
+textures or typed arrays.</p>
+<p>On mobile devices, the GPU is integrated into a System on a Chip
+(SoC) that shares thermal and power envelopes with the CPU, memory
+controller, and display. When executing intensive parallel tasks, GPU.js
+demands high power density, making it a primary target for mobile
+power-management algorithms.</p>
+<h2 id="mechanisms-of-power-throttling">Mechanisms of Power
+Throttling</h2>
+<p>Mobile operating systems (such as Android and iOS) enforce
+performance constraints through two distinct states: automated thermal
+throttling and user-enabled battery-saver modes.</p>
+<h3 id="1-dynamic-voltage-and-frequency-scaling-dvfs">1. Dynamic Voltage
+and Frequency Scaling (DVFS)</h3>
+<p>Under battery-saver mode or during high-heat states, the operating
+system limits the GPU's clock frequency. While a mobile GPU may burst to
+800–1000 MHz under standard loads, throttled states frequently reduce
+clock speeds by 40% to 60%. Because GPU.js performance scales directly
+with raw compute frequency for floating-point operations, this
+downclocking creates an immediate, linear drop in kernel throughput.</p>
+<h3 id="2-thermal-throttling-cascades">2. Thermal Throttling
+Cascades</h3>
+<p>Unlike desktop graphics cards with active cooling fans, mobile
+hardware relies entirely on passive dissipation through the chassis.
+Prolonged GPU.js workloads quickly generate sustained heat. Once the
+device hits thermal thresholds (typically around 40°C to 45°C
+battery/skin temperature), the kernel driver drops GPU power limits
+continuously. This causes high initial throughput that degrades rapidly
+within seconds of continuous computation.</p>
+<h3 id="3-frame-rate-capping-and-compositor-throttling">3. Frame Rate
+Capping and Compositor Throttling</h3>
+<p>Battery-saver modes often limit the display refresh rate from 120Hz
+or 60Hz down to 30Hz or 48Hz. In WebGL, execution timing is closely tied
+to the browser’s render loop and requestAnimationFrame mechanisms. While
+offscreen or computation-only WebGL contexts can theoretically run
+unbound by refresh rates, many mobile browsers constrain WebGL execution
+loops when battery saving is active to reduce display hardware
+drain.</p>
+<h3 id="4-memory-bus-underclocking">4. Memory Bus Underclocking</h3>
+<p>A major bottleneck in GPU.js is reading computed data back to the CPU
+via <code>gl.readPixels()</code> or <code>kernel.toArray()</code>.
+Battery-saver modes aggressively downclock the SoC's unified memory bus
+(LPDDR) to conserve power. This reduces memory bandwidth, making the
+data serialization and extraction phases in GPU.js disproportionately
+slower than the raw arithmetic operations.</p>
+<h3 id="5-webgl-context-eviction-and-background-limits">5. WebGL Context
+Eviction and Background Limits</h3>
+<p>To save power, mobile browsers drastically throttle or pause WebGL
+contexts running in inactive tabs, background processes, or minimized
+viewports. Battery-saver profiles shorten the inactivity window before
+unloading contexts or pausing worker threads, leading to dropped
+execution runs or expensive context-restoration overhead.</p>
+<h2 id="measurable-impacts-on-throughput">Measurable Impacts on
+Throughput</h2>
+<p>When battery-saver or thermal throttling takes effect, GPU.js
+applications exhibit specific performance degradations:</p>
+<ul>
+<li><strong>Increased Kernel Latency:</strong> Core mathematical kernels
+(such as matrix multiplication, convolution, or numerical analysis) show
+a 2x to 5x increase in execution time.</li>
+<li><strong>Severe Readback Overhead:</strong> The time required to
+transfer output arrays back to the JavaScript main thread increases
+significantly due to lowered memory bus speeds.</li>
+<li><strong>Inconsistent Execution Profiles:</strong> Benchmarks exhibit
+high jitter; an initial run might execute in 15ms, but subsequent runs
+degrade to 80ms or more as thermal governors engage.</li>
+<li><strong>Fallback to CPU Mode:</strong> In extreme low-power
+configurations, browser hardware acceleration can temporarily crash or
+lose its WebGL context, causing GPU.js to fall back to its CPU-based
+JavaScript execution mode, which is orders of magnitude slower for large
+data sets.</li>
+</ul>
+<h2 id="mitigating-performance-loss">Mitigating Performance Loss</h2>
+<p>Developers deploying GPU.js on mobile interfaces should implement
+defensive optimization strategies:</p>
+<ul>
+<li><strong>Batching and Chunking:</strong> Split massive computations
+into smaller, intermittent work chunks rather than continuous loops.
+Inserting small pauses allows the SoC to shed heat and avoid triggering
+strict thermal governors.</li>
+<li><strong>Minimizing Data Transfers:</strong> Keep data in GPU texture
+memory as long as possible. Chaining kernels within WebGL without
+reading back intermediate arrays to CPU memory mitigates the impact of
+memory bus throttling.</li>
+<li><strong>Workload Offloading Checks:</strong> Profile device
+capabilities dynamically. If execution times spike due to battery-saver
+restrictions, provide a lightweight mathematical algorithm or offload
+the processing to an external server.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

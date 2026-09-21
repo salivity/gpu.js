@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Huygens-Fresnel Sound Diffraction in GPU.js - gpu.js</title>
+    <meta name="description" content="Simulating sound field diffraction around geometric barriers using the Huygens-Fresnel principle is entirely feasible within GPU.js. By translating wave equations into parallelized WebGL kernels, developers can discretize wave fronts into secondary wavel">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/huygens-fresnel-sound-diffraction-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Huygens-Fresnel Sound Diffraction in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/huygens-fresnel-sound-diffraction-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Simulating sound field diffraction around geometric barriers using the Huygens-Fresnel principle is entirely feasible within GPU.js. By translating wave equations into parallelized WebGL kernels, developers can discretize wave fronts into secondary wavel" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="huygens-fresnel-sound-diffraction-in-gpujs">Huygens-Fresnel
+Sound Diffraction in GPU.js</h1>
+<p>Simulating sound field diffraction around geometric barriers using
+the Huygens-Fresnel principle is entirely feasible within GPU.js. By
+translating wave equations into parallelized WebGL kernels, developers
+can discretize wave fronts into secondary wavelets and compute complex
+interference patterns in real time directly within a web browser. This
+article explores how the Huygens-Fresnel principle applies to acoustic
+barriers, details the architectural implementation in GPU.js, and
+evaluates the performance trade-offs of this approach.</p>
+<h3 id="the-physics-huygens-fresnel-principle-and-barriers">The Physics:
+Huygens-Fresnel Principle and Barriers</h3>
+<p>The Huygens-Fresnel principle posits that every point on a
+propagating wavefront acts as a secondary source of spherical wavelets.
+The sound field at any subsequent point is the coherent superposition of
+these secondary wavelets, factoring in their amplitude, distance, and
+phase:</p>
+<p><span class="math display">\[U(P) = -\frac{i}{\lambda} \iint_S U_0
+\frac{e^{ikr}}{r} K(\theta) \, dS\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(U(P)\)</span> is the complex acoustic
+pressure at an observation point <span
+class="math inline">\(P\)</span>.</li>
+<li><span class="math inline">\(k = \frac{2\pi}{\lambda}\)</span> is the
+acoustic wavenumber.</li>
+<li><span class="math inline">\(r\)</span> is the distance from the
+secondary source to point <span class="math inline">\(P\)</span>.</li>
+<li><span class="math inline">\(K(\theta)\)</span> is the obliquity
+factor controlling directional radiation.</li>
+</ul>
+<p>When a geometric barrier obstructs sound waves, it truncates the
+integration surface <span class="math inline">\(S\)</span>. The
+diffraction pattern observed in the geometric shadow zone arises from
+secondary wavelets emanating from the unobstructed apertures or past the
+barrier edges, interfering constructively and destructively.</p>
+<h3 id="why-gpujs-for-acoustic-diffraction">Why GPU.js for Acoustic
+Diffraction</h3>
+<p>Evaluating the continuous surface integral across a discretized 2D or
+3D acoustic field is computationally demanding. For a receiver grid of
+size <span class="math inline">\(N \times N\)</span> and <span
+class="math inline">\(M\)</span> secondary sources, calculating
+interference requires <span class="math inline">\(O(M \cdot
+N^2)\)</span> operations per frequency.</p>
+<p>GPU.js compiles standard JavaScript functions into WebGL compute
+shaders, executing them on the graphics processing unit. Because
+calculating the pressure at each field point <span
+class="math inline">\((x, y)\)</span> is an embarrassingly parallel
+problem that depends solely on fixed source locations and barrier
+geometries, each GPU thread can independently evaluate the sum of all
+wavelets for a single pixel.</p>
+<h3 id="implementation-architecture">Implementation Architecture</h3>
+<p>Modeling diffraction in GPU.js follows a structured four-stage
+pipeline:</p>
+<ol type="1">
+<li><strong>Domain Discretization:</strong> Define a two-dimensional
+grid representing physical space. Specify a primary sound source
+(frequency, amplitude, position) and geometric barriers (polygons or
+line segments).</li>
+<li><strong>Secondary Source Identification:</strong> Trace rays from
+the primary source or discretize the aperture line/edge into an array of
+secondary point sources. Each source holds coordinates <span
+class="math inline">\((x_s, y_s)\)</span>, an initial phase determined
+by distance from the primary source, and an initial amplitude.</li>
+<li><strong>Kernel Construction:</strong> Create a GPU.js kernel that
+computes the pressure contribution of each secondary source. Inside the
+kernel, calculate the Euclidean distance <span class="math inline">\(r =
+\sqrt{(x - x_s)^2 + (y - y_s)^2}\)</span>, compute attenuation (<span
+class="math inline">\(1/r\)</span>), apply phase shift (<span
+class="math inline">\(\cos(kr)\)</span> and <span
+class="math inline">\(\sin(kr)\)</span>), and accumulate real and
+imaginary components.</li>
+<li><strong>Magnitude Extraction:</strong> Compute the absolute acoustic
+pressure <span class="math inline">\(\sqrt{\text{Real}^2 +
+\text{Imag}^2}\)</span> and convert it to sound pressure level (dB) or a
+color gradient for rendering to a canvas.</li>
+</ol>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDiffraction <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(sourcesX<span class="op">,</span> sourcesY<span class="op">,</span> sourcesPhase<span class="op">,</span> sourcesAmp<span class="op">,</span> numSources<span class="op">,</span> k) {</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> realSum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> imagSum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> numSources<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dx <span class="op">=</span> x <span class="op">-</span> sourcesX[i]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> dy <span class="op">=</span> y <span class="op">-</span> sourcesY[i]<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> r <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(dx <span class="op">*</span> dx <span class="op">+</span> dy <span class="op">*</span> dy) <span class="op">+</span> <span class="fl">0.001</span><span class="op">;</span> <span class="co">// Avoid division by zero</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> phase <span class="op">=</span> k <span class="op">*</span> r <span class="op">+</span> sourcesPhase[i]<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> amplitude <span class="op">=</span> sourcesAmp[i] <span class="op">/</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(r)<span class="op">;</span> <span class="co">// 2D cylindrical spreading</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>        realSum <span class="op">+=</span> amplitude <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(phase)<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>        imagSum <span class="op">+=</span> amplitude <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(phase)<span class="op">;</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(realSum <span class="op">*</span> realSum <span class="op">+</span> imagSum <span class="op">*</span> imagSum)<span class="op">;</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">512</span><span class="op">,</span> <span class="dv">512</span>])<span class="op">;</span></span></code></pre></div>
+<h3 id="technical-considerations-and-limitations">Technical
+Considerations and Limitations</h3>
+<ul>
+<li><strong>Spatial Sampling (Nyquist Criterion):</strong> The spatial
+grid must sample at least twice per wavelength (<span
+class="math inline">\(\Delta x &lt; \frac{\lambda}{2}\)</span>), with
+<span class="math inline">\(\Delta x \le \frac{\lambda}{8}\)</span>
+preferred for numerical accuracy. Consequently, modeling high-frequency
+audio requires larger grid resolutions and increases memory bandwidth
+requirements.</li>
+<li><strong>GPU Loop Limits:</strong> WebGL shaders often require static
+or capped loop bounds. Pass array sizes as constant uniforms or set
+fixed maximum secondary source counts to avoid shader compilation
+failures.</li>
+<li><strong>Accuracy vs. Edge Diffraction Models:</strong> The standard
+Huygens-Fresnel formulation assumes planar apertures and does not
+inherently model high-order edge diffractions, surface impedance, or
+creeping waves around curved surfaces. For complex barrier topologies,
+the Geometrical Theory of Diffraction (GTD) or Boundary Element Methods
+(BEM) yield higher physical fidelity, though Huygens-Fresnel remains
+well-suited for interactive, real-time approximations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

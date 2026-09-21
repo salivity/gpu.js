@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Kernel Compilation Overhead: Runtime vs Caching - gpu.js</title>
+    <meta name="description" content="Compiling new kernels at runtime in gpu.js incurs a substantial performance penalty compared to caching and reusing existing ones. When a kernel is defined on the fly, the library must translate JavaScript functions into GLSL shaders, validate data types">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-kernel-compilation-overhead-runtime-vs-caching">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Kernel Compilation Overhead: Runtime vs Caching - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-kernel-compilation-overhead-runtime-vs-caching" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Compiling new kernels at runtime in gpu.js incurs a substantial performance penalty compared to caching and reusing existing ones. When a kernel is defined on the fly, the library must translate JavaScript functions into GLSL shaders, validate data types" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-kernel-compilation-overhead-runtime-vs-caching">GPU.js
+Kernel Compilation Overhead: Runtime vs Caching</h1>
+<p>Compiling new kernels at runtime in gpu.js incurs a substantial
+performance penalty compared to caching and reusing existing ones. When
+a kernel is defined on the fly, the library must translate JavaScript
+functions into GLSL shaders, validate data types, compile those shaders
+via WebGL or WebGPU drivers, and link the program before dispatching
+work to the hardware. Caching compiled kernels eliminates this pipeline
+setup overhead, reducing execution latency from tens or hundreds of
+milliseconds down to sub-millisecond memory-dispatch operations.</p>
+<h3 id="the-steps-and-cost-of-runtime-compilation">The Steps and Cost of
+Runtime Compilation</h3>
+<p>Every time a new kernel is created using
+<code>gpu.createKernel()</code>, a multi-stage compilation pipeline runs
+on the CPU and the GPU driver:</p>
+<ol type="1">
+<li><strong>Abstract Syntax Tree (AST) Parsing:</strong> gpu.js parses
+the JavaScript function using Acorn to understand loops, mathematical
+operators, and variable scopes.</li>
+<li><strong>GLSL Code Generation:</strong> The AST is transpiled into
+GLSL (OpenGL Shading Language) shader source code compatible with the
+active WebGL context.</li>
+<li><strong>Driver-Level Shader Compilation:</strong> The browser passes
+the GLSL string to the underlying graphics driver via
+<code>gl.compileShader()</code>. The driver compiles the GLSL into the
+GPU's native machine code (ISA).</li>
+<li><strong>Program Linking and Buffer Binding:</strong> The compiled
+vertex and fragment shaders are linked into a WebGL program via
+<code>gl.linkProgram()</code>, and default uniform locations, attribute
+buffers, and output framebuffers are established.</li>
+</ol>
+<p>This pipeline typically introduces an overhead of <strong>10 to 150
+milliseconds per kernel</strong>, depending on the host CPU, client GPU,
+and kernel complexity. In applications that run real-time graphics,
+physics simulations, or iterative machine learning models, dynamically
+compiling kernels inside an execution loop causes severe frame drops,
+CPU spikes, and memory thrashing from discarded WebGL program
+handles.</p>
+<h3 id="performance-profile-of-cached-kernels">Performance Profile of
+Cached Kernels</h3>
+<p>When a kernel is declared once and cached as a reusable function
+reference, gpu.js bypasses the translation and compilation pipeline
+entirely on subsequent calls.</p>
+<p>During cached execution, the lifecycle consists solely of:</p>
+<ul>
+<li><strong>Argument Serialization:</strong> Mapping input arrays or
+typed arrays to WebGL textures or uniforms.</li>
+<li><strong>Uniform Updates:</strong> Uploading altered scalar values to
+the GPU via <code>gl.uniform*</code> calls.</li>
+<li><strong>Draw Call Dispatch:</strong> Executing a single draw call
+(such as <code>gl.drawArrays</code> over a screen-aligned quad) to
+trigger parallel execution.</li>
+<li><strong>Data Retrieval (Optional):</strong> Reading pixels back from
+the GPU via <code>gl.readPixels</code>, or retaining the output directly
+on the GPU as a texture for chained computations.</li>
+</ul>
+<p>Because the underlying WebGL program remains compiled in GPU memory,
+running a cached kernel typically takes between <strong>0.05 and 5
+milliseconds</strong> for moderate payload sizes—representing a
+performance gain often exceeding <strong>100x</strong> over on-the-fly
+compilation.</p>
+<h3 id="summary-comparison">Summary Comparison</h3>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Metric</th>
+<th style="text-align: left;">Runtime Compilation (New Kernel)</th>
+<th style="text-align: left;">Cached Kernel Execution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><strong>Primary Bottleneck</strong></td>
+<td style="text-align: left;">CPU parsing &amp; driver shader
+compilation</td>
+<td style="text-align: left;">GPU memory bandwidth &amp; compute
+limits</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Typical Latency</strong></td>
+<td style="text-align: left;">15ms – 200ms+</td>
+<td style="text-align: left;">0.05ms – 5ms</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Garbage Collection</strong></td>
+<td style="text-align: left;">High (frequent buffer/context
+recreation)</td>
+<td style="text-align: left;">Minimal (reused typed buffers and
+textures)</td>
+</tr>
+<tr>
+<td style="text-align: left;"><strong>Framerate Impact</strong></td>
+<td style="text-align: left;">Significant stutter, blocking main
+thread</td>
+<td style="text-align: left;">Smooth execution suitable for 60+ FPS</td>
+</tr>
+</tbody>
+</table>
+<p>To maximize throughput in gpu.js, instantiate all required compute
+kernels during application initialization. Vary computations by passing
+new data as arguments or uniforms rather than generating new kernel
+functions during runtime loops.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

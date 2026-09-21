@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Maximize Texture Cache Hits in gpu.js - gpu.js</title>
+    <meta name="description" content="Maximizing texture cache hits in gpu.js requires aligning kernel access patterns with the underlying 2D spatial layout used by WebGL texture samplers. Because the GPU executes adjacent threads simultaneously in warps or wavefronts, structuring your read">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/maximize-texture-cache-hits-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Maximize Texture Cache Hits in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/maximize-texture-cache-hits-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Maximizing texture cache hits in gpu.js requires aligning kernel access patterns with the underlying 2D spatial layout used by WebGL texture samplers. Because the GPU executes adjacent threads simultaneously in warps or wavefronts, structuring your read" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="maximize-texture-cache-hits-in-gpujs">Maximize Texture Cache
+Hits in gpu.js</h1>
+<p>Maximizing texture cache hits in gpu.js requires aligning kernel
+access patterns with the underlying 2D spatial layout used by WebGL
+texture samplers. Because the GPU executes adjacent threads
+simultaneously in warps or wavefronts, structuring your read coordinates
+to access contiguous or overlapping memory regions prevents high-latency
+global memory fetches. This guide covers how to design data layouts, map
+thread indices, and structure neighborhood sampling to achieve optimal
+cache locality in gpu.js.</p>
+<h3 id="understand-the-2d-texture-cache-architecture">Understand the 2D
+Texture Cache Architecture</h3>
+<p>Under the hood, gpu.js translates JavaScript arrays into WebGL
+textures, and kernel memory reads correspond to texture fetches
+(<code>texelFetch</code> or sampling). Modern GPU texture caches (L1 and
+L2) are optimized for 2D spatial locality rather than simple linear 1D
+locality. When a thread reads a texel at coordinate <code>(x, y)</code>,
+the hardware loads a small 2D block (such as an 8x8 or 4x4 texel
+footprint) into the cache.</p>
+<p>To prevent cache thrashing, threads executing together must access
+data within this same 2D footprint.</p>
+<h3 id="align-thread-dispatch-with-memory-coordinates">Align Thread
+Dispatch with Memory Coordinates</h3>
+<p>The execution grid in gpu.js determines how threads are bundled. In a
+2D kernel:</p>
+<ul>
+<li><code>this.thread.x</code> represents the horizontal
+coordinate.</li>
+<li><code>this.thread.y</code> represents the vertical coordinate.</li>
+</ul>
+<p>Adjacent threads in a warp almost always vary along
+<code>this.thread.x</code>. Therefore, ensure that
+<code>this.thread.x</code> maps directly to the fastest-moving axis of
+your input data.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Optimal: Adjacent threads read adjacent memory addresses</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(matrix) {</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> matrix[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<p>Transposing this access pattern (e.g., reading
+<code>matrix[this.thread.x][this.thread.y]</code>) causes consecutive
+threads to read across large memory strides, resulting in a cache miss
+on nearly every fetch.</p>
+<h3 id="leverage-overlapping-stencil-access">Leverage Overlapping
+Stencil Access</h3>
+<p>When implementing algorithms like image convolutions, blurs, or
+finite difference solvers, adjacent threads read overlapping
+neighborhoods. The 2D texture cache excels at this pattern if the
+neighborhood is kept tight and symmetric.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// High cache reuse: Neighboring threads share overlapping reads</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> convolutionKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(image<span class="op">,</span> kernelWeights) {</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> ky <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> ky <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> ky<span class="op">++</span>) {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> kx <span class="op">=</span> <span class="op">-</span><span class="dv">1</span><span class="op">;</span> kx <span class="op">&lt;=</span> <span class="dv">1</span><span class="op">;</span> kx<span class="op">++</span>) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> x <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> kx<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> y <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span> <span class="op">+</span> ky<span class="op">;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>            sum <span class="op">+=</span> image[y][x] <span class="op">*</span> kernelWeights[ky <span class="op">+</span> <span class="dv">1</span>][kx <span class="op">+</span> <span class="dv">1</span>]<span class="op">;</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<p>In this pattern, thread <code>(x, y)</code> and thread
+<code>(x + 1, y)</code> share six out of nine texture lookups. Because
+these threads execute concurrently, the data loaded by thread
+<code>x</code> is served directly from the L1 texture cache to thread
+<code>x + 1</code>.</p>
+<h3 id="favor-2d-arrays-over-flattened-1d-arrays">Favor 2D Arrays Over
+Flattened 1D Arrays</h3>
+<p>Flattening 2D data into a 1D array
+(<code>index = x + y * width</code>) often impairs texture cache
+efficiency in gpu.js.</p>
+<p>When you pass a 1D array, gpu.js must still pack that data into a 2D
+internal texture to bypass WebGL dimension limits, then compute
+arithmetic to simulate 1D addressing. This internal mapping can break
+spatial coherence. Supplying native 2D arrays directly maps array
+dimensions to texture coordinates, preserving 2D cache locality and
+removing address translation overhead.</p>
+<h3 id="eliminate-divergent-indexing">Eliminate Divergent Indexing</h3>
+<p>Cache efficiency collapses when adjacent threads compute irregular or
+data-dependent read offsets. Avoid patterns where the read address is
+determined by the data itself (indirect lookups) or scattered across
+conditional branches:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Poor cache locality: Divergent offsets cause scattered memory reads</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> badLookup <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(data<span class="op">,</span> offsets) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> offset <span class="op">=</span> offsets[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> data[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span> <span class="op">+</span> offset]<span class="op">;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])<span class="op">;</span></span></code></pre></div>
+<p>Keep index offsets deterministic and identical across neighboring
+threads whenever possible. If boundary conditions must be handled, clamp
+the coordinates mathematically rather than diverging through deep branch
+statements.</p>
+<h3 id="structure-matrix-multiplications-for-block-locality">Structure
+Matrix Multiplications for Block Locality</h3>
+<p>Standard matrix multiplication performs a dot product between a row
+of matrix A and a column of matrix B. While reading a row of A provides
+good spatial locality, reading down a column of B crosses memory
+strides.</p>
+<p>To maximize cache hits:</p>
+<ol type="1">
+<li>Ensure the output dimensions match the iteration space such that
+<code>this.thread.x</code> indexes columns and
+<code>this.thread.y</code> indexes rows.</li>
+<li>If computing deep dot products, consider transposing Matrix B on the
+CPU before passing it to the kernel. This allows both read loops to
+traverse data along the horizontal axis, keeping subsequent lookups
+within the same cache lines.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

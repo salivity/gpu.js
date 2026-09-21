@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Phase Vocoder Time-Stretching in GPU.js - gpu.js</title>
+    <meta name="description" content="This article details how to accelerate phase vocoder time-stretching algorithms by offloading signal-processing computations to the GPU using GPU.js. You will learn the mathematical pipeline of the phase vocoder—including Short-Time Fourier Transform (">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/parallel-phase-vocoder-time-stretching-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Parallel Phase Vocoder Time-Stretching in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/parallel-phase-vocoder-time-stretching-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article details how to accelerate phase vocoder time-stretching algorithms by offloading signal-processing computations to the GPU using GPU.js. You will learn the mathematical pipeline of the phase vocoder—including Short-Time Fourier Transform (" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="parallel-phase-vocoder-time-stretching-in-gpujs">Parallel Phase
+Vocoder Time-Stretching in GPU.js</h1>
+<p>This article details how to accelerate phase vocoder time-stretching
+algorithms by offloading signal-processing computations to the GPU using
+GPU.js. You will learn the mathematical pipeline of the phase
+vocoder—including Short-Time Fourier Transform (STFT) decomposition,
+phase unwrapping, phase advancement, and inverse transformation—and how
+to translate these steps into parallel GPU compute kernels. By mapping
+independent frame transformations and frequency bin operations to WebGL
+fragment shaders via GPU.js, you can achieve high-performance audio
+time-stretching directly in JavaScript.</p>
+<hr />
+<h3 id="the-phase-vocoder-pipeline">The Phase Vocoder Pipeline</h3>
+<p>A phase vocoder alters the duration of an audio signal without
+affecting its pitch by decoupling the time and frequency domains. The
+process follows four distinct stages:</p>
+<ol type="1">
+<li><strong>Analysis (STFT):</strong> Windowed frames of the input
+signal are extracted using an analysis hop size <span
+class="math inline">\(R_a\)</span> and transformed into frequency domain
+representations via the Discrete Fourier Transform (DFT), producing
+magnitude and phase spectra.</li>
+<li><strong>Phase Calculation:</strong> For each frequency bin, the
+phase difference between successive frames is computed to estimate the
+instantaneous frequency.</li>
+<li><strong>Phase Propagation (Synthesis Phase):</strong> The
+instantaneous frequencies are accumulated across an altered synthesis
+hop size <span class="math inline">\(R_s = \alpha \cdot R_a\)</span>
+(where <span class="math inline">\(\alpha\)</span> is the stretch
+factor) to prevent phase cancellation artifacts.</li>
+<li><strong>Synthesis (ISTFT &amp; Overlap-Add):</strong> Modified
+complex spectra are converted back into the time domain using the
+Inverse Discrete Fourier Transform (IDFT) and windowed frames are summed
+with overlap-add synthesis.</li>
+</ol>
+<p>Because frequency bins and frame transformations execute identical
+operations independently across large arrays, they are prime candidates
+for massive data parallelism.</p>
+<hr />
+<h3 id="data-representation-for-gpujs">Data Representation for
+GPU.js</h3>
+<p>GPU.js maps JavaScript numerical arrays to GPU textures. To process
+audio:</p>
+<ul>
+<li>Store the windowed time-domain audio as a 2D matrix where the
+dimension <span class="math inline">\([N, M]\)</span> represents <span
+class="math inline">\(N\)</span> frames of window size <span
+class="math inline">\(M\)</span>.</li>
+<li>Split complex spectral data into two separate 2D buffers: real parts
+and imaginary parts, or magnitudes and phases.</li>
+</ul>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> FRAME_SIZE <span class="op">=</span> <span class="dv">1024</span><span class="op">;</span> <span class="co">// M (Window Size)</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> NUM_FRAMES <span class="op">=</span> <span class="dv">512</span><span class="op">;</span>  <span class="co">// N (Number of frames)</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> <span class="cn">PI</span> <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-1-parallel-analysis-kernel-dft">Step 1: Parallel Analysis
+Kernel (DFT)</h3>
+<p>While Fast Fourier Transform (FFT) algorithms are optimal for CPUs, a
+direct DFT can be executed with high parallelism on a GPU when frame
+counts are moderate. GPU.js executes this kernel across all frames and
+frequency bins simultaneously.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeDFT <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(audioFrames<span class="op">,</span> frameSize) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> k <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// Frequency bin index (0 to frameSize - 1)</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span> <span class="co">// Frame index</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> real <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> imag <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> n <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> n <span class="op">&lt;</span> frameSize<span class="op">;</span> n<span class="op">++</span>) {</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Apply Hann window and Fourier basis functions</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> windowValue <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>((<span class="fl">2.0</span> <span class="op">*</span> <span class="fl">3.141592653589793</span> <span class="op">*</span> n) <span class="op">/</span> (frameSize <span class="op">-</span> <span class="fl">1.0</span>)))<span class="op">;</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> sample <span class="op">=</span> audioFrames[frameIdx][n] <span class="op">*</span> windowValue<span class="op">;</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> angle <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> <span class="fl">3.141592653589793</span> <span class="op">*</span> k <span class="op">*</span> n) <span class="op">/</span> frameSize<span class="op">;</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>        real <span class="op">+=</span> sample <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(angle)<span class="op">;</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>        imag <span class="op">-=</span> sample <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(angle)<span class="op">;</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> magnitude <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(real <span class="op">*</span> real <span class="op">+</span> imag <span class="op">*</span> imag)<span class="op">;</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> phase <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">atan2</span>(imag<span class="op">,</span> real)<span class="op">;</span></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Return magnitude and phase packed or as components</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [magnitude<span class="op">,</span> phase]<span class="op">;</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [FRAME_SIZE<span class="op">,</span> NUM_FRAMES]<span class="op">,</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="dt">pipeline</span><span class="op">:</span> <span class="kw">true</span> <span class="co">// Keep result in GPU memory</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-2-parallel-phase-accumulation">Step 2: Parallel Phase
+Accumulation</h3>
+<p>The synthesis phase <span class="math inline">\(\theta_{synth}(m,
+k)\)</span> for frame <span class="math inline">\(m\)</span> and bin
+<span class="math inline">\(k\)</span> requires calculating the
+deviation of the true frequency from the nominal frequency <span
+class="math inline">\(\omega_k\)</span>:</p>
+<ol type="1">
+<li>Calculate phase difference: <span class="math inline">\(\Delta \Phi
+= \phi(m, k) - \phi(m - 1, k)\)</span>.</li>
+<li>Calculate nominal bin phase advance: <span
+class="math inline">\(\Delta \Phi_{nominal} = \frac{2\pi k
+R_a}{M}\)</span>.</li>
+<li>Unwrap the difference into <span class="math inline">\((-\pi,
+\pi]\)</span>: <span class="math inline">\(\delta\Phi = \Delta \Phi -
+\Delta \Phi_{nominal} - 2\pi \cdot \text{round}\left(\frac{\Delta \Phi -
+\Delta \Phi_{nominal}}{2\pi}\right)\)</span>.</li>
+<li>Compute instantaneous frequency: <span
+class="math inline">\(\hat{\omega} = \omega_k +
+\frac{\delta\Phi}{R_a}\)</span>.</li>
+<li>Accumulate synthesis phase: <span
+class="math inline">\(\theta_{synth}(m, k) = \theta_{synth}(m - 1, k) +
+R_s \cdot \hat{\omega}\)</span>.</li>
+</ol>
+<p>Because each frame depends sequentially on the previous frame's
+synthesized phase, accumulate phases frame-by-frame on the GPU or
+parallelize the cumulative sum along time using prefix-sum techniques.
+For sequential frame processing on the GPU:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> advancePhaseKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(currentPhase<span class="op">,</span> prevPhase<span class="op">,</span> prevSynthPhase<span class="op">,</span> stretchFactor<span class="op">,</span> Ra<span class="op">,</span> M) {</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> k <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pi <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> nominalPhaseAdvance <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> pi <span class="op">*</span> k <span class="op">*</span> Ra) <span class="op">/</span> M<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> phaseDiff <span class="op">=</span> currentPhase[k] <span class="op">-</span> prevPhase[k] <span class="op">-</span> nominalPhaseAdvance<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Phase unwrapping into [-PI, PI]</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    phaseDiff <span class="op">=</span> phaseDiff <span class="op">-</span> (<span class="fl">2.0</span> <span class="op">*</span> pi <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">floor</span>((phaseDiff <span class="op">+</span> pi) <span class="op">/</span> (<span class="fl">2.0</span> <span class="op">*</span> pi)))<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Calculate instantaneous frequency</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> trueFreq <span class="op">=</span> (nominalPhaseAdvance <span class="op">+</span> phaseDiff) <span class="op">/</span> Ra<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Advance phase for synthesis hop</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> Rs <span class="op">=</span> Ra <span class="op">*</span> stretchFactor<span class="op">;</span></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> prevSynthPhase[k] <span class="op">+</span> (Rs <span class="op">*</span> trueFreq)<span class="op">;</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [FRAME_SIZE]</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-3-parallel-synthesis-kernel-idft">Step 3: Parallel
+Synthesis Kernel (IDFT)</h3>
+<p>Once the synthesis phase <span
+class="math inline">\(\theta_{synth}\)</span> is resolved, it is
+combined with the original magnitudes to reconstruct the time-domain
+frames:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeIDFT <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(magnitudes<span class="op">,</span> synthPhases<span class="op">,</span> frameSize) {</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span> <span class="co">// Time sample index (0 to frameSize - 1)</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> frameIdx <span class="op">=</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span><span class="op">;</span> <span class="co">// Frame index</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> signal <span class="op">=</span> <span class="fl">0.0</span><span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> pi <span class="op">=</span> <span class="fl">3.141592653589793</span><span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> k <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> k <span class="op">&lt;</span> frameSize<span class="op">;</span> k<span class="op">++</span>) {</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> mag <span class="op">=</span> magnitudes[frameIdx][k]<span class="op">;</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> phase <span class="op">=</span> synthPhases[frameIdx][k]<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Polar to rectangular form</span></span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> real <span class="op">=</span> mag <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(phase)<span class="op">;</span></span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> imag <span class="op">=</span> mag <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(phase)<span class="op">;</span></span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> angle <span class="op">=</span> (<span class="fl">2.0</span> <span class="op">*</span> pi <span class="op">*</span> k <span class="op">*</span> n) <span class="op">/</span> frameSize<span class="op">;</span></span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>        signal <span class="op">+=</span> real <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>(angle) <span class="op">-</span> imag <span class="op">*</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sin</span>(angle)<span class="op">;</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Windowing for synthesis</span></span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> windowValue <span class="op">=</span> <span class="fl">0.5</span> <span class="op">*</span> (<span class="fl">1.0</span> <span class="op">-</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">cos</span>((<span class="fl">2.0</span> <span class="op">*</span> pi <span class="op">*</span> n) <span class="op">/</span> (frameSize <span class="op">-</span> <span class="fl">1.0</span>)))<span class="op">;</span></span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (signal <span class="op">/</span> frameSize) <span class="op">*</span> windowValue<span class="op">;</span></span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>}<span class="op">,</span> {</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>    <span class="dt">output</span><span class="op">:</span> [FRAME_SIZE<span class="op">,</span> NUM_FRAMES]</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<hr />
+<h3 id="step-4-overlap-add-reconstruction">Step 4: Overlap-Add
+Reconstruction</h3>
+<p>The synthesized time frames must be placed at synthesis hop intervals
+<span class="math inline">\(R_s\)</span>:</p>
+<ol type="1">
+<li>Download the reconstructed frame buffer using
+<code>.toArray()</code> from GPU memory back to CPU memory.</li>
+<li>Allocate an output array of length <span class="math inline">\((N -
+1) \cdot R_s + M\)</span>.</li>
+<li>Sum each synthesized frame <span class="math inline">\(m\)</span>
+into the output buffer starting at index <span class="math inline">\(m
+\cdot R_s\)</span>.</li>
+<li>Normalize the resulting waveform by the overlapping window gain
+factor.</li>
+</ol>
+<hr />
+<h3 id="performance-considerations">Performance Considerations</h3>
+<ul>
+<li><strong>Pipeline Mode:</strong> Always set
+<code>{ pipeline: true }</code> on intermediate GPU.js kernels to retain
+data inside VRAM as textures rather than copying it over the PCIe bus
+between CPU and GPU.</li>
+<li><strong>Complexity vs. Threading:</strong> An <span
+class="math inline">\(O(M^2)\)</span> direct DFT per frame on the GPU
+often outperforms an <span class="math inline">\(O(M \log M)\)</span>
+CPU-based FFT when processing thousands of frequency bins across
+hundreds of frames in parallel. For large frame sizes (<span
+class="math inline">\(M &gt; 2048\)</span>), consider structuring a
+multi-pass Cooley-Tukey FFT kernel in GPU.js to reduce thread iteration
+counts.</li>
+<li><strong>Precision:</strong> WebGL shaders frequently use 32-bit
+floating-point precision (<code>float</code>). Phase accumulation across
+many frames can drift over long files; periodically normalize phases to
+the range <span class="math inline">\([-\pi, \pi]\)</span> to prevent
+loss of precision in the GPU calculations.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

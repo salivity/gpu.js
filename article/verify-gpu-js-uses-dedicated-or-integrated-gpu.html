@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify GPU.js Uses Dedicated or Integrated GPU - gpu.js</title>
+    <meta name="description" content="When running computationally intensive tasks with GPU.js on a multi-GPU system, JavaScript execution might silently default to a low-power integrated GPU (iGPU) rather than a high-performance dedicated GPU (dGPU). Because GPU.js operates on top of WebGL">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/verify-gpu-js-uses-dedicated-or-integrated-gpu">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Verify GPU.js Uses Dedicated or Integrated GPU - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/verify-gpu-js-uses-dedicated-or-integrated-gpu" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="When running computationally intensive tasks with GPU.js on a multi-GPU system, JavaScript execution might silently default to a low-power integrated GPU (iGPU) rather than a high-performance dedicated GPU (dGPU). Because GPU.js operates on top of WebGL" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="verify-gpujs-uses-dedicated-or-integrated-gpu">Verify GPU.js
+Uses Dedicated or Integrated GPU</h1>
+<p>When running computationally intensive tasks with GPU.js on a
+multi-GPU system, JavaScript execution might silently default to a
+low-power integrated GPU (iGPU) rather than a high-performance dedicated
+GPU (dGPU). Because GPU.js operates on top of WebGL in browser
+environments or headless contexts in Node.js, you can determine exactly
+which physical graphics card executes your kernels by querying the
+underlying WebGL context's unmasked renderer information or by
+monitoring hardware activity at the operating system level.</p>
+<h3 id="query-the-webgl-context-via-gpujs">Query the WebGL Context via
+GPU.js</h3>
+<p>GPU.js exposes its underlying graphics context through the
+<code>context</code> property on the main <code>GPU</code> instance. You
+can interrogate this context using the
+<code>WEBGL_debug_renderer_info</code> extension to retrieve the
+unmasked vendor and renderer strings of the active device.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span> <span class="co">// or imported via &lt;script&gt; tag in the browser</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Create a simple kernel to ensure the context is initialized</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> kernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>() {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span>])<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="fu">kernel</span>()<span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="co">// Inspect the underlying rendering context</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gl <span class="op">=</span> gpu<span class="op">.</span><span class="at">context</span><span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> debugInfo <span class="op">=</span> gl<span class="op">.</span><span class="fu">getExtension</span>(<span class="st">&#39;WEBGL_debug_renderer_info&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (debugInfo) {</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> vendor <span class="op">=</span> gl<span class="op">.</span><span class="fu">getParameter</span>(debugInfo<span class="op">.</span><span class="at">UNMASKED_VENDOR_WEBGL</span>)<span class="op">;</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> renderer <span class="op">=</span> gl<span class="op">.</span><span class="fu">getParameter</span>(debugInfo<span class="op">.</span><span class="at">UNMASKED_RENDERER_WEBGL</span>)<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    </span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Vendor:&#39;</span><span class="op">,</span> vendor)<span class="op">;</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Renderer:&#39;</span><span class="op">,</span> renderer)<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>    <span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;WEBGL_debug_renderer_info is unavailable or masked by browser privacy settings.&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h4 id="interpreting-the-renderer-output">Interpreting the Renderer
+Output</h4>
+<ul>
+<li><strong>Integrated GPU (iGPU):</strong> The renderer string
+typically displays Intel HD/UHD/Iris Graphics, AMD Radeon Vega Mobile,
+or Apple M-series integrated cores.</li>
+<li><strong>Dedicated GPU (dGPU):</strong> The renderer string displays
+discrete chips such as NVIDIA GeForce/RTX/Quadro or AMD Radeon RX.</li>
+</ul>
+<p>If the extension returns generic names like "WebKit WebGL" or "Mesa
+OffScreen," your browser or environment has enabled fingerprinting
+protection, masking direct hardware identifiers.</p>
+<hr />
+<h3 id="verify-kernel-execution-mode">Verify Kernel Execution Mode</h3>
+<p>Before checking hardware identity, confirm that GPU.js actually
+executed on WebGL rather than falling back to the CPU. If WebGL fails or
+errors occur during shader compilation, GPU.js automatically switches to
+pure JavaScript execution.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Check the execution mode of the instance</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Active Mode:&#39;</span><span class="op">,</span> gpu<span class="op">.</span><span class="at">mode</span>)<span class="op">;</span> <span class="co">// Expected output: &#39;gpu&#39;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Check the kernel execution mode</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="bu">console</span><span class="op">.</span><span class="fu">log</span>(<span class="st">&#39;Kernel Subpath:&#39;</span><span class="op">,</span> kernel<span class="op">.</span><span class="at">subpath</span>)<span class="op">;</span> <span class="co">// Expected output: &#39;webgl&#39; or &#39;webgl2&#39;</span></span></code></pre></div>
+<p>If <code>gpu.mode</code> reports <code>'cpu'</code>, the pipeline did
+not execute on any GPU.</p>
+<hr />
+<h3 id="requesting-the-dedicated-gpu">Requesting the Dedicated GPU</h3>
+<p>If the renderer shows that execution occurs on the integrated GPU,
+you can explicitly request the high-performance adapter when creating
+the <code>GPU</code> instance by passing context attributes:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;gpu&#39;</span><span class="op">,</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="dt">webGl</span><span class="op">:</span> {</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>        <span class="dt">powerPreference</span><span class="op">:</span> <span class="st">&#39;high-performance&#39;</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>Setting <code>powerPreference: 'high-performance'</code> prompts the
+browser and operating system compositor to activate the discrete GPU
+rather than the power-saving integrated processor.</p>
+<hr />
+<h3 id="real-time-hardware-monitoring">Real-Time Hardware
+Monitoring</h3>
+<p>Software queries can occasionally reflect the adapter associated with
+the display compositor rather than the compute engine. To verify
+execution with absolute certainty:</p>
+<ol type="1">
+<li>Write a kernel that loops over a large dataset
+(<code>setOutput([1000000])</code>) repeatedly in a
+<code>requestAnimationFrame</code> loop or
+<code>setInterval</code>.</li>
+<li>Open your operating system monitor:
+<ul>
+<li><strong>Windows:</strong> Open Task Manager
+(<code>Ctrl + Shift + Esc</code>), navigate to the
+<strong>Performance</strong> tab, and monitor <strong>GPU 0</strong>
+(iGPU) versus <strong>GPU 1</strong> (dGPU) under the
+<strong>3D</strong> or <strong>Compute</strong> graphs.</li>
+<li><strong>macOS:</strong> Open Activity Monitor and navigate to the
+<strong>GPU History</strong> window (<code>Cmd + 4</code>).</li>
+<li><strong>Linux:</strong> Run <code>nvidia-smi -l 1</code> for NVIDIA
+hardware or <code>radeontop</code> for AMD hardware.</li>
+</ul></li>
+<li>Observe which physical device registers utilization spikes while the
+GPU.js pipeline is running.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

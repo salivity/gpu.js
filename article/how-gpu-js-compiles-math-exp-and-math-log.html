@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Compiles Math.exp and Math.log - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates JavaScript calculations by transpiling standard JavaScript functions into WebGL shader code that runs directly on the GPU. When handling mathematical operations like Math.exp and Math.log, GPU.js parses the JavaScript code into an Abst">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-math-exp-and-math-log">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Compiles Math.exp and Math.log - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-compiles-math-exp-and-math-log" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates JavaScript calculations by transpiling standard JavaScript functions into WebGL shader code that runs directly on the GPU. When handling mathematical operations like Math.exp and Math.log, GPU.js parses the JavaScript code into an Abst" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-compiles-mathexp-and-mathlog">How GPU.js Compiles
+Math.exp and Math.log</h1>
+<p>GPU.js accelerates JavaScript calculations by transpiling standard
+JavaScript functions into WebGL shader code that runs directly on the
+GPU. When handling mathematical operations like <code>Math.exp</code>
+and <code>Math.log</code>, GPU.js parses the JavaScript code into an
+Abstract Syntax Tree (AST), maps these method calls to their
+corresponding OpenGL Shading Language (GLSL) intrinsics, and bundles
+them into a fragment shader. Once sent to the graphics driver, these
+GLSL instructions are compiled into native machine instructions executed
+by the GPU’s Special Function Units (SFUs), providing massive parallel
+performance.</p>
+<h3 id="abstract-syntax-tree-parsing">Abstract Syntax Tree Parsing</h3>
+<p>When you define a kernel in GPU.js, the library does not execute the
+function in the standard V8 or JavaScript runtime engine. Instead, it
+serializes the JavaScript function into a string and parses it into an
+AST using a JavaScript parser (such as Acorn).</p>
+<p>During this traversal, the parser looks for
+<code>CallExpression</code> nodes where the callee is a
+<code>MemberExpression</code> referencing the <code>Math</code>
+object:</p>
+<ul>
+<li><code>Math.exp(x)</code> is identified as an exponential function
+call.</li>
+<li><code>Math.log(x)</code> is identified as a natural logarithm
+function call.</li>
+</ul>
+<h3 id="transpilation-to-glsl-intrinsics">Transpilation to GLSL
+Intrinsics</h3>
+<p>Once identified in the AST, GPU.js's internal code generator
+translates JavaScript syntax into GLSL string representations suitable
+for WebGL fragment shaders.</p>
+<p>WebGL GLSL already provides native built-in functions for base-<span
+class="math inline">\(e\)</span> calculations:</p>
+<ul>
+<li><code>Math.exp(x)</code> is translated directly to
+<code>exp(x)</code>.</li>
+<li><code>Math.log(x)</code> is translated directly to
+<code>log(x)</code>.</li>
+</ul>
+<p>Because GLSL is statically typed, GPU.js also handles type inference
+and casting. It ensures that the arguments passed into
+<code>exp()</code> or <code>log()</code> match the expected
+floating-point precision (typically <code>highp float</code> in GPU.js
+kernels), converting integer literals or variables to floats if
+necessary.</p>
+<h3 id="shader-generation-and-compilation">Shader Generation and
+Compilation</h3>
+<p>After translating the entire AST, GPU.js wraps the resulting GLSL
+instructions inside a boilerplate fragment shader. This template handles
+input textures (which represent your input arrays), coordinate lookups
+based on thread IDs, and packing floating-point outputs into WebGL
+textures.</p>
+<p>GPU.js passes this generated GLSL source string to the WebGL context
+using the following standard browser APIs:</p>
+<ol type="1">
+<li><code>gl.createShader(gl.FRAGMENT_SHADER)</code> creates the shader
+container.</li>
+<li><code>gl.shaderSource(shader, sourceCode)</code> uploads the
+transpiled GLSL source.</li>
+<li><code>gl.compileShader(shader)</code> instructs the platform's
+graphics driver to compile the GLSL code into native GPU machine
+instructions.</li>
+</ol>
+<h3 id="hardware-level-execution-via-sfus">Hardware-Level Execution via
+SFUs</h3>
+<p>At the silicon level, modern GPUs do not calculate logarithms and
+exponentials using general-purpose Arithmetic Logic Units (ALUs).
+Instead, the compiled shader instructions target dedicated hardware
+blocks known as Special Function Units (SFUs).</p>
+<ul>
+<li><strong>Base-2 Transformation:</strong> Most GPU architectures (such
+as NVIDIA and AMD) implement hardware-level instructions natively in
+base-2, specifically <span class="math inline">\(2^x\)</span>
+(<code>EX2</code>) and <span class="math inline">\(\log_2(x)\)</span>
+(<code>LG2</code>). The driver-level compiler transforms natural
+logarithm and exponential functions into these base-2 operations using
+constant scaling factors: <span class="math display">\[\ln(x) =
+\log_2(x) \times \frac{1}{\log_2(e)}\]</span> <span
+class="math display">\[e^x = 2^{x \times \log_2(e)}\]</span></li>
+<li><strong>Hardware Approximation:</strong> The SFUs evaluate these
+base-2 operations in very few clock cycles using high-speed hardware
+polynomial approximations (such as minimax algorithms or piecewise
+Chebyshev polynomials) combined with small lookup tables embedded on the
+chip.</li>
+</ul>
+<p>Through this pipeline—AST parsing, GLSL syntax mapping, WebGL shader
+compilation, and SFU hardware routing—GPU.js achieves near-native
+graphics card throughput for complex mathematical operations defined
+entirely in JavaScript.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

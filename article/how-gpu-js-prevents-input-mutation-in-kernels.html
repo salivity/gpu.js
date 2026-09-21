@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How gpu.js Prevents Input Mutation in Kernels - gpu.js</title>
+    <meta name="description" content="This article explains the mechanisms gpu.js uses to prevent accidental mutation of input arguments within kernel functions. By translating JavaScript into shading language code, utilizing read-only hardware structures like textures and uniforms, and enfo">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-prevents-input-mutation-in-kernels">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How gpu.js Prevents Input Mutation in Kernels - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-prevents-input-mutation-in-kernels" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains the mechanisms gpu.js uses to prevent accidental mutation of input arguments within kernel functions. By translating JavaScript into shading language code, utilizing read-only hardware structures like textures and uniforms, and enfo" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-prevents-input-mutation-in-kernels">How gpu.js
+Prevents Input Mutation in Kernels</h1>
+<p>This article explains the mechanisms gpu.js uses to prevent
+accidental mutation of input arguments within kernel functions. By
+translating JavaScript into shading language code, utilizing read-only
+hardware structures like textures and uniforms, and enforcing strict
+separation between input memory and output render targets, gpu.js makes
+in-place data modification structurally impossible during GPU
+execution.</p>
+<h3 id="transpilation-into-shading-languages">Transpilation into Shading
+Languages</h3>
+<p>When a kernel function is defined in gpu.js, it is not executed
+directly by the JavaScript runtime. Instead, the library parses the
+JavaScript function's Abstract Syntax Tree (AST) and transpiles it into
+OpenGL Shading Language (GLSL) for WebGL, or equivalent low-level shader
+code.</p>
+<p>Because the code is converted into a shader, JavaScript's native
+reference semantics—where passing an array or object allows direct
+modification of the original reference—no longer apply. The variables
+defined in JavaScript are remapped to match shader conventions and
+constraints.</p>
+<h3
+id="representation-as-read-only-textures-and-uniforms">Representation as
+Read-Only Textures and Uniforms</h3>
+<p>Inside the generated GLSL shader, input arguments cannot be treated
+as standard mutable arrays. Modern graphics hardware handles incoming
+data through specific channels:</p>
+<ul>
+<li><strong>Arrays and Matrices:</strong> Large collections of data are
+encoded and uploaded into GPU memory as WebGL textures
+(<code>sampler2D</code>). In GLSL, textures can only be sampled using
+read operations (such as <code>texture2D</code>). There is no
+hardware-level instruction to write data back to a texture being
+actively read within the same pass.</li>
+<li><strong>Primitive Values:</strong> Numbers, booleans, and small
+vectors are passed as shader <code>uniform</code> variables. By
+specification, uniforms are read-only constants throughout a single draw
+call. Any attempt in the kernel code to assign a new value to a uniform
+will trigger a shader compilation error.</li>
+</ul>
+<h3 id="decoupling-inputs-from-the-output-buffer">Decoupling Inputs from
+the Output Buffer</h3>
+<p>gpu.js enforces an execution model where data reading and data
+writing are physically separated:</p>
+<ol type="1">
+<li><strong>Input Stage:</strong> The GPU reads strictly from bound
+texture units or uniform registers.</li>
+<li><strong>Execution Stage:</strong> The kernel computes the result for
+a single thread (corresponding to one coordinate or element).</li>
+<li><strong>Output Stage:</strong> The result is emitted solely via the
+kernel's <code>return</code> statement, which routes the value to a
+separate output framebuffer (<code>gl_FragColor</code> or an off-screen
+render texture).</li>
+</ol>
+<p>Because the output target is distinct from the input memory sources,
+the kernel cannot overwrite its own input memory during execution.</p>
+<h3 id="transpiler-level-validation">Transpiler-Level Validation</h3>
+<p>During the AST parsing phase, gpu.js analyzes assignment operators
+within the kernel body. If an operation attempts to write to an input
+identifier using standard JavaScript assignment syntax, the transpiler
+either flags it as an unsupported operation or isolates the variable to
+a thread-local register. Consequently, local reassignments only alter
+temporary register state for that specific execution thread, leaving the
+source data intact and preventing cross-thread side effects.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

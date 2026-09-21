@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Why iOS Safari WebKit Memory Limits Crash gpu.js - gpu.js</title>
+    <meta name="description" content="Running high-performance computations on iOS Safari using gpu.js frequently leads to abrupt tab crashes where the browser displays the message, "A problem repeatedly occurred with this webpage." These crashes are not standard JavaScript runtime errors, b">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/why-i-os-safari-web-kit-memory-limits-crash-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Why iOS Safari WebKit Memory Limits Crash gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/why-i-os-safari-web-kit-memory-limits-crash-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Running high-performance computations on iOS Safari using gpu.js frequently leads to abrupt tab crashes where the browser displays the message, "A problem repeatedly occurred with this webpage." These crashes are not standard JavaScript runtime errors, b" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="why-ios-safari-webkit-memory-limits-crash-gpujs">Why iOS Safari
+WebKit Memory Limits Crash gpu.js</h1>
+<p>Running high-performance computations on iOS Safari using gpu.js
+frequently leads to abrupt tab crashes where the browser displays the
+message, "A problem repeatedly occurred with this webpage." These
+crashes are not standard JavaScript runtime errors, but are forced
+process terminations executed by iOS's WebKit memory management system.
+This article examines how WebKit’s strict per-process memory limits,
+WebGL texture buffer overhead, and deferred garbage collection combine
+to trigger these sudden crashes, along with practical methods to prevent
+them.</p>
+<h3 id="webkits-jetsam-memory-enforcement">WebKit's Jetsam Memory
+Enforcement</h3>
+<p>iOS manages system resources through Jetsam, an aggressive low-memory
+killer. Unlike desktop operating systems that rely heavily on swap
+space, iOS keeps all active tasks in physical RAM. To prevent an
+individual web page from exhausting device resources and crashing the
+operating system, WebKit assigns a strict memory footprint ceiling to
+each individual WebContent process.</p>
+<p>Depending on the device hardware, a single Safari tab is often
+restricted to between 1 GB and 1.5 GB of RAM, with older or budget
+devices (such as base iPads or older iPhones) restricted to
+significantly less. If a tab exceeds this threshold for even a few
+milliseconds, the operating system kernel kills the WebContent process
+immediately. Because this termination happens at the OS level,
+JavaScript cannot catch it with a <code>try...catch</code> block.</p>
+<h3 id="how-gpujs-multiplies-memory-footprints">How gpu.js Multiplies
+Memory Footprints</h3>
+<p>gpu.js compiles high-level JavaScript functions into GLSL shaders,
+running parallel calculations on the mobile GPU via WebGL. While this
+yields significant performance gains, it inherently inflates the tab's
+memory footprint through several interconnected mechanisms:</p>
+<ol type="1">
+<li><strong>Floating-Point Texture Overhead</strong>: WebGL pipelines in
+gpu.js transfer and store numerical arrays using textures. To maintain
+mathematical precision, gpu.js utilizes 32-bit floating-point textures
+(<code>OES_texture_float</code>). These textures require substantially
+more memory than typical image-based WebGL textures. Large matrices or
+repeated calculations quickly produce hundreds of megabytes of raw
+uncompressed buffer data.</li>
+<li><strong>Duplicated Memory Buffers</strong>: When passing data into a
+gpu.js kernel and retrieving the result, data often exists
+simultaneously in three places: standard JavaScript heap memory (typed
+arrays), browser-managed WebGL staging memory, and dedicated GPU VRAM.
+In unified memory architectures like Apple Silicon, all these
+allocations draw from the same physical RAM pool, accelerating the
+trajectory toward the WebKit memory ceiling.</li>
+<li><strong>Decoupled Garbage Collection</strong>: JavaScript's garbage
+collector operates independently of native WebGL resource management.
+When a gpu.js kernel or texture reference is dropped in JavaScript, the
+underlying WebGL textures and framebuffer objects in the native WebKit
+layer may remain allocated until a major garbage collection cycle
+occurs. During intensive iterative loops, allocations outpace garbage
+collection, causing a momentary spike that breaches the memory
+threshold.</li>
+</ol>
+<h3 id="preventing-spontaneous-webkit-crashes">Preventing Spontaneous
+WebKit Crashes</h3>
+<p>To run gpu.js reliably on iOS devices without triggering WebKit
+terminations, developers must actively manage the lifecycle of WebGL
+resources rather than relying on automatic cleanup:</p>
+<ul>
+<li><strong>Explicitly Destroy Resources</strong>: Do not let textures
+go out of scope naturally. Manually call the <code>.destroy()</code>
+method on kernels, textures, and contexts when they are no longer
+required to immediately release native allocations.</li>
+<li><strong>Reuse Kernel Instances</strong>: Avoid instantiating gpu.js
+kernels inside application loops or render loops. Create kernels once
+globally and update their uniform values and input arrays
+dynamically.</li>
+<li><strong>Pipeline Mode Management</strong>: When chaining
+computations using gpu.js pipeline mode
+(<code>{ pipeline: true }</code>), ensure intermediate textures are
+consumed and released promptly. Pipelining keeps textures in GPU memory,
+which improves execution speed but compounds the total memory footprint
+if chains are long.</li>
+<li><strong>Tuning Matrix Dimensions</strong>: Scale computation batches
+based on client hardware. Detecting mobile Safari user agents and
+reducing output dimensions prevents oversized allocations that
+immediately trigger memory thresholds.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

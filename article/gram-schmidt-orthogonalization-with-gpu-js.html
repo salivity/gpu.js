@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gram-Schmidt Orthogonalization with GPU.js - gpu.js</title>
+    <meta name="description" content="Gram-Schmidt orthogonalization transforms a set of linearly independent vectors into an orthonormal basis, but computing it sequentially on high-dimensional vectors causes significant CPU bottlenecks. While the process across vectors is inherently sequen">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gram-schmidt-orthogonalization-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Gram-Schmidt Orthogonalization with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gram-schmidt-orthogonalization-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Gram-Schmidt orthogonalization transforms a set of linearly independent vectors into an orthonormal basis, but computing it sequentially on high-dimensional vectors causes significant CPU bottlenecks. While the process across vectors is inherently sequen" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gram-schmidt-orthogonalization-with-gpujs">Gram-Schmidt
+Orthogonalization with GPU.js</h1>
+<p>Gram-Schmidt orthogonalization transforms a set of linearly
+independent vectors into an orthonormal basis, but computing it
+sequentially on high-dimensional vectors causes significant CPU
+bottlenecks. While the process across vectors is inherently sequential,
+the vector-vector operations—such as dot products, vector scaling, and
+vector projections—can be heavily parallelized. This article
+demonstrates how to implement the Modified Gram-Schmidt (MGS) algorithm
+using GPU.js, utilizing WebGL-accelerated parallel kernels to
+drastically speed up inner-product and component-wise operations on
+high-dimensional vector sets.</p>
+<h3 id="algorithmic-approach-modified-gram-schmidt-mgs">Algorithmic
+Approach: Modified Gram-Schmidt (MGS)</h3>
+<p>The Classical Gram-Schmidt (CGS) process is prone to numerical
+instability due to the accumulation of floating-point rounding errors.
+For high-dimensional computing, the Modified Gram-Schmidt (MGS) method
+is preferred.</p>
+<p>Given a set of <span class="math inline">\(k\)</span> vectors <span
+class="math inline">\(\{v_1, v_2, \dots, v_k\}\)</span> in an <span
+class="math inline">\(n\)</span>-dimensional space (where <span
+class="math inline">\(n \gg k\)</span>):</p>
+<ol type="1">
+<li>For each vector <span class="math inline">\(v_i\)</span>, compute
+its Euclidean norm: <span class="math inline">\(\|v_i\| = \sqrt{v_i
+\cdot v_i}\)</span>.</li>
+<li>Normalize <span class="math inline">\(v_i\)</span>: <span
+class="math inline">\(q_i = \frac{v_i}{\|v_i\|}\)</span>.</li>
+<li>For every remaining vector <span class="math inline">\(v_j\)</span>
+(where <span class="math inline">\(j &gt; i\)</span>):
+<ul>
+<li>Compute the projection scalar: <span class="math inline">\(c = q_i
+\cdot v_j\)</span>.</li>
+<li>Subtract the projection in parallel across all <span
+class="math inline">\(n\)</span> dimensions: <span
+class="math inline">\(v_j = v_j - c \cdot q_i\)</span>.</li>
+</ul></li>
+</ol>
+<h3 id="designing-the-gpujs-kernels">Designing the GPU.js Kernels</h3>
+<p>GPU.js allows JavaScript functions to be compiled into WebGL shaders.
+To minimize CPU-GPU memory transfer overhead, vector operations remain
+on the GPU using pipelining.</p>
+<p>Three core GPU kernels are required:</p>
+<ol type="1">
+<li><strong>Dot Product Kernel</strong>: Computes the inner product
+between two vectors.</li>
+<li><strong>Vector Subtraction Kernel</strong>: Scales an orthogonalized
+vector by the projection scalar and subtracts it from the target
+vector.</li>
+<li><strong>Normalization Kernel</strong>: Divides each component of a
+vector by its Euclidean norm.</li>
+</ol>
+<h3 id="implementation">Implementation</h3>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"> * Kernel to compute the dot product of two vectors of size N.</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> dotProductKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (a<span class="op">,</span> b<span class="op">,</span> length) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> length<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> a[i] <span class="op">*</span> b[i]<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span>])<span class="op">;</span></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="co"> * Kernel to normalize a vector by dividing each element by the norm.</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> normalizeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (v<span class="op">,</span> norm) {</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> v[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">/</span> norm<span class="op">;</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="co">/* dimension */</span>])</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="co"> * Kernel to perform projection subtraction: v_j[x] - (proj * q_i[x])</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> projectAndSubtractKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span> (v_j<span class="op">,</span> q_i<span class="op">,</span> proj) {</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> v_j[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">-</span> (proj <span class="op">*</span> q_i[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>])<span class="op">;</span></span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([<span class="co">/* dimension */</span>])</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)<span class="op">;</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a><span class="co">/**</span></span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a><span class="co"> * Runs Modified Gram-Schmidt on an array of high-dimensional vectors.</span></span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@param</span><span class="co"> </span><span class="cv">{Array&lt;Float32Array&gt;}</span><span class="co"> vectors - Array of k vectors, each of dimension n.</span></span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a><span class="co"> * </span><span class="an">@returns</span><span class="co"> {Array</span><span class="kw">&lt;Float32Array&gt;</span><span class="co">} - Orthonormal basis vectors.</span></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a><span class="co"> */</span></span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">gpuGramSchmidt</span>(vectors) {</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> k <span class="op">=</span> vectors<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    <span class="kw">const</span> n <span class="op">=</span> vectors[<span class="dv">0</span>]<span class="op">.</span><span class="at">length</span><span class="op">;</span></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Dynamically adjust kernel dimensions to match input dimensionality</span></span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a>    normalizeKernel<span class="op">.</span><span class="fu">setOutput</span>([n])<span class="op">;</span></span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>    projectAndSubtractKernel<span class="op">.</span><span class="fu">setOutput</span>([n])<span class="op">;</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> Q <span class="op">=</span> []<span class="op">;</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> currentVectors <span class="op">=</span> vectors<span class="op">.</span><span class="fu">map</span>(v <span class="kw">=&gt;</span> v)<span class="op">;</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> k<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Step 1: Compute norm of currentVectors[i]</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> selfDot <span class="op">=</span> <span class="fu">dotProductKernel</span>(currentVectors[i]<span class="op">,</span> currentVectors[i]<span class="op">,</span> n)[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> norm <span class="op">=</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(selfDot)<span class="op">;</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> (norm <span class="op">&lt;</span> <span class="fl">1e-10</span>) {</span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>            <span class="cf">throw</span> <span class="kw">new</span> <span class="bu">Error</span>(<span class="vs">`Vector at index </span><span class="sc">${</span>i<span class="sc">}</span><span class="vs"> is linearly dependent or near zero.`</span>)<span class="op">;</span></span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Step 2: Normalize to get orthonormal basis vector q_i</span></span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a>        <span class="kw">const</span> q_i <span class="op">=</span> <span class="fu">normalizeKernel</span>(currentVectors[i]<span class="op">,</span> norm)<span class="op">;</span></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a>        </span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Step 3: Project and subtract q_i from remaining vectors</span></span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> (<span class="kw">let</span> j <span class="op">=</span> i <span class="op">+</span> <span class="dv">1</span><span class="op">;</span> j <span class="op">&lt;</span> k<span class="op">;</span> j<span class="op">++</span>) {</span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>            <span class="co">// Read back q_i array representation for inner product if necessary,</span></span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a>            <span class="co">// or pass pipeline textures directly into dotProductKernel.</span></span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a>            <span class="kw">const</span> proj <span class="op">=</span> <span class="fu">dotProductKernel</span>(q_i<span class="op">,</span> currentVectors[j]<span class="op">,</span> n)[<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a>            </span>
+<span id="cb1-68"><a href="#cb1-68" aria-hidden="true" tabindex="-1"></a>            <span class="co">// In-place update using GPU pipeline texture</span></span>
+<span id="cb1-69"><a href="#cb1-69" aria-hidden="true" tabindex="-1"></a>            currentVectors[j] <span class="op">=</span> <span class="fu">projectAndSubtractKernel</span>(currentVectors[j]<span class="op">,</span> q_i<span class="op">,</span> proj)<span class="op">;</span></span>
+<span id="cb1-70"><a href="#cb1-70" aria-hidden="true" tabindex="-1"></a>        }</span>
+<span id="cb1-71"><a href="#cb1-71" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-72"><a href="#cb1-72" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Save result (convert texture to JavaScript typed array)</span></span>
+<span id="cb1-73"><a href="#cb1-73" aria-hidden="true" tabindex="-1"></a>        Q<span class="op">.</span><span class="fu">push</span>(q_i<span class="op">.</span><span class="fu">toArray</span>())<span class="op">;</span></span>
+<span id="cb1-74"><a href="#cb1-74" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-75"><a href="#cb1-75" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Q<span class="op">;</span></span>
+<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="execution-considerations">Execution Considerations</h3>
+<ul>
+<li><strong>Memory Pipelining</strong>: Setting
+<code>setPipeline(true)</code> instructs GPU.js to leave the output on
+the GPU as a WebGL texture rather than serializing it back to a CPU
+<code>Float32Array</code>. This is critical when iteratively updating
+<span class="math inline">\(v_j\)</span>, as transferring millions of
+components over the PCIe bus introduces heavy latency.</li>
+<li><strong>Precision</strong>: WebGL traditionally operates on 32-bit
+floating-point values (<code>Float32Array</code>). In high-dimensional
+Gram-Schmidt processes, numerical drift occurs faster in 32-bit
+precision than in standard 64-bit CPU math. If orthogonality degrades
+over large sets (<span class="math inline">\(k &gt; 100\)</span>), apply
+a second pass of re-orthogonalization (MGS2).</li>
+<li><strong>Workgroup Sizing</strong>: Ensure dimension <span
+class="math inline">\(n\)</span> aligns well with the hardware thread
+group limits. For ultra-high dimensions (e.g., <span
+class="math inline">\(n &gt; 100,000\)</span>), standard GPU.js 1D
+thread allocations handle vector processing efficiently by scheduling
+across available shader compute cores.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How GPU.js Inlines Custom Functions in GLSL - gpu.js</title>
+    <meta name="description" content="GPU.js allows developers to write standard JavaScript functions and execute them on the GPU by transpiling the code into OpenGL Shading Language (GLSL). To handle custom helper functions, GPU.js parses the JavaScript code into an Abstract Syntax Tree (AS">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/how-gpu-js-inlines-custom-functions-in-glsl">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="How GPU.js Inlines Custom Functions in GLSL - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/how-gpu-js-inlines-custom-functions-in-glsl" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js allows developers to write standard JavaScript functions and execute them on the GPU by transpiling the code into OpenGL Shading Language (GLSL). To handle custom helper functions, GPU.js parses the JavaScript code into an Abstract Syntax Tree (AS" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="how-gpujs-inlines-custom-functions-in-glsl">How GPU.js Inlines
+Custom Functions in GLSL</h1>
+<p>GPU.js allows developers to write standard JavaScript functions and
+execute them on the GPU by transpiling the code into OpenGL Shading
+Language (GLSL). To handle custom helper functions, GPU.js parses the
+JavaScript code into an Abstract Syntax Tree (AST), infers the necessary
+static types, converts the logic into valid GLSL function syntax, and
+integrates these subroutines directly into the generated fragment shader
+before passing it to WebGL for compilation.</p>
+<h3 id="1-abstract-syntax-tree-ast-parsing">1. Abstract Syntax Tree
+(AST) Parsing</h3>
+<p>When a user defines a kernel or registers an external custom function
+using <code>gpu.addFunction()</code>, GPU.js does not treat the function
+as a raw string. Instead, it extracts the function's source code via
+<code>.toString()</code> and parses it using an internal JavaScript
+parser (such as Acorn). This creates an AST—a structured, hierarchical
+representation of the function's statements, variable declarations,
+loops, and return statements.</p>
+<h3 id="2-type-inference-and-argument-validation">2. Type Inference and
+Argument Validation</h3>
+<p>GLSL is a statically typed language, whereas JavaScript is
+dynamically typed. Before inlining or declaring any custom function in
+the shader, GPU.js analyzes how arguments are passed and used:</p>
+<ul>
+<li><strong>Argument Signatures:</strong> When functions are registered,
+parameter types (e.g., <code>float</code>, <code>int</code>,
+<code>Array(2)</code>) can be explicitly declared or inferred from the
+caller's arguments.</li>
+<li><strong>Return Type Analysis:</strong> The parser inspects
+<code>ReturnStatement</code> nodes within the AST to infer the return
+type, ensuring that the function signature in GLSL matches the evaluated
+output (e.g., turning a JS numeric return into a GLSL
+<code>float</code>).</li>
+</ul>
+<h3 id="3-syntax-transpilation-to-glsl">3. Syntax Transpilation to
+GLSL</h3>
+<p>Once the AST is constructed and types are resolved, GPU.js walks the
+tree and translates JavaScript constructs into their GLSL
+equivalents:</p>
+<ul>
+<li>Standard JavaScript math functions (e.g., <code>Math.sin()</code>,
+<code>Math.floor()</code>) are converted directly to native GLSL
+functions (<code>sin()</code>, <code>floor()</code>).</li>
+<li>Dynamic loop constructs are rewritten into statically bound GLSL
+<code>for</code> loops.</li>
+<li>Variable declarations are assigned concrete GLSL types (such as
+<code>float</code> or <code>vec4</code>) rather than <code>var</code>,
+<code>let</code>, or <code>const</code>.</li>
+</ul>
+<h3 id="4-direct-inlining-vs-function-definition-injection">4. Direct
+Inlining vs. Function Definition Injection</h3>
+<p>GPU.js handles custom functions primarily by declaring them at the
+top of the generated GLSL fragment shader, though true AST-level node
+inlining can also occur:</p>
+<ul>
+<li><strong>Top-Level Function Injection:</strong> In standard
+operations, GPU.js transpiles the custom function into a standalone GLSL
+function definition and places it in the shader code above the
+<code>main()</code> function. When the kernel calls the custom function,
+the compiled GLSL simply calls the injected GLSL function natively.</li>
+<li><strong>AST Call Replacement (Inlining):</strong> In cases where
+functions are marked for explicit inlining, or for small
+sub-expressions, the compiler replaces the <code>CallExpression</code>
+node inside the caller’s AST with the actual body or expression of the
+target function. This eliminates function call overhead directly within
+the GLSL output.</li>
+</ul>
+<h3 id="5-final-shader-assembly">5. Final Shader Assembly</h3>
+<p>During the final build step of the kernel:</p>
+<ol type="1">
+<li>All global definitions, precision specifiers, and uniform
+declarations are written.</li>
+<li>The transpiled custom functions (and any recursive dependencies they
+require) are output in topological order to ensure that any function is
+declared before it is called.</li>
+<li>The main kernel logic is wrapped inside GLSL's
+<code>void main()</code>.</li>
+<li>The entire string is passed to the WebGL context via
+<code>gl.shaderSource()</code> and compiled into a native GPU program
+with <code>gl.compileShader()</code>.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

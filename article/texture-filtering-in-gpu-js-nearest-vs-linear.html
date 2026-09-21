@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texture Filtering in GPU.js: Nearest vs Linear - gpu.js</title>
+    <meta name="description" content="GPU.js accelerates JavaScript operations by compiling code into WebGL shaders, using textures internally to store and pass numerical arrays and matrices across the GPU. Because GPU.js is designed primarily for high-performance computing rather than visua">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/texture-filtering-in-gpu-js-nearest-vs-linear">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Texture Filtering in GPU.js: Nearest vs Linear - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/texture-filtering-in-gpu-js-nearest-vs-linear" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js accelerates JavaScript operations by compiling code into WebGL shaders, using textures internally to store and pass numerical arrays and matrices across the GPU. Because GPU.js is designed primarily for high-performance computing rather than visua" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="texture-filtering-in-gpujs-nearest-vs-linear">Texture Filtering
+in GPU.js: Nearest vs Linear</h1>
+<p>GPU.js accelerates JavaScript operations by compiling code into WebGL
+shaders, using textures internally to store and pass numerical arrays
+and matrices across the GPU. Because GPU.js is designed primarily for
+high-performance computing rather than visual 3D rendering, it handles
+texture filtering by enforcing nearest-neighbor sampling by default,
+deliberately avoiding linear interpolation to preserve numerical
+precision.</p>
+<h3 id="the-role-of-textures-in-gpujs">The Role of Textures in
+GPU.js</h3>
+<p>In WebGL, data inputs—such as 1D, 2D, or 3D numerical arrays—are
+mapped onto 2D textures where each texel stores floating-point or
+integer values. When a kernel function reads an array element using
+bracket notation (such as <code>matrix[y][x]</code>), the compiled GLSL
+shader performs a texture lookup to fetch the corresponding value.</p>
+<h3 id="why-gpujs-defaults-to-nearest-neighbor">Why GPU.js Defaults to
+Nearest-Neighbor</h3>
+<p>GPU.js configures WebGL textures using nearest-neighbor filtering
+(<code>gl.NEAREST</code> for both magnification and minification). When
+executing computational algorithms, exact data retrieval is essential.
+Linear filtering (<code>gl.LINEAR</code>) calculates a weighted average
+of surrounding texels, which is ideal for smoothing graphics but
+detrimental to mathematical computations. If linear filtering were
+applied to matrix multiplications or numerical simulations, intermediate
+data points would become blurred, producing mathematically invalid
+outputs.</p>
+<p>By using nearest-neighbor filtering alongside exact texel coordinate
+calculation, GPU.js guarantees:</p>
+<ul>
+<li><strong>Precision:</strong> Every read operation retrieves the exact
+value stored at a specific memory location.</li>
+<li><strong>Compatibility:</strong> Many mobile and older desktop GPUs
+lack the hardware extensions required to perform linear filtering on
+high-precision floating-point textures (such as
+<code>OES_texture_float_linear</code>). Using nearest-neighbor maximizes
+hardware support.</li>
+</ul>
+<h3 id="pipeline-mode-and-texture-handling">Pipeline Mode and Texture
+Handling</h3>
+<p>When chained computation is enabled via
+<code>.setPipeline(true)</code>, kernels output directly to WebGL
+textures instead of serializing data back into CPU memory. These
+intermediate textures maintain the same <code>gl.NEAREST</code>
+configuration. The subsequent kernel treats the output texture as an
+exact lookup table, ensuring data passes through multi-stage
+computational pipelines without rounding or interpolation artifacts.</p>
+<h3 id="manual-implementation-of-linear-filtering">Manual Implementation
+of Linear Filtering</h3>
+<p>GPU.js does not expose a high-level configuration API (such as a
+kernel setting) to switch textures to <code>gl.LINEAR</code>. If an
+application requires bilinear interpolation—such as for image scaling,
+smoothing, or visual texture synthesis—the developer must implement the
+interpolation logic directly inside the kernel function.</p>
+<p>To achieve bilinear sampling manually:</p>
+<ol type="1">
+<li>Pass the base texture or image into the kernel.</li>
+<li>Calculate the four neighboring coordinates (<code>x0, y0</code>,
+<code>x1, y0</code>, <code>x0, y1</code>, and <code>x1, y1</code>)
+corresponding to the fractional sample position.</li>
+<li>Retrieve all four discrete values using standard index lookups.</li>
+<li>Compute the weighted average based on the fractional offset using
+arithmetic operations within the kernel.</li>
+</ol>
+<p>Through this architecture, GPU.js prioritizes deterministic
+computational accuracy by relying on nearest-neighbor sampling under the
+hood, while leaving specialized spatial interpolation to user-defined
+shader logic.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Ping-Pong Textures: Avoid Pipeline Stalls - gpu.js</title>
+    <meta name="description" content="Iterative computing tasks like cellular automata, fluid dynamics, and particle simulations in GPU.js rely on ping-pong buffering—alternating between two textures where one serves as the input and the other as the output. When implemented improperly, th">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-ping-pong-textures-avoid-pipeline-stalls">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Ping-Pong Textures: Avoid Pipeline Stalls - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-ping-pong-textures-avoid-pipeline-stalls" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Iterative computing tasks like cellular automata, fluid dynamics, and particle simulations in GPU.js rely on ping-pong buffering—alternating between two textures where one serves as the input and the other as the output. When implemented improperly, th" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-ping-pong-textures-avoid-pipeline-stalls">GPU.js Ping-Pong
+Textures: Avoid Pipeline Stalls</h1>
+<p>Iterative computing tasks like cellular automata, fluid dynamics, and
+particle simulations in GPU.js rely on ping-pong buffering—alternating
+between two textures where one serves as the input and the other as the
+output. When implemented improperly, this technique often triggers
+severe WebGL pipeline stalls, forcing the CPU and GPU to wait on one
+another. This guide outlines the core architectural patterns required to
+maintain continuous GPU execution, configure kernel outputs correctly,
+and eliminate unnecessary CPU-GPU synchronization bottlenecks in
+GPU.js.</p>
+<h3 id="enable-texture-output-pipeline-mode">Enable Texture Output
+Pipeline Mode</h3>
+<p>By default, GPU.js evaluates kernels and decodes the resulting
+texture back into a JavaScript typed array on the CPU. This readback
+completely synchronizes the CPU and GPU, stalling execution until all
+rendering commands finish and memory transfers across the bus.</p>
+<p>To keep data entirely on the GPU between iterations, explicitly
+configure the kernel to output textures:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> computeKernel <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(inputTexture) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Computation logic</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> inputTexture[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutput</span>([width<span class="op">,</span> height])</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setPipeline</span>(<span class="kw">true</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="op">.</span><span class="fu">setOutputToTexture</span>(<span class="kw">true</span>)<span class="op">;</span></span></code></pre></div>
+<p>Setting <code>setPipeline(true)</code> and
+<code>setOutputToTexture(true)</code> ensures that the kernel returns a
+<code>Texture</code> instance referencing existing VRAM allocations
+rather than pulling data across the PCIe bus.</p>
+<h3 id="pre-allocate-static-double-buffers">Pre-Allocate Static Double
+Buffers</h3>
+<p>Dynamic buffer allocation inside an animation or compute loop
+triggers garbage collection and forces WebGL context reconfigurations.
+Always allocate exactly two textures outside your loop:</p>
+<ol type="1">
+<li><strong>Texture A</strong>: Initialized with starting state
+data.</li>
+<li><strong>Texture B</strong>: Empty or scratch texture initialized to
+matching dimensions.</li>
+</ol>
+<p>Avoid re-instantiating textures, mutating kernel dimensions, or
+invoking <code>gpu.createKernel()</code> inside the loop. Reusing fixed
+memory structures keeps the driver state stationary.</p>
+<h3 id="alternate-pointers-without-rebinding-contexts">Alternate
+Pointers Without Rebinding Contexts</h3>
+<p>The ping-pong loop should only swap variable references in JavaScript
+memory, passing the active input texture into the kernel while receiving
+the output as the next cycle's input:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentInput <span class="op">=</span> initialTexture<span class="op">;</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> currentOutput <span class="op">=</span> <span class="kw">null</span><span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">stepSimulation</span>() {</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">// currentInput stays in VRAM; currentOutput is generated directly in VRAM</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>    currentOutput <span class="op">=</span> <span class="fu">computeKernel</span>(currentInput)<span class="op">;</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Prepare pointers for the next iteration</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    currentInput <span class="op">=</span> currentOutput<span class="op">;</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<p>Because <code>computeKernel</code> operates in pipeline mode, this
+swap happens purely as WebGL framebuffer and texture target binding
+updates, preventing pipeline flushes.</p>
+<h3 id="manage-texture-deallocation-and-memory-leaks">Manage Texture
+Deallocation and Memory Leaks</h3>
+<p>When a GPU.js kernel set to pipeline mode runs continuously,
+returning a new texture reference each frame without manual cleanup can
+exhaust WebGL texture units. While swapping references, explicitly call
+<code>.delete()</code> on textures that are at least two generations
+old, or manage cleanup systematically to prevent the driver from
+stalling on out-of-memory errors:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> readTexture <span class="op">=</span> initialTexture<span class="op">;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> writeTexture <span class="op">=</span> <span class="kw">null</span><span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> iterations<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    writeTexture <span class="op">=</span> <span class="fu">computeKernel</span>(readTexture)<span class="op">;</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="co">// If an intermediate texture is no longer needed, dispose of it</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (i <span class="op">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>        readTexture<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>    readTexture <span class="op">=</span> writeTexture<span class="op">;</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div>
+<h3 id="defer-synchronization-and-readbacks">Defer Synchronization and
+Readbacks</h3>
+<p>A pipeline stall inevitably occurs the moment CPU interaction is
+requested. Never call <code>.toArray()</code> or inspect the texture
+content within the hot loop.</p>
+<ul>
+<li><strong>Batch Iterations</strong>: If running 1,000 simulation
+steps, execute all 1,000 ping-pong iterations before touching the
+output.</li>
+<li><strong>Canvas Output for Rendering</strong>: If visual output is
+needed every frame, use a secondary render kernel
+(<code>.setOutputToTexture(false)</code> linked to a WebGL canvas)
+rather than pulling data to the CPU to draw via a 2D canvas
+context.</li>
+<li><strong>Final Retrieval</strong>: Only invoke
+<code>.toArray()</code> when computations are fully concluded and
+processing must return to the JavaScript main thread.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Headless Exit Signals and Context Cleanup - gpu.js</title>
+    <meta name="description" content="In headless Node.js environments, GPU.js relies on native WebGL bindings to allocate and manage hardware-accelerated contexts. This article explains how GPU.js and its underlying headless libraries manage resource teardown, how process termination signal">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-headless-exit-signals-and-context-cleanup">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Headless Exit Signals and Context Cleanup - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-headless-exit-signals-and-context-cleanup" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="In headless Node.js environments, GPU.js relies on native WebGL bindings to allocate and manage hardware-accelerated contexts. This article explains how GPU.js and its underlying headless libraries manage resource teardown, how process termination signal" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-headless-exit-signals-and-context-cleanup">GPU.js Headless
+Exit Signals and Context Cleanup</h1>
+<p>In headless Node.js environments, GPU.js relies on native WebGL
+bindings to allocate and manage hardware-accelerated contexts. This
+article explains how GPU.js and its underlying headless libraries manage
+resource teardown, how process termination signals affect active
+graphics contexts, and how developers must structure exit handlers to
+guarantee leak-free GPU state destruction.</p>
+<h2 id="headless-context-architecture-in-gpujs">Headless Context
+Architecture in GPU.js</h2>
+<p>When GPU.js runs in Node.js without a display server, it delegates
+hardware communication to native bindings, primarily the <code>gl</code>
+(headless-gl) package. This layer creates an off-screen OpenGL or ANGLE
+context directly through native system drivers.</p>
+<p>Unlike browser environments where the browser engine orchestrates the
+WebGL lifecycle, a Node.js process manages these native C++ resources
+directly. Textures, compiled shaders, framebuffers, and execution
+pipelines persist in VRAM until they are explicitly deallocated by the
+application or collected during runtime cleanup.</p>
+<h2 id="native-signal-handling-vs-runtime-management">Native Signal
+Handling vs. Runtime Management</h2>
+<p>GPU.js does not automatically register global POSIX signal listeners
+such as <code>SIGINT</code>, <code>SIGTERM</code>, or
+<code>SIGHUP</code>. Registering unsolicited process-level event hooks
+inside a library can conflict with the host application's architecture
+and lifecycle controls.</p>
+<p>When an exit signal is received:</p>
+<ol type="1">
+<li><strong>Default OS Behavior:</strong> If no signal handlers are
+defined, Node.js terminates immediately. Modern operating systems and
+graphics drivers usually reclaim VRAM and file descriptors mapped to the
+terminated process PID.</li>
+<li><strong>Container and Long-Running Service Risks:</strong> In Docker
+containers, serverless instances, or high-throughput batch workers,
+abrupt termination without releasing native handles can cause
+driver-level context stalls, orphan IPC shared memory, or memory
+fragmentation in headless display servers like Xvfb.</li>
+<li><strong>Internal Garbage Collection:</strong> The underlying
+<code>headless-gl</code> bindings bind native handle destruction to
+JavaScript object finalizers. Because asynchronous exit signals halt the
+V8 event loop immediately, finalizers will not run on process
+termination unless a graceful shutdown sequence is triggered.</li>
+</ol>
+<h2 id="explicit-context-deallocation-with-destroy">Explicit Context
+Deallocation with <code>destroy()</code></h2>
+<p>GPU.js exposes the <code>gpu.destroy()</code> method to cleanly
+dismantle allocated resources. Calling this method initiates the
+following teardown sequence:</p>
+<ul>
+<li><strong>Kernel Pipeline Removal:</strong> Disassociates all
+registered kernels, unloading compiled shader programs from the
+GPU.</li>
+<li><strong>Texture and Buffer Cleanup:</strong> Iterates through
+tracked GPU memory blocks and issues explicit native
+<code>gl.deleteTexture()</code>, <code>gl.deleteBuffer()</code>, and
+<code>gl.deleteFramebuffer()</code> calls.</li>
+<li><strong>Context Loss Emulation:</strong> Invokes the
+<code>WEBGL_lose_context</code> extension where available, notifying the
+underlying driver layer that the rendering context is deliberately
+invalidated and should discard pending queues.</li>
+</ul>
+<h2 id="implementing-signal-traps-for-graceful-teardown">Implementing
+Signal Traps for Graceful Teardown</h2>
+<p>To ensure contexts are released cleanly upon termination,
+applications must trap operating system signals and manually execute the
+teardown lifecycle.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>({ <span class="dt">mode</span><span class="op">:</span> <span class="st">&#39;dev&#39;</span> })<span class="op">;</span> <span class="co">// Uses headless-gl in Node.js</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">let</span> isShuttingDown <span class="op">=</span> <span class="kw">false</span><span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">cleanExit</span>(signal) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (isShuttingDown) <span class="cf">return</span><span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  isShuttingDown <span class="op">=</span> <span class="kw">true</span><span class="op">;</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">try</span> {</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Explicitly release contexts, textures, and native bindings</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    gpu<span class="op">.</span><span class="fu">destroy</span>()<span class="op">;</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">catch</span> (err) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Handle or log cleanup errors</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">finally</span> {</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>    <span class="bu">process</span><span class="op">.</span><span class="fu">exit</span>(<span class="dv">0</span>)<span class="op">;</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co">// Trap common termination signals</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a><span class="bu">process</span><span class="op">.</span><span class="fu">on</span>(<span class="st">&#39;SIGINT&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> <span class="fu">cleanExit</span>(<span class="st">&#39;SIGINT&#39;</span>))<span class="op">;</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="bu">process</span><span class="op">.</span><span class="fu">on</span>(<span class="st">&#39;SIGTERM&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> <span class="fu">cleanExit</span>(<span class="st">&#39;SIGTERM&#39;</span>))<span class="op">;</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="co">// Handle standard process exits and unhandled rejections</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a><span class="bu">process</span><span class="op">.</span><span class="fu">on</span>(<span class="st">&#39;beforeExit&#39;</span><span class="op">,</span> () <span class="kw">=&gt;</span> <span class="fu">cleanExit</span>(<span class="st">&#39;beforeExit&#39;</span>))<span class="op">;</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="bu">process</span><span class="op">.</span><span class="fu">on</span>(<span class="st">&#39;uncaughtException&#39;</span><span class="op">,</span> (err) <span class="kw">=&gt;</span> {</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cleanExit</span>(<span class="st">&#39;uncaughtException&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<h2 id="context-cleanup-in-worker-threads-and-child-processes">Context
+Cleanup in Worker Threads and Child Processes</h2>
+<p>When scaling GPU.js across worker threads
+(<code>worker_threads</code>) or child processes
+(<code>child_process.fork</code>), handling the exit signals becomes
+local to the worker's lifecycle:</p>
+<ul>
+<li><strong>Worker Threads:</strong> Native contexts created within a
+worker do not automatically close when a parent process sends an exit
+notification. The parent must message the worker, allowing the worker to
+invoke <code>gpu.destroy()</code> before calling
+<code>process.exit()</code> or terminating the thread.</li>
+<li><strong>Synchronous Termination:</strong> Using
+<code>worker.terminate()</code> bypasses JavaScript execution and aborts
+the thread mid-execution. While native OS drivers will eventually purge
+context references, sequential worker instantiation without graceful
+context loss can temporarily exhaust available driver context slots.
+Always signal the worker to run <code>destroy()</code> prior to
+termination.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

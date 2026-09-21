@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modeling Turing Patterns via Diffusion in gpu.js - gpu.js</title>
+    <meta name="description" content="Turing morphogenetic pattern formation can be modeled effectively via multi-component reaction-diffusion systems using gpu.js. By translating partial differential equations into parallelized WebGL kernels, developers can run complex, multi-species chemic">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/modeling-turing-patterns-via-diffusion-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Modeling Turing Patterns via Diffusion in gpu.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/modeling-turing-patterns-via-diffusion-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Turing morphogenetic pattern formation can be modeled effectively via multi-component reaction-diffusion systems using gpu.js. By translating partial differential equations into parallelized WebGL kernels, developers can run complex, multi-species chemic" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="modeling-turing-patterns-via-diffusion-in-gpujs">Modeling Turing
+Patterns via Diffusion in gpu.js</h1>
+<p>Turing morphogenetic pattern formation can be modeled effectively via
+multi-component reaction-diffusion systems using gpu.js. By translating
+partial differential equations into parallelized WebGL kernels,
+developers can run complex, multi-species chemical simulations directly
+in the browser at 60 frames per second. This article explains the
+underlying reaction-diffusion mechanics, details how to structure
+multi-component systems using discrete numerical approximations, and
+outlines the practical implementation steps required to compute these
+patterns in gpu.js.</p>
+<h2 id="the-mathematical-foundation-reaction-diffusion-systems">The
+Mathematical Foundation: Reaction-Diffusion Systems</h2>
+<p>Alan Turing’s 1952 theory of morphogenesis posits that complex
+biological patterns—such as stripes, spots, and spirals—arise
+spontaneously from the interaction of two or more diffusing chemical
+substances (morphogens). A standard multi-component system consists
+of:</p>
+<ol type="1">
+<li><strong>Activator (<span class="math inline">\(U\)</span>):</strong>
+Promotes its own production and the production of the inhibitor.</li>
+<li><strong>Inhibitor (<span class="math inline">\(V\)</span>):</strong>
+Suppresses the production of the activator and diffuses at a
+significantly faster rate than the activator (<span
+class="math inline">\(D_v \gg D_u\)</span>).</li>
+</ol>
+<p>The state evolution is governed by coupled partial differential
+equations (PDEs):</p>
+<p><span class="math display">\[\frac{\partial U}{\partial t} = D_u
+\nabla^2 U + R_u(U, V)\]</span> <span
+class="math display">\[\frac{\partial V}{\partial t} = D_v \nabla^2 V +
+R_v(U, V)\]</span></p>
+<p>Where:</p>
+<ul>
+<li><span class="math inline">\(D_u\)</span> and <span
+class="math inline">\(D_v\)</span> are diffusion rates.</li>
+<li><span class="math inline">\(\nabla^2\)</span> is the Laplace
+operator representing spatial diffusion.</li>
+<li><span class="math inline">\(R_u\)</span> and <span
+class="math inline">\(R_v\)</span> represent non-linear reaction
+kinetics (such as the Gray-Scott, FitzHugh-Nagumo, or Schnakenberg
+models).</li>
+</ul>
+<h2 id="why-use-gpujs">Why Use gpu.js?</h2>
+<p>Reaction-diffusion models require evaluating diffusion and reaction
+steps across a discretized grid (e.g., <span class="math inline">\(512
+\times 512\)</span> or <span class="math inline">\(1024 \times
+1024\)</span> points). Calculating the Laplacian for millions of grid
+cells sequentially using standard JavaScript leads to unacceptable
+latency.</p>
+<p>The <code>gpu.js</code> library solves this by compiling JavaScript
+functions into WebGL fragment shaders. Because the diffusion and
+reaction at any given point <span class="math inline">\((x, y)\)</span>
+depend only on the immediate local neighborhood and the cell's current
+values, the entire grid can be computed concurrently across thousands of
+GPU cores.</p>
+<h2 id="implementing-multi-component-diffusion-in-gpujs">Implementing
+Multi-Component Diffusion in gpu.js</h2>
+<h3 id="1-spatial-discretization-the-discrete-laplacian">1. Spatial
+Discretization (The Discrete Laplacian)</h3>
+<p>Diffusion is approximated using finite difference methods. In a 2D
+grid, the Laplacian <span class="math inline">\(\nabla^2 A\)</span> at
+coordinate <span class="math inline">\((x, y)\)</span> is computed using
+a 5-point stencil:</p>
+<p><span class="math display">\[\nabla^2 A \approx A_{x+1, y} + A_{x-1,
+y} + A_{x, y+1} + A_{x, y-1} - 4A_{x, y}\]</span></p>
+<p>For smoother, isotropic diffusion, a 9-point convolution kernel with
+diagonal weighting is often preferred:</p>
+<ul>
+<li>Center: <span class="math inline">\(-1.0\)</span></li>
+<li>Orthogonal neighbors (up, down, left, right): <span
+class="math inline">\(0.2\)</span></li>
+<li>Diagonal neighbors: <span class="math inline">\(0.05\)</span></li>
+</ul>
+<h3 id="2-ping-pong-framebuffering">2. Ping-Pong Framebuffering</h3>
+<p>A shader cannot read from and write to the same texture memory
+simultaneously. Simulating continuous time steps requires a "ping-pong"
+architecture:</p>
+<ol type="1">
+<li>Allocate two GPU-bound arrays/textures: <code>Texture A</code>
+(read) and <code>Texture B</code> (write).</li>
+<li>Execute the kernel: Read current concentrations from
+<code>Texture A</code>, compute the reaction and diffusion steps, and
+output the result to <code>Texture B</code>.</li>
+<li>Swap roles: <code>Texture B</code> becomes the input for the next
+time step, and <code>Texture A</code> becomes the target.</li>
+</ol>
+<p>By setting <code>.setOutput([width, height])</code> and
+<code>.setPipeline(true)</code> in <code>gpu.js</code>, intermediate
+states remain on the GPU as textures, eliminating performance-killing
+CPU-to-GPU memory transfers.</p>
+<h3 id="3-handling-multiple-components">3. Handling Multiple
+Components</h3>
+<p>In a multi-component model, each cell must track at least two
+concentrations (<span class="math inline">\(U\)</span> and <span
+class="math inline">\(V\)</span>). This can be accomplished in
+<code>gpu.js</code> through two primary methods:</p>
+<ul>
+<li><strong>Vector Textures:</strong> Use graphical output formats where
+the red channel represents morphogen <span
+class="math inline">\(U\)</span> and the green channel represents
+morphogen <span class="math inline">\(V\)</span>. The kernel reads RGBA
+values and outputs updated RGBA vectors.</li>
+<li><strong>Dual Interleaved Kernels:</strong> Run two sequential
+kernels per time step—one updating concentration grid <span
+class="math inline">\(U\)</span> and another updating concentration grid
+<span class="math inline">\(V\)</span>.</li>
+</ul>
+<h3 id="4-numerical-time-stepping">4. Numerical Time Stepping</h3>
+<p>Temporal evolution uses the forward Euler integration method:</p>
+<p><span class="math display">\[U_{t+\Delta t} = U_t + \left( D_u
+\nabla^2 U + R_u(U, V) \right) \Delta t\]</span></p>
+<p>To maintain numerical stability, <span class="math inline">\(\Delta
+t\)</span> must adhere to the Courant-Friedrichs-Lewy (CFL)
+condition:</p>
+<p><span class="math display">\[\Delta t \le \frac{\Delta x^2}{4 \cdot
+\max(D_u, D_v)}\]</span></p>
+<p>If <span class="math inline">\(\Delta t\)</span> is set too high, the
+system destabilizes, resulting in numerical overflow and artifact
+collapse.</p>
+<h2 id="implementation-considerations">Implementation
+Considerations</h2>
+<ul>
+<li><strong>Floating-Point Precision:</strong> Turing patterns are
+sensitive to tiny numerical perturbations. Ensure WebGL 2 or the
+<code>OES_texture_float</code> extension is enabled so that intermediate
+values are stored in 32-bit floating-point textures rather than clamped
+8-bit integers.</li>
+<li><strong>Boundary Conditions:</strong> Set appropriate edge
+conditions inside the kernel. Periodic boundaries (toroidal wrapping via
+modulo arithmetic on indices) eliminate artificial wall reflections,
+while Neumann boundaries (clamping indices to edge limits) model closed
+chemical containers.</li>
+<li><strong>Perturbation Seed:</strong> Turing patterns require an
+initial break in symmetry. Initialize the concentration grids with
+uniform steady-state values, then inject random noise into a small
+cluster of cells to seed morphogenesis.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

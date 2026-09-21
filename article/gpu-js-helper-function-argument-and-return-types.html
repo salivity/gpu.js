@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Helper Function Argument and Return Types - gpu.js</title>
+    <meta name="description" content="GPU.js bridges the gap between JavaScript's dynamic typing and WebGL’s strictly typed shader language (GLSL) by analyzing, inferring, and explicitly defining data types in user-defined functions. When compiling JavaScript functions to run on the GPU, h">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-helper-function-argument-and-return-types">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Helper Function Argument and Return Types - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-helper-function-argument-and-return-types" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="GPU.js bridges the gap between JavaScript's dynamic typing and WebGL’s strictly typed shader language (GLSL) by analyzing, inferring, and explicitly defining data types in user-defined functions. When compiling JavaScript functions to run on the GPU, h" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-helper-function-argument-and-return-types">GPU.js Helper
+Function Argument and Return Types</h1>
+<p>GPU.js bridges the gap between JavaScript's dynamic typing and
+WebGL’s strictly typed shader language (GLSL) by analyzing, inferring,
+and explicitly defining data types in user-defined functions. When
+compiling JavaScript functions to run on the GPU, helper functions added
+via <code>gpu.addFunction()</code> must declare or implicitly resolve
+specific argument and return types so the underlying compiler can
+generate valid GLSL code. This article explains how GPU.js manages these
+types, how to define them explicitly, and best practices for avoiding
+compilation errors.</p>
+<h3 id="the-underlying-challenge-js-to-glsl-translation">The Underlying
+Challenge: JS to GLSL Translation</h3>
+<p>JavaScript does not require type annotations, but GPUs execute static
+shader code where every variable, parameter, and return value must have
+a fixed type (such as <code>float</code>, <code>int</code>, or vector
+arrays). When you write a helper function, GPU.js parses its Abstract
+Syntax Tree (AST) to translate JavaScript operations into equivalent
+GLSL operations. Because ambiguity can lead to invalid shaders, GPU.js
+must know the exact type of each input parameter and the output.</p>
+<h3 id="explicit-type-declaration-with-gpuaddfunction">Explicit Type
+Declaration with <code>gpu.addFunction()</code></h3>
+<p>The most reliable way GPU.js handles types in helper functions is
+through explicit definition in the options object passed to
+<code>gpu.addFunction()</code>. You provide an object mapping argument
+names to their respective types, along with a specified
+<code>returnType</code>.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">addVectors</span>(a<span class="op">,</span> b) {</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> a <span class="op">+</span> b<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(addVectors<span class="op">,</span> {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">argumentTypes</span><span class="op">:</span> { <span class="dt">a</span><span class="op">:</span> <span class="st">&#39;Float&#39;</span><span class="op">,</span> <span class="dt">b</span><span class="op">:</span> <span class="st">&#39;Float&#39;</span> }<span class="op">,</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">returnType</span><span class="op">:</span> <span class="st">&#39;Float&#39;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>When defined explicitly, the transpiler skips guessing and directly
+maps the parameters to native shader types:</p>
+<ul>
+<li><code>'Float'</code> maps to <code>float</code></li>
+<li><code>'Integer'</code> maps to <code>int</code></li>
+<li><code>'Boolean'</code> maps to <code>bool</code></li>
+<li><code>'Array'</code> or <code>'Array(n)'</code> maps to fixed-size
+arrays or GLSL vectors (such as <code>vec2</code>, <code>vec3</code>,
+<code>vec4</code>)</li>
+</ul>
+<h3 id="automatic-type-inference">Automatic Type Inference</h3>
+<p>If you register a helper function without specifying
+<code>argumentTypes</code> or <code>returnType</code>, GPU.js attempts
+automatic type inference:</p>
+<ol type="1">
+<li><strong>Call-Site Inspection:</strong> GPU.js inspects the calling
+kernel. If the kernel passes a variable known to be a float into the
+helper function, GPU.js assumes the corresponding parameter is a
+<code>Float</code>.</li>
+<li><strong>AST Evaluation:</strong> The compiler tracks mathematical
+operations and literal values within the helper function body. For
+example, expressions containing decimal numbers (e.g., <code>1.0</code>)
+hint at floating-point arithmetic.</li>
+<li><strong>Return Inference:</strong> The resolved types inside the
+function dictate the inferred <code>returnType</code>.</li>
+</ol>
+<p>While convenient, type inference can easily fail in complex logic,
+loops, or when a helper function is called with different types across
+separate kernels. For production code, relying on automatic inference is
+discouraged.</p>
+<h3 id="handling-arrays-and-vectors">Handling Arrays and Vectors</h3>
+<p>When dealing with multi-dimensional data, helper functions require
+precise array sizing in their signatures. GPU.js handles array arguments
+and returns by matching them to GLSL vectors or arrays:</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> <span class="fu">getMagnitude</span>(vec) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">return</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">sqrt</span>(vec[<span class="dv">0</span>] <span class="op">*</span> vec[<span class="dv">0</span>] <span class="op">+</span> vec[<span class="dv">1</span>] <span class="op">*</span> vec[<span class="dv">1</span>])<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>gpu<span class="op">.</span><span class="fu">addFunction</span>(getMagnitude<span class="op">,</span> {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="dt">argumentTypes</span><span class="op">:</span> { <span class="dt">vec</span><span class="op">:</span> <span class="st">&#39;Array(2)&#39;</span> }<span class="op">,</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="dt">returnType</span><span class="op">:</span> <span class="st">&#39;Float&#39;</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>})<span class="op">;</span></span></code></pre></div>
+<p>Specifying the length via <code>Array(length)</code> allows GPU.js to
+allocate the correct vector type in memory. Returning arrays requires
+matching dimensions; helper functions cannot return dynamically sized
+arrays.</p>
+<h3 id="strict-typing-rules-and-limitations">Strict Typing Rules and
+Limitations</h3>
+<p>To ensure smooth compilation, user-defined helper functions must
+adhere to strict typing constraints:</p>
+<ul>
+<li><strong>Single Return Type:</strong> A function cannot conditionally
+return different types (e.g., returning an <code>Integer</code> in one
+branch and a <code>Float</code> in another). Every exit path must
+resolve to the identical declared type.</li>
+<li><strong>No Implicit Type Coercion:</strong> Unlike standard
+JavaScript, which freely converts numbers to strings or floats to ints,
+GPU.js expects matched types in binary operations within the helper.
+Adding an integer directly to a float without explicit casting can
+trigger compilation failures.</li>
+<li><strong>No Object Types:</strong> Complex JavaScript objects,
+closures, or class instances cannot be passed as arguments or returned
+from helper functions. Only primitives and fixed-size arrays are
+supported.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

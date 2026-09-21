@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulating GPU Cache Timing Attacks in GPU.js - gpu.js</title>
+    <meta name="description" content="This article explores the theoretical modeling and benchmarking of microarchitectural cache timing side-channels using GPU-accelerated JavaScript environments like GPU.js. It details the mechanics of data-dependent memory access on graphics hardware, out">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/simulating-gpu-cache-timing-attacks-in-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Simulating GPU Cache Timing Attacks in GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/simulating-gpu-cache-timing-attacks-in-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explores the theoretical modeling and benchmarking of microarchitectural cache timing side-channels using GPU-accelerated JavaScript environments like GPU.js. It details the mechanics of data-dependent memory access on graphics hardware, out" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="simulating-gpu-cache-timing-attacks-in-gpujs">Simulating GPU
+Cache Timing Attacks in GPU.js</h1>
+<p>This article explores the theoretical modeling and benchmarking of
+microarchitectural cache timing side-channels using GPU-accelerated
+JavaScript environments like GPU.js. It details the mechanics of
+data-dependent memory access on graphics hardware, outlines how timing
+variations are measured and isolated in research environments, and
+discusses the defensive countermeasures designed to mitigate browser-
+and API-level microarchitectural leakage.</p>
+<h2 id="theoretical-foundations-of-gpu-cache-timing">Theoretical
+Foundations of GPU Cache Timing</h2>
+<p>Microarchitectural side-channel attacks rely on indirect observations
+of a physical system's state to infer sensitive data, such as
+cryptographic keys. In cache timing attacks, the primary observable is
+the difference in execution latency between a cache hit and a cache
+miss. When applied to cryptographic implementations (such as table-based
+AES or modular exponentiation algorithms), data-dependent lookups cause
+specific cache lines to be loaded into fast memory. If an observer can
+deduce which cache lines were accessed, the secret key or internal state
+can potentially be reconstructed.</p>
+<p>Modern GPUs implement complex memory hierarchies, typically
+comprising high-speed registers, shared memory (L1-equivalent
+programmable scratchpad), and hardware-managed L2 caches shared across
+compute units. While GPUs are designed for massive data-parallel
+throughput rather than low-latency serial operations, their shared
+caches remain susceptible to contention and access latency
+discrepancies.</p>
+<h2 id="modeling-memory-contention-with-gpujs">Modeling Memory
+Contention with GPU.js</h2>
+<p>GPU.js compiles JavaScript functions into WebGL shaders or WebGPU
+compute kernels to execute parallel code on the graphics hardware. To
+study cache effects, researchers construct synthetic benchmarks that
+simulate lookup table operations under varying access patterns:</p>
+<ol type="1">
+<li><strong>Synthetic Kernel Construction</strong>: Kernels are defined
+to perform repeated array reads. In one baseline model, accesses are
+uniform or purely sequential, ensuring high cache locality. In the
+variable model, memory indices are derived from pseudo-secret values or
+non-contiguous strides designed to force cache line eviction.</li>
+<li><strong>Measuring Execution Time</strong>: GPU.js provides profiling
+utilities (<code>mode: 'gpu'</code>, with benchmark modes enabled) that
+interface with underlying graphics APIs. On the host side, execution
+time is traditionally measured by bounding kernel invocations with
+high-resolution timestamps.</li>
+<li><strong>Synchronizing Host and Device</strong>: GPU operations are
+executed asynchronously. Reliable timing simulation requires explicit
+synchronization barriers—often achieved by reading back a result buffer
+to the CPU—to ensure that measured intervals reflect actual hardware
+execution rather than driver queuing overhead.</li>
+</ol>
+<h2 id="analytical-limitations-and-challenges">Analytical Limitations
+and Challenges</h2>
+<p>Simulating or observing side-channels through WebGL abstractions
+introduces significant noise compared to native execution
+environments:</p>
+<ul>
+<li><strong>Timer Granularity and Jitter</strong>: Modern web browsers
+actively mitigate microarchitectural attacks (such as Spectre) by
+clamping high-resolution timers like <code>performance.now()</code> to
+reduced precisions (e.g., 5 to 20 microseconds) and introducing
+synthetic jitter.</li>
+<li><strong>Driver Optimizations</strong>: Graphics drivers and JIT
+compilers frequently optimize out redundant lookups, reorder memory
+operations, or map uniform reads across threads via warp-level broadcast
+mechanisms, flattening expected latency deltas.</li>
+<li><strong>Coalesced Memory Access</strong>: GPU architectures rely on
+memory coalescing, where adjacent threads reading contiguous addresses
+merge their requests into single transactions. Simulating single-thread
+cache effects requires isolating thread behaviors or saturating entire
+warps/wavefronts to expose contention.</li>
+</ul>
+<h2 id="defensive-strategies-and-countermeasures">Defensive Strategies
+and Countermeasures</h2>
+<p>Mitigating cache side-channels in accelerated computing environments
+requires interventions at both the cryptographic and platform
+levels:</p>
+<ul>
+<li><strong>Constant-Time Implementations</strong>: Cryptographic
+algorithms must be implemented using algorithms that execute in constant
+time regardless of input. For symmetric ciphers, this means utilizing
+bitsliced representations or vector-permutation instructions rather than
+static lookup tables (such as S-boxes).</li>
+<li><strong>Hardware-Accelerated Primitives</strong>: Using
+platform-native cryptographic primitives (e.g., Web Cryptography API,
+AES-NI) bypasses software-level lookup table vulnerabilities by
+executing operations within dedicated, side-channel-resistant hardware
+circuits.</li>
+<li><strong>API Restrictions</strong>: Browser vendors continue to
+partition GPU contexts, restrict cross-origin access to WebGL/WebGPU
+resources, and disable fine-grained hardware performance counters from
+untrusted script contexts to prevent covert timing telemetry.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

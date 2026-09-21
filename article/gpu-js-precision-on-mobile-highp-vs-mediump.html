@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Precision on Mobile: Highp vs Mediump - gpu.js</title>
+    <meta name="description" content="This article examines how the GPU.js library negotiates floating-point precision on mobile chipsets, focusing on the mechanics of WebGL shader generation, hardware support for highp versus mediump qualifiers, and the precision fallbacks used when native">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-precision-on-mobile-highp-vs-mediump">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Precision on Mobile: Highp vs Mediump - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-precision-on-mobile-highp-vs-mediump" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how the GPU.js library negotiates floating-point precision on mobile chipsets, focusing on the mechanics of WebGL shader generation, hardware support for highp versus mediump qualifiers, and the precision fallbacks used when native" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-precision-on-mobile-highp-vs-mediump">GPU.js Precision on
+Mobile: Highp vs Mediump</h1>
+<p>This article examines how the GPU.js library negotiates
+floating-point precision on mobile chipsets, focusing on the mechanics
+of WebGL shader generation, hardware support for <code>highp</code>
+versus <code>mediump</code> qualifiers, and the precision fallbacks used
+when native 32-bit floating-point textures are unsupported.</p>
+<h3 id="webgl-compilation-and-precision-qualifiers">WebGL Compilation
+and Precision Qualifiers</h3>
+<p>GPU.js accelerates JavaScript by transpiling standard functions into
+WebGL-compatible GLSL (OpenGL Shading Language) fragment shaders. When
+writing shaders for WebGL, declaring floating-point precision is
+mandatory for fragment stages. Desktop graphics cards execute almost all
+operations at 32-bit floating-point precision (<code>highp</code>)
+regardless of shader declarations, but mobile system-on-chips
+(SoCs)—such as Qualcomm Adreno, ARM Mali, and Apple Silicon—contain
+dedicated hardware paths for both 16-bit half-precision
+(<code>mediump</code>) and 32-bit single-precision
+(<code>highp</code>).</p>
+<p>To maintain parity with standard JavaScript numbers (which are
+double-precision 64-bit floats), GPU.js explicitly declares
+<code>precision highp float;</code> at the top of generated fragment
+shaders by default. This forces the mobile GPU to utilize full 32-bit
+IEEE 754 precision registers if they are supported by the hardware and
+the WebGL context.</p>
+<h3 id="mobile-hardware-capabilities-and-context-negotiation">Mobile
+Hardware Capabilities and Context Negotiation</h3>
+<p>Mobile GPUs manage precision based on the active WebGL version and
+supported extensions:</p>
+<ol type="1">
+<li><strong>WebGL 2.0</strong>: The specification mandates support for
+<code>highp</code> floats inside fragment shaders. When running on
+modern mobile chipsets with WebGL 2.0, GPU.js can execute 32-bit
+calculations natively, provided the underlying driver properly adheres
+to the standard.</li>
+<li><strong>WebGL 1.0</strong>: The <code>highp</code> qualifier in
+fragment shaders is entirely optional under the WebGL 1.0 specification.
+GPU.js queries the shader compiler via
+<code>gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)</code>.
+If the target mobile chipset returns a precision range of zero, it
+indicates no native <code>highp</code> support in the fragment stage.
+Under these circumstances, GPU.js is forced to downgrade the declaration
+to <code>precision mediump float;</code>.</li>
+</ol>
+<h3 id="float-texture-support-and-emulated-encoding">Float Texture
+Support and Emulated Encoding</h3>
+<p>Performing high-precision math inside a shader is only half of the
+computation pipeline; the output must also be stored into a texture.
+Mobile chipsets frequently restrict rendering to 32-bit floating-point
+textures (<code>gl.FLOAT</code>) due to thermal, bandwidth, and hardware
+limitations.</p>
+<p>When a mobile GPU lacks native 32-bit float texture rendering (such
+as lacking the <code>OES_texture_float</code> or
+<code>EXT_color_buffer_float</code> extensions), GPU.js circumvents this
+limitation through an encoding mechanism:</p>
+<ul>
+<li><strong>Pack and Unpack Functions</strong>: Instead of outputting a
+single 32-bit float directly to a 32-bit channel, GPU.js generates GLSL
+code that mathematically decomposes the 32-bit float into four 8-bit
+components.</li>
+<li><strong>RGBA Storage</strong>: These four bytes are written into a
+standard, widely supported 8-bit RGBA texture
+(<code>gl.UNSIGNED_BYTE</code>).</li>
+<li><strong>Decoding</strong>: When reading values back to CPU memory or
+chaining them into another GPU.js kernel, the library automatically
+reassembles the four 8-bit channels back into a single 32-bit
+floating-point number.</li>
+</ul>
+<p>This encoding step allows GPU.js to preserve high precision on
+constrained mobile architectures, albeit at the cost of additional
+arithmetic instructions per pixel.</p>
+<h3 id="impact-of-fallback-to-medium-precision">Impact of Fallback to
+Medium-Precision</h3>
+<p>When mobile environments restrict operations to <code>mediump</code>
+without float-packing workarounds, numerical stability changes
+substantially:</p>
+<ul>
+<li><strong>Bit Width</strong>: <code>mediump</code> guarantees only a
+minimum format roughly equivalent to IEEE 754 half-precision (16-bit),
+offering 1 sign bit, 5 exponent bits, and 10 mantissa bits.</li>
+<li><strong>Dynamic Range</strong>: The maximum representable value
+drops from approximately <span class="math inline">\(3.4 \times
+10^{38}\)</span> (<code>highp</code>) to around <span
+class="math inline">\(65,504\)</span> (<code>mediump</code>). Any
+calculation exceeding this bound instantly results in an overflow to
+infinity.</li>
+<li><strong>Granularity</strong>: Machine learning kernels, physics
+engines, and iterative matrix operations executed on GPU.js suffer from
+severe rounding errors under <code>mediump</code>, as small step sizes
+(e.g., learning rates below <span class="math inline">\(0.0001\)</span>)
+cannot be accurately resolved.</li>
+</ul>
+<p>Developers targeting mobile browsers must either verify WebGL 2
+availability to secure native <code>highp</code> execution or design
+computations that accommodate the restricted dynamic range of 16-bit
+<code>mediump</code> fallbacks.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

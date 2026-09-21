@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Memory Alignment for Non-Multiple of 4 Outputs - gpu.js</title>
+    <meta name="description" content="This article explains how GPU.js manages memory alignment and data packing when kernel thread outputs are not multiples of four. Because WebGL fundamentally relies on four-channel (RGBA) framebuffers and textures for data transfer, managing irregular out">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-memory-alignment-for-non-multiple-of-4-outputs">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Memory Alignment for Non-Multiple of 4 Outputs - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-memory-alignment-for-non-multiple-of-4-outputs" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article explains how GPU.js manages memory alignment and data packing when kernel thread outputs are not multiples of four. Because WebGL fundamentally relies on four-channel (RGBA) framebuffers and textures for data transfer, managing irregular out" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-memory-alignment-for-non-multiple-of-4-outputs">GPU.js
+Memory Alignment for Non-Multiple of 4 Outputs</h1>
+<p>This article explains how GPU.js manages memory alignment and data
+packing when kernel thread outputs are not multiples of four. Because
+WebGL fundamentally relies on four-channel (RGBA) framebuffers and
+textures for data transfer, managing irregular output dimensions
+requires specialized internal handling. GPU.js solves this by
+recalculating 2D texture dimensions, mapping linear thread indices
+within generated GLSL shaders, padding unused sub-pixel channels or
+boundary texels, and truncating the returned typed arrays during CPU
+readback.</p>
+<h3 id="webgl-4-channel-architectural-constraints">WebGL 4-Channel
+Architectural Constraints</h3>
+<p>WebGL processes data primarily through textures formatted with four
+color channels: Red, Green, Blue, and Alpha (RGBA). When GPU.js compiles
+a JavaScript kernel into GLSL (OpenGL Shading Language), it binds an
+off-screen framebuffer backed by these textures to store computation
+results.</p>
+<p>In hardware-accelerated graphic pipelines, standard memory fetches
+and vector operations (<code>vec4</code>) are optimized for 32-bit,
+four-component alignment (128 bits total). When a kernel's output shape
+is an arbitrary number that does not align with this four-element
+boundary—such as an array of 5, 13, or 23 elements—the GPU cannot
+natively write fractional texels. It must always write to full texels
+composed of four components.</p>
+<h3 id="2d-texture-dimension-fitting">2D Texture Dimension Fitting</h3>
+<p>When you define an output configuration such as
+<code>output: [7]</code>, GPU.js determines the smallest 2D texture grid
+capable of holding the required number of outputs. Depending on whether
+pipeline mode or packed texture mode is enabled, GPU.js evaluates:</p>
+<ol type="1">
+<li><strong>Unpacked (Scalar) Mode</strong>: Each scalar output occupies
+an individual pixel, using one channel or all four channels (encoding
+single precision floats across RGBA). GPU.js calculates texture
+dimensions (<span class="math inline">\(W \times H\)</span>) such that
+<span class="math inline">\(W \times H \ge \text{Total
+Threads}\)</span>. If the output count is prime or odd, the texture
+width and height are sized to rectangular bounds that exceed the total
+thread count, leaving trailing texels idle.</li>
+<li><strong>Packed Mode</strong>: GPU.js packs up to four independent
+array elements into the four vector slots (R, G, B, A) of a single
+texel. If the total length <span class="math inline">\(N\)</span> is not
+divisible by 4, the number of allocated texels is <span
+class="math inline">\(\lceil N / 4 \rceil\)</span>. The final texel
+contains between 1 and 3 valid elements, with the remaining components
+left unwritten or padded with dummy data.</li>
+</ol>
+<h3 id="coordinate-translation-and-bounds-checking-in-glsl">Coordinate
+Translation and Bounds Checking in GLSL</h3>
+<p>GPU.js injects mathematical coordinate conversions directly into the
+compiled fragment shader to map the 2D hardware raster coordinate
+(<code>gl_FragCoord.xy</code>) back to your specified logical thread
+space (1D, 2D, or 3D).</p>
+<p>When executing threads:</p>
+<ul>
+<li>The shader computes a linearized index: <span
+class="math display">\[\text{index} = \lfloor gl\_FragCoord.x \rfloor +
+\lfloor gl\_FragCoord.y \rfloor \times \text{textureWidth}\]</span></li>
+<li>In packed mode, this linear index is further multiplied by 4 to
+address individual channel offsets
+(<code>index * 4 + channelIndex</code>).</li>
+<li>If the calculated index meets or exceeds the user-configured thread
+bounds, the shader either suppresses the calculation, outputs zeroed
+components for inactive channels, or issues a <code>discard</code>
+command to prevent overwriting valid memory.</li>
+</ul>
+<p>This ensures that threads outside the logical range do not perform
+out-of-bounds calculations or corrupt adjacent data blocks within the
+allocated WebGL texture.</p>
+<h3 id="cpu-readback-and-memory-slicing">CPU Readback and Memory
+Slicing</h3>
+<p>Once the kernel execution completes on the GPU, the data must be
+transferred back to the CPU via <code>gl.readPixels()</code>. WebGL
+transfers the entire allocated texture region as a contiguous block into
+a JavaScript typed array (such as <code>Float32Array</code>).</p>
+<p>Because the allocated texture may contain padding to satisfy both the
+internal four-channel format and row-alignment constraints (like
+<code>gl.pixelStorei(gl.PACK_ALIGNMENT, 4)</code>):</p>
+<ol type="1">
+<li><strong>Raw Extraction</strong>: <code>gl.readPixels()</code>
+downloads the full rectangular buffer, including empty tail texels or
+unused channels.</li>
+<li><strong>Buffer Truncation</strong>: GPU.js automatically cleans the
+memory on the CPU side before returning the result to the caller. It
+reads the logical dimensions specified in the kernel configuration and
+uses typed array slicing (<code>Array.prototype.slice</code> or subarray
+views) to strip away all trailing components and padding rows.</li>
+<li><strong>Data Reshaping</strong>: If multi-dimensional outputs were
+specified (e.g., a <span class="math inline">\(3 \times 3\)</span>
+matrix, totaling 9 elements), GPU.js reconstructs the nested JavaScript
+arrays using only the valid indices, effectively masking the GPU's
+internal 4-multiple alignment from the final output.</li>
+</ol></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

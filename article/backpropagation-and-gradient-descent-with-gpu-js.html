@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Backpropagation and Gradient Descent with GPU.js - gpu.js</title>
+    <meta name="description" content="Implementing backpropagation and gradient descent directly with gpu.js allows you to accelerate neural network training routines inside the browser or Node.js without relying on high-level machine learning frameworks. By compiling JavaScript functions in">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/backpropagation-and-gradient-descent-with-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Backpropagation and Gradient Descent with GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/backpropagation-and-gradient-descent-with-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="Implementing backpropagation and gradient descent directly with gpu.js allows you to accelerate neural network training routines inside the browser or Node.js without relying on high-level machine learning frameworks. By compiling JavaScript functions in" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="backpropagation-and-gradient-descent-with-gpujs">Backpropagation
+and Gradient Descent with GPU.js</h1>
+<p>Implementing backpropagation and gradient descent directly with
+gpu.js allows you to accelerate neural network training routines inside
+the browser or Node.js without relying on high-level machine learning
+frameworks. By compiling JavaScript functions into WebGL shader code,
+gpu.js executes massive parallel matrix operations directly on the
+graphics card. This guide explains how to structure the forward pass,
+calculate error gradients via backpropagation, and update network
+weights using gradient descent kernels in gpu.js.</p>
+<h2 id="the-architecture-of-training-in-gpujs">The Architecture of
+Training in GPU.js</h2>
+<p>Neural network training consists of linear algebra routines and
+element-wise matrix math. Because gpu.js maps calculations over an <span
+class="math inline">\(n\)</span>-dimensional grid (where each output
+element corresponds to a parallel GPU thread), it is well-suited for the
+primary computations of training:</p>
+<ol type="1">
+<li><strong>Forward Pass:</strong> Compute linear combinations (<span
+class="math inline">\(Z = W \cdot X + B\)</span>) and apply non-linear
+activations.</li>
+<li><strong>Backward Pass (Backpropagation):</strong> Compute output
+errors, derive activation gradients, and propagate errors backward
+through transposed weight matrices.</li>
+<li><strong>Weight Update (Gradient Descent):</strong> Adjust weights
+and biases using calculated gradients and a defined learning rate (<span
+class="math inline">\(\theta = \theta - \alpha \cdot \nabla
+\theta\)</span>).</li>
+</ol>
+<hr />
+<h2 id="1-defining-the-forward-pass-kernels">1. Defining the Forward
+Pass Kernels</h2>
+<p>The forward pass requires a matrix multiplication kernel to compute
+layer outputs and an activation kernel (such as Sigmoid or ReLU).</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> { GPU } <span class="op">=</span> <span class="pp">require</span>(<span class="st">&#39;gpu.js&#39;</span>)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> gpu <span class="op">=</span> <span class="kw">new</span> <span class="fu">GPU</span>()<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Matrix multiplication: C = A * B</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> matMul <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(a<span class="op">,</span> b<span class="op">,</span> aCols) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> aCols<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>        sum <span class="op">+=</span> a[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][i] <span class="op">*</span> b[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sum<span class="op">;</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="co">/* outputCols */</span> <span class="dv">1</span><span class="op">,</span> <span class="co">/* outputRows */</span> <span class="dv">2</span>])<span class="op">;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co">// Sigmoid activation</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> sigmoid <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(z) {</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">1</span> <span class="op">/</span> (<span class="dv">1</span> <span class="op">+</span> <span class="bu">Math</span><span class="op">.</span><span class="fu">exp</span>(<span class="op">-</span>z[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]))<span class="op">;</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span><span class="op">,</span> <span class="dv">2</span>])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h2 id="2-implementing-backpropagation-kernels">2. Implementing
+Backpropagation Kernels</h2>
+<p>Backpropagation relies on the chain rule to determine how much each
+parameter contributed to the total loss. This requires two main
+operations on the GPU:</p>
+<h3 id="calculating-output-layer-gradients">Calculating Output Layer
+Gradients</h3>
+<p>For Mean Squared Error (MSE) loss paired with a sigmoid activation,
+the output gradient (<span class="math inline">\(\delta_o\)</span>) is:
+<span class="math display">\[\delta_o = (Y_{pred} - Y_{true}) \odot
+\sigma&#39;(Z_o)\]</span> Where <span
+class="math inline">\(\sigma&#39;(z) = \sigma(z) \cdot (1 -
+\sigma(z))\)</span>.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateOutputDelta <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(predicted<span class="op">,</span> actual) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> y_hat <span class="op">=</span> predicted[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> y <span class="op">=</span> actual[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> sigmoidDeriv <span class="op">=</span> y_hat <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> y_hat)<span class="op">;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> (y_hat <span class="op">-</span> y) <span class="op">*</span> sigmoidDeriv<span class="op">;</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span><span class="op">,</span> <span class="dv">2</span>])<span class="op">;</span></span></code></pre></div>
+<h3 id="propagating-error-to-hidden-layers">Propagating Error to Hidden
+Layers</h3>
+<p>To send the error backwards, multiply the output delta by the
+transposed weight matrix (<span class="math inline">\(W^T\)</span>),
+then multiply element-wise by the hidden layer's activation
+derivative:</p>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Hidden delta: delta_h = (W_output^T * delta_o) * sigma&#39;(A_h)</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> calculateHiddenDelta <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(weightsNext<span class="op">,</span> deltaNext<span class="op">,</span> activation<span class="op">,</span> nextRows) {</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> errorSum <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (<span class="kw">let</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> nextRows<span class="op">;</span> i<span class="op">++</span>) {</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>        <span class="co">// Access weights transposed: thread.y becomes column</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>        errorSum <span class="op">+=</span> weightsNext[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>] <span class="op">*</span> deltaNext[i][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> a <span class="op">=</span> activation[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> errorSum <span class="op">*</span> (a <span class="op">*</span> (<span class="dv">1</span> <span class="op">-</span> a))<span class="op">;</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span><span class="op">,</span> <span class="dv">4</span>])<span class="op">;</span> <span class="co">// 4 hidden nodes, 1 sample</span></span></code></pre></div>
+<hr />
+<h2 id="3-implementing-the-gradient-descent-kernel">3. Implementing the
+Gradient Descent Kernel</h2>
+<p>Once the deltas are calculated, the gradients for the weights are
+obtained by multiplying the delta with the transposed input/activation
+of that layer (<span class="math inline">\(\nabla W = \delta \cdot
+A_{prev}^T\)</span>).</p>
+<p>You can perform the gradient step directly in an update kernel:</p>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Updates weights: W = W - (learningRate * delta * input^T)</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateWeights <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(weights<span class="op">,</span> delta<span class="op">,</span> prevActivation<span class="op">,</span> learningRate) {</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> currentWeight <span class="op">=</span> weights[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>]<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> grad <span class="op">=</span> delta[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="dv">0</span>] <span class="op">*</span> prevActivation[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>][<span class="dv">0</span>]<span class="op">;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> currentWeight <span class="op">-</span> (learningRate <span class="op">*</span> grad)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="co">/* prevLayerSize */</span> <span class="dv">3</span><span class="op">,</span> <span class="co">/* currentLayerSize */</span> <span class="dv">4</span>])<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="co">// Updates biases: B = B - (learningRate * delta)</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> updateBiases <span class="op">=</span> gpu<span class="op">.</span><span class="fu">createKernel</span>(<span class="kw">function</span>(biases<span class="op">,</span> delta<span class="op">,</span> learningRate) {</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> biases[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>] <span class="op">-</span> (learningRate <span class="op">*</span> delta[<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">y</span>][<span class="kw">this</span><span class="op">.</span><span class="at">thread</span><span class="op">.</span><span class="at">x</span>])<span class="op">;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>})<span class="op">.</span><span class="fu">setOutput</span>([<span class="dv">1</span><span class="op">,</span> <span class="dv">4</span>])<span class="op">;</span></span></code></pre></div>
+<hr />
+<h2 id="performance-considerations">Performance Considerations</h2>
+<ul>
+<li><strong>Keep Data on the GPU:</strong> Transferring floating-point
+arrays between the CPU and GPU introduces bus latency. Use
+<code>gpu.createKernel(...).setPipeline(true)</code> to ensure that
+intermediate outputs remain on the GPU as WebGL textures throughout the
+forward and backward loops.</li>
+<li><strong>Batch Processing:</strong> Running one sample at a time
+leads to GPU underutilization. Expand kernel dimensions to support
+minibatches, setting output dimensions to
+<code>[batchSize, layerSize]</code>.</li>
+<li><strong>Precision Constraints:</strong> WebGL handles 32-bit
+floating-point precision. Ensure that accumulated values do not
+underflow or overflow, particularly within exponentiation routines like
+<code>Math.exp()</code>.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

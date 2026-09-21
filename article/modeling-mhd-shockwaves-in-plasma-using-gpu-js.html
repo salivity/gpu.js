@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modeling MHD Shockwaves in Plasma Using GPU.js - gpu.js</title>
+    <meta name="description" content="This article evaluates the technical feasibility of numerically modeling magnetohydrodynamic (MHD) shockwave propagation in plasma using gpu.js, a JavaScript library that compiles functions into WebGL shader language. It examines the computational struct">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/modeling-mhd-shockwaves-in-plasma-using-gpu-js">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Modeling MHD Shockwaves in Plasma Using GPU.js - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/modeling-mhd-shockwaves-in-plasma-using-gpu-js" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article evaluates the technical feasibility of numerically modeling magnetohydrodynamic (MHD) shockwave propagation in plasma using gpu.js, a JavaScript library that compiles functions into WebGL shader language. It examines the computational struct" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="modeling-mhd-shockwaves-in-plasma-using-gpujs">Modeling MHD
+Shockwaves in Plasma Using GPU.js</h1>
+<p>This article evaluates the technical feasibility of numerically
+modeling magnetohydrodynamic (MHD) shockwave propagation in plasma using
+gpu.js, a JavaScript library that compiles functions into WebGL shader
+language. It examines the computational structure of plasma shock
+dynamics, assesses the compatibility of WebGL-accelerated parallel
+kernels with hyperbolic conservation laws, and outlines the primary
+performance advantages and numerical constraints of implementing
+non-linear plasma physics in a JavaScript environment.</p>
+<h3 id="mathematical-requirements-of-mhd-shock-modeling">Mathematical
+Requirements of MHD Shock Modeling</h3>
+<p>Magnetohydrodynamics treats plasma as an electrically conducting
+fluid governed by a coupled set of partial differential equations
+combining the Navier-Stokes equations of fluid mechanics with Maxwell’s
+equations of electromagnetism. In its ideal form, the conservative
+formulation consists of equations for mass continuity, momentum
+conservation, total energy, and magnetic induction:</p>
+<p><span class="math display">\[\frac{\partial \mathbf{U}}{\partial t} +
+\nabla \cdot \mathbf{F}(\mathbf{U}) = 0\]</span></p>
+<p>Shockwaves are discontinuous solutions where flow variables (density,
+pressure, velocity, and magnetic field) jump abruptly across thin
+boundary layers. Resolving these shocks requires high-resolution
+shock-capturing (HRSC) schemes, such as finite-volume Godunov-type
+methods (e.g., HLL, HLLC, or HLLD Riemann solvers) combined with Total
+Variation Diminishing (TVD) slope limiters or Weighted Essentially
+Non-Oscillatory (WENO) reconstructions. Additionally, the simulation
+must satisfy the solenoidal constraint (<span
+class="math inline">\(\nabla \cdot \mathbf{B} = 0\)</span>) using
+techniques like constrained transport or hyperbolic divergence cleaning
+to prevent unphysical numerical artifacts.</p>
+<h3 id="the-role-and-capabilities-of-gpujs">The Role and Capabilities of
+GPU.js</h3>
+<p><code>gpu.js</code> compiles written JavaScript syntax into WebGL
+shader code (GLSL), allowing data-parallel execution across thousands of
+GPU cores directly in the browser or inside Node.js. It operates
+predominantly on multi-dimensional numerical arrays mapped internally to
+GPU textures.</p>
+<p>MHD simulations utilizing explicit time-stepping schemes (such as
+multi-stage Runge-Kutta) over structured Cartesian grids are inherently
+parallel. Each grid cell updates its state at time <span
+class="math inline">\(t + \Delta t\)</span> by reading neighboring cell
+values from time <span class="math inline">\(t\)</span> to compute
+numerical fluxes. This stencil-based computation matches the Single
+Instruction, Multiple Data (SIMD) execution model that
+<code>gpu.js</code> uses, enabling rapid calculation of directional
+spatial derivatives across a spatial lattice.</p>
+<h3 id="implementation-feasibility">Implementation Feasibility</h3>
+<p>Modeling 1D and 2D MHD shockwaves, such as the classic Brio-Wu shock
+tube problem or the Orszag-Tang vortex benchmark, is entirely feasible
+using <code>gpu.js</code>. An implementation typically follows this
+pipeline:</p>
+<ol type="1">
+<li><strong>State Storage:</strong> The conserved state vector <span
+class="math inline">\(\mathbf{U} = [\rho, \rho u, \rho v, \rho w, E,
+B_x, B_y, B_z]\)</span> is stored using multiple 2D/3D float textures or
+flattened arrays.</li>
+<li><strong>Reconstruction Kernels:</strong> Distinct
+<code>gpu.js</code> kernels calculate cell-interface states using
+spatial limiters (such as Minmod or Monotonized Central) to prevent
+spurious oscillations near discontinuities.</li>
+<li><strong>Flux Kernels:</strong> Kernels compute intermediate
+numerical fluxes at the cell interfaces using approximate Riemann
+solvers like HLLD or the central Kurganov-Tadmor scheme.</li>
+<li><strong>Time Integration:</strong> A multi-pass kernel update
+applies explicit Runge-Kutta time advancement using a ping-pong buffer
+technique, swapping input and output textures at each sub-step.</li>
+</ol>
+<h3 id="practical-bottlenecks-and-limitations">Practical Bottlenecks and
+Limitations</h3>
+<p>While mathematically viable for educational and prototyping purposes,
+several engineering bottlenecks limit <code>gpu.js</code> for
+production-grade astrophysical or fusion plasma simulations:</p>
+<ul>
+<li><strong>Floating-Point Precision:</strong> WebGL traditionally
+defaults to 32-bit single-precision (FP32) floating-point calculations,
+with limited or non-existent support for double-precision (FP64). Highly
+magnetized, stiff MHD systems accumulate truncation errors in FP32,
+which can cause negative pressures or numerical divergence in low-beta
+regimes.</li>
+<li><strong>Control Flow and Divergence:</strong> Complex approximate
+Riemann solvers require conditional branching (e.g., identifying
+sub-Alfvenic vs. super-Alfvenic waves in HLLD). Dynamic branching in
+WebGL fragments can cause execution divergence across warps, reducing
+GPU occupancy and throughput.</li>
+<li><strong>Memory Constraints and Boundary Handling:</strong>
+High-resolution 3D plasma domains exceed standard WebGL texture
+allocation limits. Furthermore, implementing non-periodic boundaries
+(such as outflow or conducting walls) and divergence-cleaning steps
+requires multiple shader passes, incurring kernel launch overhead.</li>
+<li><strong>Lack of Native Shared Memory:</strong> Unlike low-level
+frameworks such as CUDA, OpenCL, or WebGPU, <code>gpu.js</code> relies
+on WebGL fragment shaders, which do not expose on-chip shared memory
+(thread-group caching). Every stencil access fetches directly from
+global texture memory, limiting memory bandwidth efficiency.</li>
+</ul>
+<p>Numerical modeling of MHD shockwave propagation in plasma can be
+achieved using <code>gpu.js</code> for 1D benchmarks and
+moderate-resolution 2D demonstrations. However, due to single-precision
+limitations, lack of low-level memory control, and shader branching
+overhead, it is best suited for interactive web visualization, teaching,
+and rapid validation rather than scientific computing, where specialized
+native frameworks like Athena++ or custom CUDA pipelines remain
+necessary.</p></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>

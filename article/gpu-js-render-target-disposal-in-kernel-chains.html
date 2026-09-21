@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPU.js Render Target Disposal in Kernel Chains - gpu.js</title>
+    <meta name="description" content="This article examines how GPU.js manages intermediate render targets when chaining kernel executions. It covers the underlying WebGL framebuffer and texture lifecycle, explains the mechanics of pipeline mode, details how memory deallocation is handled be">
+    <link rel="canonical" href="https://salivity.github.io/gpu.js/article/gpu-js-render-target-disposal-in-kernel-chains">
+    <link rel="search" type="application/opensearchdescription+xml" title="gpu.js" href="/gpu.js/opensearch.xml">
+    <link rel="icon" href="/gpu.js/favicon.ico">
+    <link rel="stylesheet" href="/gpu.js/css/style.css">
+    <link media="print" rel="stylesheet" href="/gpu.js/css/print.css">
+    <script src="/gpu.js/js/fuse.min.js"></script>
+    <script src="/gpu.js/js/script.js"></script>
+    <script id="MathJax-script" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/4.1.3/tex-chtml.min.js" defer></script>
+    <script src="/monetize/monetize.js"></script>
+    <script src="/social/social.js"></script>
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="GPU.js Render Target Disposal in Kernel Chains - gpu.js" />
+    <meta property="og:url" content="https://salivity.github.io/gpu.js/article/gpu-js-render-target-disposal-in-kernel-chains" />
+    <meta property="og:image" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:secure_url" content="https://salivity.github.io/gpu.js/images/open-graph/default.webp" />
+    <meta property="og:image:width" content="1120" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:description" content="This article examines how GPU.js manages intermediate render targets when chaining kernel executions. It covers the underlying WebGL framebuffer and texture lifecycle, explains the mechanics of pipeline mode, details how memory deallocation is handled be" />
+    <link rel="manifest" href="/gpu.js/pwa/manifest.json" />
+</head>
+<body>
+    <header>
+        <a href="/gpu.js/" aria-label="Go To Home Page" title="Go To Home Page" id="logo">
+            <span>salivity.github.io/</span><span>gpu.js</span>
+        </a>
+        <nav>
+            <ul class="header-links">
+                <li><a href="/gpu.js/search" title="Search" aria-label="Go To Search Page"><svg class="svg-icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14"></path></svg></a></li>
+                <li><a id="theme-toggle" title="Theme" href="javascript:void(0);" aria-label="Toggle Website Theme"></a></li>
+            </ul>
+        </nav>
+    </header>
+    <main>
+        
+    <div class="article-layout">
+        <aside id="profile-sidebar" class="profile-column" aria-label="Author Profile"></aside>
+        <div class="article-main-column">
+            <article><h1 id="gpujs-render-target-disposal-in-kernel-chains">GPU.js Render
+Target Disposal in Kernel Chains</h1>
+<p>This article examines how GPU.js manages intermediate render targets
+when chaining kernel executions. It covers the underlying WebGL
+framebuffer and texture lifecycle, explains the mechanics of pipeline
+mode, details how memory deallocation is handled between execution
+stages, and highlights strategies to prevent GPU memory leaks during
+intensive operations.</p>
+<h3 id="understanding-pipeline-mode-and-render-targets">Understanding
+Pipeline Mode and Render Targets</h3>
+<p>In GPU.js, operations are executed by compiling JavaScript functions
+into WebGL GLSL shaders. Under normal operation, a kernel finishes its
+execution by reading the pixel data from the GPU back to the CPU via
+<code>gl.readPixels</code>, converting the output into standard
+JavaScript arrays. This CPU-GPU synchronization is costly.</p>
+<p>To avoid this bottleneck, GPU.js provides a pipelining mechanism
+enabled via <code>kernel.setPipeline(true)</code>. When pipeline mode is
+enabled, the kernel outputs a <code>Texture</code> object rather than a
+multidimensional array. This texture represents an active WebGL render
+target—specifically, a <code>WebGLTexture</code> attached to a
+<code>WebGLFramebuffer</code>. Chaining occurs when this output
+<code>Texture</code> is passed directly as an argument into a subsequent
+kernel.</p>
+<h3 id="the-lifecycle-of-intermediate-render-targets">The Lifecycle of
+Intermediate Render Targets</h3>
+<p>When chaining multiple kernels (e.g., Kernel A <span
+class="math inline">\(\to\)</span> Kernel B <span
+class="math inline">\(\to\)</span> Kernel C), intermediate textures are
+generated to store the outputs of the intermediate stages. GPU.js
+handles these textures through distinct phases:</p>
+<ol type="1">
+<li><strong>Target Allocation:</strong> When Kernel A executes, GPU.js
+binds an internal WebGL framebuffer and attaches a newly created or
+cached <code>WebGLTexture</code> as the color attachment. The fragment
+shader writes its results directly to this texture.</li>
+<li><strong>Transfer to Subsequent Kernels:</strong> The resulting
+<code>Texture</code> instance wraps the native
+<code>WebGLTexture</code>. When passed into Kernel B, GPU.js binds this
+texture to a WebGL texture unit (e.g., <code>gl.TEXTURE0</code>),
+treating the output of Kernel A as an input sampler in Kernel B's
+shader.</li>
+<li><strong>Downstream Execution:</strong> Kernel B executes, writing to
+a new intermediate render target, leaving the output of Kernel A bound
+only as an input texture.</li>
+</ol>
+<h3 id="internal-disposal-vs-javascript-garbage-collection">Internal
+Disposal vs. JavaScript Garbage Collection</h3>
+<p>WebGL resources exist in GPU VRAM and are not directly managed by the
+JavaScript engine’s standard Garbage Collector (GC). Although JavaScript
+manages the wrapper object, the underlying native GPU allocations
+(<code>WebGLTexture</code> and <code>WebGLFramebuffer</code>) persist
+until explicitly freed through the WebGL context.</p>
+<p>During chained calls, GPU.js does not automatically dispose of
+intermediate render targets on its own accord between independent kernel
+calls. The runtime assumes intermediate textures may still be required
+by the user application for subsequent computation, branched pipelines,
+or debugging.</p>
+<ul>
+<li><strong>No Implicit Intermediate Deletion:</strong> In a manual
+chain (<code>const b = kernelB(kernelA(data));</code>), the texture
+produced by <code>kernelA</code> remains allocated in WebGL memory even
+after <code>kernelB</code> finishes, because the reference is returned
+and held.</li>
+<li><strong>Garbage Collector Lag:</strong> If an intermediate texture
+loses all JavaScript references, the browser's Garbage Collector will
+eventually trigger the finalizer, which may release the WebGL resource.
+However, relying on JavaScript GC for GPU memory frequently leads to
+out-of-memory (OOM) errors or context loss, as the GC has visibility
+into the small JavaScript wrapper size, not the massive VRAM footprint
+of the texture.</li>
+</ul>
+<h3 id="explicit-cleanup-with-texturedelete">Explicit Cleanup with
+<code>texture.delete()</code></h3>
+<p>To guarantee determinism and prevent VRAM exhaustion, GPU.js equips
+its <code>Texture</code> class with an explicit <code>.delete()</code>
+method. When handling linear pipelines or loops, intermediate render
+targets must be explicitly disposed of by the consumer once they are
+consumed:</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode javascript"><code class="sourceCode javascript"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> textureA <span class="op">=</span> <span class="fu">kernelA</span>(inputData)<span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> textureB <span class="op">=</span> <span class="fu">kernelB</span>(textureA)<span class="op">;</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Dispose of the intermediate texture manually</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>textureA<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> finalResult <span class="op">=</span> <span class="fu">kernelC</span>(textureB)<span class="op">.</span><span class="fu">toArray</span>()<span class="op">;</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>textureB<span class="op">.</span><span class="fu">delete</span>()<span class="op">;</span></span></code></pre></div>
+<p>Calling <code>.delete()</code> executes
+<code>gl.deleteTexture()</code> and detaches/deletes associated
+framebuffers internally, releasing the intermediate render target
+immediately back to the GPU driver.</p>
+<h3 id="texture-recycling-and-ping-pong-buffering">Texture Recycling and
+Ping-Pong Buffering</h3>
+<p>In iterative operations (such as Conway's Game of Life or physics
+simulations), continuously creating and destroying textures causes
+driver overhead. GPU.js supports iterative chaining through ping-pong
+rendering techniques.</p>
+<p>Rather than allocating and destroying intermediate render targets on
+every iteration, developers cycle between two pre-allocated textures:
+using Texture 1 as an input while Texture 2 serves as the render target,
+and swapping their roles in the next cycle. In this design, no internal
+disposal is required during the loop; only two render targets are
+maintained in memory, and both are disposed of manually once the loop
+completes.</p>
+<h3 id="combined-kernels-and-sub-kernels">Combined Kernels and
+Sub-Kernels</h3>
+<p>For pipelines that can be pre-determined, GPU.js provides
+<code>gpu.combineKernels()</code>. When kernels are executed as a
+combined chain:</p>
+<ul>
+<li>GPU.js manages the sub-kernel execution path internally.</li>
+<li>The intermediate state transitions occur directly on the hardware
+without round-trips to CPU memory.</li>
+<li>However, intermediate WebGL textures allocated between sub-kernels
+still need to be handled by the engine. Where possible, GPU.js avoids
+redundant allocation by executing sequentially, but users must ensure
+that top-level returned textures from the compound operation are cleanly
+deleted or converted back to arrays using <code>.toArray()</code>, which
+triggers an internal cleanup cycle.</li>
+</ul></article>
+        <div id="comments-container"></div>
+        <script>
+            const utterancesScript = document.createElement('script');
+            utterancesScript.setAttribute('src', 'https://utteranc.es/client.js');
+            utterancesScript.setAttribute('repo', 'salivity/gpu.js'); 
+            utterancesScript.setAttribute('issue-term', 'pathname'); 
+            utterancesScript.setAttribute('theme', localStorage.getItem('theme') === 'dark' ? 'github-dark' : 'github-light'); 
+            utterancesScript.setAttribute('crossorigin', 'anonymous');
+            utterancesScript.async = true;
+            document.getElementById('comments-container').appendChild(utterancesScript);
+        </script>
+    
+        </div>
+    </div>
+    
+    </main>
+    <footer>
+        <nav>
+            <ul class="social-links">
+            </ul>
+        </nav>
+        <nav>
+            <ul class="footer-links">
+                <li><a href="/gpu.js/privacy-policy">Privacy Policy</a></li>
+                <li><a href="/gpu.js/terms-and-conditions">Terms and Conditions</a></li>
+            </ul>
+        </nav>
+        <div class="copyright">
+            Copyright &copy; <span id="current-year"></span>
+        </div>
+    </footer>
+</body>
+</html>
